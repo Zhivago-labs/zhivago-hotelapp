@@ -1,0 +1,147 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── USUÁRIO ─────────────────────────────────────────────────────────────────
+
+model User {
+  id           String     @id @default(uuid())
+  name         String
+  email        String     @unique
+  passwordHash String
+  phone        String?
+  avatar       String?
+  role         String     @default("USER")    // "USER" | "ADMIN"
+  status       String     @default("ACTIVE")  // "ACTIVE" | "SUSPENDED" | "BANNED"
+  createdAt    DateTime   @default(now())
+  pushToken        String?
+  resetToken       String?
+  resetTokenExpiry DateTime?
+
+  listings      Listing[]
+  reviews       Review[]
+  bookings      Booking[]
+  conversations Conversation[] @relation("ConversationParticipants")
+  messages      Message[]
+  notifications Notification[]
+}
+
+// ─── IMÓVEL ──────────────────────────────────────────────────────────────────
+
+model Listing {
+  id           String   @id @default(uuid())
+  name         String
+  description  String?
+  price        Float
+  type         String   // "casa" | "apartamento"
+  category     String   // "aluguel" | "venda"
+  billingCycle String?  // "noite" | "mês"
+  image        String
+  location     String
+
+  bedrooms     Int      @default(0)
+  bathrooms    Int      @default(0)
+  parking      Int      @default(0)
+
+  // Status de moderação pelo admin
+  status       String   @default("APPROVED") // "PENDING" | "APPROVED" | "REJECTED" | "REMOVED"
+  rejectReason String?
+
+  // Proprietário (opcional — imóveis legados não têm dono)
+  ownerId      String?
+  owner        User?    @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+
+  reviews       Review[]
+  bookings      Booking[]
+  conversations Conversation[]
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// ─── AVALIAÇÕES (Apenas para Aluguel) ────────────────────────────────────────
+
+model Review {
+  id        String   @id @default(uuid())
+  rating    Int      // 1 a 5
+  comment   String?
+  
+  listingId String
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+}
+
+// ─── RESERVAS (Apenas para Aluguel) ──────────────────────────────────────────
+
+model Booking {
+  id        String   @id @default(uuid())
+  startDate DateTime
+  endDate   DateTime
+  status    String   @default("PENDING") // "PENDING" | "CONFIRMED" | "CANCELLED" | "REJECTED"
+  
+  listingId String
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+}
+
+// ─── CHAT ────────────────────────────────────────────────────────────────────
+
+model Conversation {
+  id           String    @id @default(uuid())
+  
+  propertyId   String
+  property     Listing   @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  
+  participants User[]    @relation("ConversationParticipants")
+  messages     Message[]
+  
+  isReported   Boolean   @default(false)
+  isClosed     Boolean   @default(false)
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+model Message {
+  id             String       @id @default(uuid())
+  content        String
+  type           String       @default("TEXT") // "TEXT" | "BOOKING_REQUEST"
+  metadata       String?      // JSON string for extra data like bookingId
+  
+  senderId       String
+  sender         User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  
+  isRead         Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+}
+
+// ─── NOTIFICATIONS ───────────────────────────────────────────────────────────
+
+model Notification {
+  id        String   @id @default(uuid())
+  title     String
+  message   String
+  type      String   @default("INFO") // "INFO" | "MESSAGE" | "BOOKING" | "SYSTEM"
+  
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
