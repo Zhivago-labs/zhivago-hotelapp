@@ -140,12 +140,16 @@ export default function UserDashboardScreen() {
       
       <View style={styles.statsGrid}>
         <View style={styles.statBox}>
-          <Text style={styles.statValue}>{stats.statusCounts?.approved || 0}</Text>
+          <Text style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit>{stats.statusCounts?.approved || 0}</Text>
           <Text style={styles.statLabel}>Imóveis Ativos</Text>
         </View>
         <View style={styles.statBox}>
-          <Text style={styles.statValue}>R$ {(revenueData.reduce((a, b) => a + b, 0) || 0).toLocaleString('pt-BR')}</Text>
-          <Text style={styles.statLabel}>Receita Total (6m)</Text>
+          <Text style={[styles.statValue, { color: '#22c55e' }]} numberOfLines={1} adjustsFontSizeToFit>R$ {(stats.salesRevenue || 0).toLocaleString('pt-BR')}</Text>
+          <Text style={styles.statLabel}>Vendas Concluídas</Text>
+        </View>
+        <View style={styles.statBox}>
+          <Text style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit>R$ {((stats.rentalRevenue || 0) + (stats.salesRevenue || 0)).toLocaleString('pt-BR')}</Text>
+          <Text style={styles.statLabel}>Receita Total</Text>
         </View>
       </View>
 

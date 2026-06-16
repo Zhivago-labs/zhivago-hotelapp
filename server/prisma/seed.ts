@@ -8,41 +8,38 @@ async function main() {
   const password = 'eusoulost11';
   const name = 'Fábio de Melo';
 
-  // Verifica se já existe
-  const existing = await prisma.user.findUnique({ where: { email } });
+  // 1. Cria ou recupera o usuário administrador
+  let user = await prisma.user.findUnique({ where: { email } });
 
-  if (existing) {
-    // Se já existe, garante que é ADMIN
-    await prisma.user.update({
+  if (!user) {
+    const passwordHash = await bcrypt.hash(password, 10);
+    user = await prisma.user.create({
+      data: {
+        name,
+        email,
+        passwordHash,
+        role: 'ADMIN',
+        status: 'ACTIVE',
+      },
+    });
+    console.log(`✅ Superusuário criado com sucesso!`);
+  } else {
+    // Garante que é ADMIN
+    user = await prisma.user.update({
       where: { email },
       data: { role: 'ADMIN', status: 'ACTIVE' },
     });
-    console.log('✅ Usuário já existia — role atualizado para ADMIN.');
-    return;
+    console.log('✅ Usuário já existia — role verificado como ADMIN.');
   }
 
-  const passwordHash = await bcrypt.hash(password, 10);
-
-  const user = await prisma.user.create({
-    data: {
-      name,
-      email,
-      passwordHash,
-      role: 'ADMIN',
-      status: 'ACTIVE',
-    },
-  });
-
-  console.log(`✅ Superusuário criado com sucesso!`);
-  console.log(`   ID:    ${user.id}`);
-  console.log(`   Nome:  ${user.name}`);
-  console.log(`   Email: ${user.email}`);
-  console.log(`   Role:  ${user.role}`);
+  // 2. Limpa todas as listings
+  await prisma.listing.deleteMany();
+  console.log('🧹 Todas as listings foram removidas do banco de dados.');
 }
 
 main()
   .catch(e => {
-    console.error('❌ Erro ao criar superusuário:', e);
+    console.error('❌ Erro:', e);
     process.exit(1);
   })
   .finally(() => prisma.$disconnect());

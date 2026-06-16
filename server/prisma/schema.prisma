@@ -29,6 +29,7 @@ model User {
   conversations Conversation[] @relation("ConversationParticipants")
   messages      Message[]
   notifications Notification[]
+  offers        Offer[]
 }
 
 // ─── IMÓVEL ──────────────────────────────────────────────────────────────────
@@ -59,6 +60,7 @@ model Listing {
   reviews       Review[]
   bookings      Booking[]
   conversations Conversation[]
+  offers        Offer[]
 
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -144,4 +146,21 @@ model Notification {
   
   isRead    Boolean  @default(false)
   createdAt DateTime @default(now())
+}
+
+// ─── PROPOSTAS DE COMPRA (Apenas para Venda) ──────────────────────────────────
+
+model Offer {
+  id            String   @id @default(uuid())
+  value         Float    // Valor proposto pelo comprador
+  paymentMethod String   // Método de pagamento (cash, financing, installment, etc)
+  status        String   @default("PENDING") // "PENDING" | "ACCEPTED" | "REJECTED" | "CANCELLED"
+  
+  listingId     String
+  listing       Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  
+  buyerId       String
+  buyer         User     @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  
+  createdAt     DateTime @default(now())
 }

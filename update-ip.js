@@ -2,8 +2,8 @@ const fs = require('fs');
 const path = require('path');
 
 const directory = __dirname;
-const oldIP = '10.59.17.101';
-const newIP = '10.59.17.101';
+const oldIP = '10.46.207.101';
+const newIP = '10.46.207.101';
 
 function replaceInFile(filePath) {
     try {

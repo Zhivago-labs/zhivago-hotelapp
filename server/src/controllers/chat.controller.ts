@@ -100,7 +100,7 @@ export async function getConversation(request: FastifyRequest, reply: FastifyRep
       where: { id: conversationId },
       include: {
         property: {
-          select: { id: true, name: true, price: true, image: true, ownerId: true }
+          select: { id: true, name: true, price: true, image: true, ownerId: true, category: true, status: true }
         },
         participants: {
           select: { id: true, name: true, avatar: true }
@@ -160,6 +160,10 @@ export async function createOrGetConversation(request: FastifyRequest, reply: Fa
 
     if (existingConversation) {
       return reply.status(200).send(existingConversation);
+    }
+
+    if (listing.status === 'SOLD') {
+      return reply.status(400).send({ message: 'Este imóvel já foi vendido e não aceita novas negociações.' });
     }
 
     // Create new

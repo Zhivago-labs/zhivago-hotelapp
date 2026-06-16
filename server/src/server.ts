@@ -13,6 +13,7 @@ import { reviewsRoutes } from './routes/reviews.routes.js';
 import { bookingsRoutes } from './routes/bookings.routes.js';
 import { chatRoutes } from './routes/chat.routes.js';
 import { notificationsRoutes } from './routes/notifications.routes.js';
+import { offersRoutes } from './routes/offers.routes.js';
 import { Server as SocketIOServer } from 'socket.io';
 import { setupSocket } from './socket.js';
 
@@ -51,6 +52,7 @@ app.register(reviewsRoutes);
 app.register(bookingsRoutes);
 app.register(chatRoutes);
 app.register(notificationsRoutes);
+app.register(offersRoutes);
 
 // Rota de health check
 app.get('/hello', async () => ({ message: 'API do Zhivago está online! 🚀' }));

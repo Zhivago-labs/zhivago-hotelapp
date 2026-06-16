@@ -18,12 +18,19 @@ export const HotelCard = React.memo(function HotelCard({ item }: { item: Listing
       onPress={handlePress}
       activeOpacity={0.8}
     >
-      <Image 
-        source={{ uri: item.image }} 
-        style={styles.image} 
-        contentFit="cover"
-        transition={300}
-      />
+      <View style={{ position: 'relative' }}>
+        <Image 
+          source={{ uri: item.image }} 
+          style={styles.image} 
+          contentFit="cover"
+          transition={300}
+        />
+        {item.status === 'SOLD' && (
+          <View style={styles.soldBadge}>
+            <Text style={styles.soldText}>VENDIDO</Text>
+          </View>
+        )}
+      </View>
       <View style={styles.info}>
         <Text style={styles.name}>{item.name}</Text>
         <Text style={styles.location}>{item.location}</Text>
@@ -89,5 +96,19 @@ const styles = StyleSheet.create({
     marginTop: 5, 
     fontWeight: 'bold', 
     color: '#ff385c' 
+  },
+  soldBadge: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    backgroundColor: '#ef4444',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+  },
+  soldText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
   }
 });

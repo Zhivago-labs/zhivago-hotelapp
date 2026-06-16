@@ -17,7 +17,9 @@ export async function getListings(
 ): Promise<void> {
   try {
     const listings = await prisma.listing.findMany({
-      where: { status: 'APPROVED' },
+      where: {
+        status: { in: ['APPROVED', 'SOLD'] }
+      },
       orderBy: { createdAt: 'desc' },
       include: {
         owner: {

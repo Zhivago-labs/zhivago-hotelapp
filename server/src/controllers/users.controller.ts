@@ -74,11 +74,13 @@ export async function getMyStats(
       statusCounts: { pending: 0, approved: 0, rejected: 0 },
       bookingsByMonth: {},
       revenueByMonth: {},
-      propertyRatings: []
+      propertyRatings: [],
+      rentalRevenue: 0,
+      salesRevenue: 0
     });
   }
 
-  const [recentBookings, reviews] = await Promise.all([
+  const [recentBookings, reviews, recentOffers] = await Promise.all([
     prisma.booking.findMany({
       where: {
         listingId: { in: listingIds },
@@ -88,23 +90,40 @@ export async function getMyStats(
     }),
     prisma.review.findMany({
       where: { listingId: { in: listingIds } }
+    }),
+    prisma.offer.findMany({
+      where: {
+        listingId: { in: listingIds },
+        createdAt: { gte: sixMonthsAgo },
+        status: 'ACCEPTED'
+      }
     })
   ]);
 
   const statusCounts = { pending: 0, approved: 0, rejected: 0 };
   listings.forEach(l => {
     if (l.status === 'PENDING') statusCounts.pending++;
-    if (l.status === 'APPROVED') statusCounts.approved++;
+    if (l.status === 'APPROVED' || l.status === 'SOLD') statusCounts.approved++;
     if (l.status === 'REJECTED') statusCounts.rejected++;
   });
 
   const revenueByMonth: Record<string, number> = {};
   const bookingsByMonth: Record<string, number> = {};
+  let rentalRevenue = 0;
+  let salesRevenue = 0;
 
   recentBookings.forEach(b => {
     const month = b.createdAt.toISOString().slice(0, 7);
     revenueByMonth[month] = (revenueByMonth[month] || 0) + b.listing.price;
     bookingsByMonth[month] = (bookingsByMonth[month] || 0) + 1;
+    rentalRevenue += b.listing.price;
+  });
+
+  recentOffers.forEach(o => {
+    const month = o.createdAt.toISOString().slice(0, 7);
+    revenueByMonth[month] = (revenueByMonth[month] || 0) + o.value;
+    bookingsByMonth[month] = (bookingsByMonth[month] || 0) + 1;
+    salesRevenue += o.value;
   });
 
   const ratingsByProperty: Record<string, { total: number, count: number, name: string }> = {};
@@ -126,7 +145,9 @@ export async function getMyStats(
     statusCounts,
     bookingsByMonth,
     revenueByMonth,
-    propertyRatings
+    propertyRatings,
+    rentalRevenue,
+    salesRevenue
   });
 }
 

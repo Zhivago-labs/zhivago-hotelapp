@@ -448,6 +448,7 @@ export default function ListingDetailScreen() {
             style={[
               styles.contactButton, 
               (listing.category === 'aluguel' && !selectedStartDate) && { backgroundColor: '#ccc' },
+              listing.status === 'SOLD' && { backgroundColor: '#64748B' },
               { flex: 1, alignItems: 'center', justifyContent: 'center', height: 48 }
             ]} 
             onPress={handleInAppChat}
@@ -457,7 +458,9 @@ export default function ListingDetailScreen() {
             {isBooking ? <ActivityIndicator color="#fff" /> : (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <Ionicons name={listing.category === 'aluguel' ? "calendar" : "chatbubbles"} size={20} color="#fff" />
-                <Text style={styles.contactButtonText} numberOfLines={1}>{listing.category === 'aluguel' ? 'Solicitar' : 'Chat'}</Text>
+                <Text style={styles.contactButtonText} numberOfLines={1}>
+                  {listing.category === 'aluguel' ? 'Solicitar' : (listing.status === 'SOLD' ? 'Chat (Vendido)' : 'Chat')}
+                </Text>
               </View>
             )}
           </TouchableOpacity>
