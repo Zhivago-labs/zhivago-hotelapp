@@ -15,16 +15,26 @@ export default function RegisterScreen() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleRegister = async () => {
-    if (!name || !email || !password) {
+    if (!name || !email || !password || !confirmPassword) {
       Alert.alert('Campos obrigatórios', 'Preencha todos os campos.');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      Alert.alert('E-mail inválido', 'Digite um e-mail válido (ex: nome@email.com).');
       return;
     }
     if (password.length < 6) {
       Alert.alert('Senha fraca', 'A senha deve ter no mínimo 6 caracteres.');
+      return;
+    }
+    if (password !== confirmPassword) {
+      Alert.alert('Senhas diferentes', 'A confirmação de senha não confere.');
       return;
     }
     setLoading(true);
@@ -86,6 +96,23 @@ export default function RegisterScreen() {
               onPress={() => setShowPassword(!showPassword)}
             >
               <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={22} color="#888" />
+            </TouchableOpacity>
+          </View>
+
+          <Text style={styles.label}>Confirmar senha</Text>
+          <View style={styles.passwordRow}>
+            <TextInput
+              style={[styles.input, styles.passwordInput]}
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              placeholder="Repita a senha"
+              secureTextEntry={!showConfirmPassword}
+            />
+            <TouchableOpacity
+              style={styles.eyeButton}
+              onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+            >
+              <Ionicons name={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'} size={22} color="#888" />
             </TouchableOpacity>
           </View>
 
