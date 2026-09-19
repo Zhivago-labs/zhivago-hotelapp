@@ -201,15 +201,15 @@ export async function createOrGetConversation(request: FastifyRequest, reply: Fa
       return reply.status(400).send({ message: 'Cannot start conversation with yourself' });
     }
 
-    // Check if conversation already exists between these 2 users for this property
+    // Já existe uma conversa deste cliente pra este imóvel? Busca só pelo cliente (`userId`), não
+    // pelo par [userId, contactId] — em imóvel de organização o 2º participante muda ao longo do
+    // tempo conforme o Lead é (re)atribuído no CRM (ver `assignLead`/`syncConversationParticipant`
+    // em lib/leads.ts), então travar a busca no `contactId` de hoje deixaria de achar a conversa já
+    // aberta assim que o corretor responsável mudasse — e recriaria conversa (e Lead) duplicados.
     const existingConversation = await prisma.conversation.findFirst({
       where: {
         propertyId: listingId,
-        participants: {
-          every: {
-            id: { in: [userId, contactId] }
-          }
-        }
+        participants: { some: { id: userId } }
       }
     });
 

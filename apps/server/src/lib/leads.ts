@@ -15,32 +15,95 @@ export function getCurrentAssignment(leadId: string) {
 
 /**
  * Nunca sobrescreve: fecha a atribuição aberta (se houver) e cria uma nova — histórico
- * completo preservado (decisão fechada em docs/crm-b2b-organizacoes-leads.md).
+ * completo preservado (decisão fechada em docs/crm-b2b-organizacoes-leads.md). As duas escritas
+ * vão numa `$transaction` — antes eram awaits separados, o que podia deixar o lead sem nenhuma
+ * atribuição aberta se o processo caísse entre as duas.
+ *
+ * Também sincroniza quem consegue falar com o cliente no chat (Conversation.participants):
+ * antes, o 2º participante ficava travado em `listing.agentId`/`ownerId` pra sempre, então
+ * reatribuir o lead nunca dava acesso de chat pra quem passava a ser responsável de fato — ver
+ * `syncConversationParticipant` abaixo.
  */
 export async function assignLead({
-  leadId,
+  lead,
   brokerMemberId,
+  brokerUserId,
   assignedByMemberId,
   reason,
 }: {
-  leadId: string;
+  lead: { id: string; userId: string; listingId: string };
   brokerMemberId: string;
+  brokerUserId: string;
   assignedByMemberId: string | null;
   reason?: string | undefined;
 }) {
-  const current = await getCurrentAssignment(leadId);
+  const current = await getCurrentAssignment(lead.id);
+
+  const ops = [];
   if (current) {
-    await prisma.leadAssignment.update({
-      where: { id: current.id },
-      data: { unassignedAt: new Date(), reason: reason ?? null },
+    ops.push(
+      prisma.leadAssignment.update({
+        where: { id: current.id },
+        data: { unassignedAt: new Date(), reason: reason ?? null },
+      })
+    );
+  }
+  ops.push(
+    prisma.leadAssignment.create({
+      data: { leadId: lead.id, brokerId: brokerMemberId, assignedBy: assignedByMemberId },
+    })
+  );
+  const results = await prisma.$transaction(ops);
+  const assignment = results[results.length - 1]!;
+
+  try {
+    await syncConversationParticipant({
+      listingId: lead.listingId,
+      customerId: lead.userId,
+      newBrokerUserId: brokerUserId,
     });
+  } catch (err) {
+    // Aditivo — nunca derruba a atribuição do lead se a sincronização do chat falhar.
+    console.error('Falha ao sincronizar participante da conversa após atribuição de lead:', err);
   }
 
-  return prisma.leadAssignment.create({
+  return assignment;
+}
+
+/**
+ * Garante que quem consegue ler/responder a conversa do cliente (imóvel, lead) seja sempre o
+ * corretor atualmente responsável — remove qualquer outro participante que não seja o cliente
+ * nem o novo corretor (cobre tanto a 1ª atribuição, que troca quem criou o anúncio, quanto uma
+ * reatribuição, que troca o corretor anterior). No-op se o cliente ainda não abriu conversa.
+ */
+async function syncConversationParticipant({
+  listingId,
+  customerId,
+  newBrokerUserId,
+}: {
+  listingId: string;
+  customerId: string;
+  newBrokerUserId: string;
+}): Promise<void> {
+  if (newBrokerUserId === customerId) return;
+
+  const conversation = await prisma.conversation.findFirst({
+    where: { propertyId: listingId, participants: { some: { id: customerId } } },
+    include: { participants: { select: { id: true } } },
+  });
+  if (!conversation) return;
+
+  const stale = conversation.participants.filter((p) => p.id !== customerId && p.id !== newBrokerUserId);
+  const alreadyIn = conversation.participants.some((p) => p.id === newBrokerUserId);
+  if (!stale.length && alreadyIn) return;
+
+  await prisma.conversation.update({
+    where: { id: conversation.id },
     data: {
-      leadId,
-      brokerId: brokerMemberId,
-      assignedBy: assignedByMemberId,
+      participants: {
+        ...(stale.length ? { disconnect: stale.map((p) => ({ id: p.id })) } : {}),
+        ...(alreadyIn ? {} : { connect: { id: newBrokerUserId } }),
+      },
     },
   });
 }
@@ -60,7 +123,12 @@ export async function distributeLead(lead: Lead, organization: Organization): Pr
   if (listing?.agentId) {
     const agentMembership = await prisma.organizationMember.findUnique({ where: { userId: listing.agentId } });
     if (agentMembership && agentMembership.organizationId === organization.id && agentMembership.role === 'BROKER') {
-      await assignLead({ leadId: lead.id, brokerMemberId: agentMembership.id, assignedByMemberId: null });
+      await assignLead({
+        lead,
+        brokerMemberId: agentMembership.id,
+        brokerUserId: agentMembership.userId,
+        assignedByMemberId: null,
+      });
       return;
     }
   }
@@ -78,7 +146,7 @@ export async function distributeLead(lead: Lead, organization: Organization): Pr
   if (eligible.length === 0) return;
 
   const chosen = eligible[Math.floor(Math.random() * eligible.length)]!;
-  await assignLead({ leadId: lead.id, brokerMemberId: chosen.id, assignedByMemberId: null });
+  await assignLead({ lead, brokerMemberId: chosen.id, brokerUserId: chosen.userId, assignedByMemberId: null });
 }
 
 /**
@@ -89,7 +157,7 @@ export async function distributeLead(lead: Lead, organization: Organization): Pr
  */
 export async function resolveLeadAccess(userId: string, lead: { id: string; organizationId: string }) {
   const membership = await getMembership(userId);
-  if (!membership || membership.organizationId !== lead.organizationId) return null;
+  if (!membership || membership.organizationId !== lead.organizationId || membership.status !== 'ACTIVE') return null;
 
   const canManageAny = ['OWNER', 'ADMIN', 'MANAGER'].includes(membership.role);
   if (canManageAny) return membership;
@@ -106,7 +174,7 @@ export async function resolveLeadAccess(userId: string, lead: { id: string; orga
  */
 export async function canViewLeadAccess(userId: string, lead: { id: string; organizationId: string }) {
   const membership = await getMembership(userId);
-  if (!membership || membership.organizationId !== lead.organizationId) return null;
+  if (!membership || membership.organizationId !== lead.organizationId || membership.status !== 'ACTIVE') return null;
 
   const canViewAny = ['OWNER', 'ADMIN', 'MANAGER', 'ASSISTANT'].includes(membership.role);
   if (canViewAny) return membership;

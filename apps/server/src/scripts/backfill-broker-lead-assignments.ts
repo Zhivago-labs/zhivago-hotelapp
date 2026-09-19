@@ -20,7 +20,12 @@ async function main() {
       continue;
     }
 
-    await assignLead({ leadId: lead.id, brokerMemberId: agentMembership.id, assignedByMemberId: null });
+    await assignLead({
+      lead,
+      brokerMemberId: agentMembership.id,
+      brokerUserId: agentMembership.userId,
+      assignedByMemberId: null,
+    });
     fixed += 1;
     console.log(`Lead ${lead.id} atribuído ao corretor ${agentMembership.id} (dono do imóvel ${lead.listingId}).`);
   }

@@ -77,7 +77,7 @@ export async function getMyLeads(request: FastifyRequest, reply: FastifyReply): 
   const { id: userId } = request.user as { id: string };
 
   const membership = await getMembership(userId);
-  if (!membership) {
+  if (!membership || membership.status !== 'ACTIVE') {
     return reply.status(404).send({ error: 'Você não pertence a nenhuma organização.' });
   }
 
@@ -123,8 +123,9 @@ export async function assignLeadHandler(
   }
 
   const assignment = await assignLead({
-    leadId,
+    lead,
     brokerMemberId: targetMember.id,
+    brokerUserId: targetMember.userId,
     assignedByMemberId: membership.id,
     reason: parsed.data.reason,
   });

@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma.js';
 import { generateInviteToken, inviteExpiresAt, getMembership, type OrgRole } from '../lib/organizations.js';
 import { sendNotification } from '../services/notification.service.js';
 import { sendOrganizationInviteEmail } from '../lib/mail.js';
-import { SLA_OVERDUE_HOURS, ELIGIBLE_LEAD_ROLES } from '../lib/leads.js';
+import { SLA_OVERDUE_HOURS, ELIGIBLE_LEAD_ROLES, assignLead } from '../lib/leads.js';
 
 // ─── CRIAR ORGANIZAÇÃO (requer auth + conta Imobiliária + ainda não pertencer a uma) ─────────
 
@@ -69,12 +69,20 @@ export async function getMyOrganization(
       organization: {
         include: {
           members: {
+            where: { status: 'ACTIVE' },
             include: { user: { select: { id: true, name: true, email: true, avatar: true } } },
           },
         },
       },
     },
   });
+
+  // Um membro removido (INACTIVE, ver `removeMember`) mantém a linha por integridade do
+  // histórico de CRM, mas não deve mais enxergar a organização por aqui — mesmo tratamento de
+  // "não pertence a nenhuma" que alguém que nunca entrou recebe.
+  if (membership && membership.status !== 'ACTIVE') {
+    return reply.status(404).send({ error: 'Você não pertence a nenhuma organização.' });
+  }
 
   if (!membership) {
     // Para contas AGENCY que já preencheram CNPJ no cadastro (Fase A "de verdade"), auto-inicializa
@@ -311,7 +319,8 @@ export async function removeMember(
   reply: FastifyReply
 ): Promise<void> {
   const { id: userId } = request.user as { id: string };
-  const membership = (request as FastifyRequest & { orgMembership: { organizationId: string } }).orgMembership;
+  const membership = (request as FastifyRequest & { orgMembership: { id: string; organizationId: string } })
+    .orgMembership;
   const { userId: targetUserId } = request.params as { userId: string };
 
   if (targetUserId === userId) {
@@ -330,15 +339,46 @@ export async function removeMember(
     where: { organizationId: membership.organizationId, role: 'OWNER' },
   });
 
+  // Leads ainda abertos com este membro precisam de um responsável antes dele sair — sem isso
+  // ficariam "presos" com alguém que não tem mais acesso (ver resolveLeadAccess/canViewLeadAccess
+  // abaixo, que agora exigem status ACTIVE). Vão pro OWNER, mesmo destino dos imóveis dele.
+  const openLeadAssignments = owner
+    ? await prisma.leadAssignment.findMany({
+        where: { brokerId: targetMembership.id, unassignedAt: null },
+        select: { lead: { select: { id: true, userId: true, listingId: true } } },
+      })
+    : [];
+
+  // Nunca apaga o `OrganizationMember`: `LeadAssignment.brokerId`/`LeadInteraction.memberId`/
+  // `Visit.brokerId` são FKs `ON DELETE RESTRICT` — um `delete` aqui falhava (violação de FK, sem
+  // tratamento) assim que o membro já tivesse qualquer histórico de CRM, e a remoção nunca
+  // acontecia de fato. Em vez disso, marca `INACTIVE`: sai da equipe/distribuição de leads
+  // (`resolveLeadAccess`/`canViewLeadAccess`/`requireOrgRole` já exigem ACTIVE) e some da listagem
+  // (`getMyOrganization` abaixo), mas o histórico continua íntegro. Trade-off aceito, mesmo espírito
+  // do `userId @unique` de V1 já documentado: essa pessoa não pode ser convidada/entrar em outra
+  // organização depois — revisitar se isso virar um problema real.
   const [{ count: reassignedListings }] = await prisma.$transaction([
     prisma.listing.updateMany({
       where: { organizationId: membership.organizationId, agentId: targetUserId },
       data: { agentId: owner?.userId ?? null },
     }),
-    prisma.organizationMember.delete({ where: { userId: targetUserId } }),
+    prisma.organizationMember.update({
+      where: { userId: targetUserId },
+      data: { status: 'INACTIVE', receiveLeads: false },
+    }),
   ]);
 
-  return reply.send({ removed: true, reassignedListings });
+  for (const { lead } of openLeadAssignments) {
+    await assignLead({
+      lead,
+      brokerMemberId: owner!.id,
+      brokerUserId: owner!.userId,
+      assignedByMemberId: membership.id,
+      reason: 'Reatribuído automaticamente: corretor removido da organização.',
+    });
+  }
+
+  return reply.send({ removed: true, reassignedListings, reassignedLeads: openLeadAssignments.length });
 }
 
 // ─── IMÓVEIS DA ORGANIZAÇÃO (requer OWNER/ADMIN/MANAGER) ─────────────────────────────────────
