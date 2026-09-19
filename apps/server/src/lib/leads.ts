@@ -210,14 +210,54 @@ export async function canManageListingConversation(
   return !!(await resolveLeadAccess(userId, lead));
 }
 
+export type LeadTransitionResult =
+  | { ok: true }
+  | { ok: false; reason: 'NOT_ORG_LISTING' | 'NO_LEAD' | 'ALREADY_THERE' | 'FORBIDDEN' };
+
+/**
+ * Núcleo de toda mudança de status de Lead disparada fora do painel `/imobiliaria` (aprovação
+ * automática de reserva/proposta, comandos de chat) — acha o Lead entre os participantes dados,
+ * confere permissão (`resolveLeadAccess`, mesma regra de sempre) e loga a mudança como
+ * `STATUS_CHANGE`, igual ao que `updateLeadStatusHandler` já faz manualmente pelo Kanban. O motivo
+ * do no-op vem tipado (`reason`) pra quem chama poder dar um feedback específico (o comando de
+ * chat usa isso; `closeLeadForDealOutcome` ignora, já que é sempre "melhor esforço").
+ */
+async function transitionLeadStatus(
+  userId: string,
+  listing: { id: string; organizationId: string | null },
+  participantIds: string[],
+  status: string,
+  logSuffix: string
+): Promise<LeadTransitionResult> {
+  if (!listing.organizationId) return { ok: false, reason: 'NOT_ORG_LISTING' };
+
+  const lead = await prisma.lead.findFirst({
+    where: { listingId: listing.id, organizationId: listing.organizationId, userId: { in: participantIds } },
+  });
+  if (!lead) return { ok: false, reason: 'NO_LEAD' };
+  if (lead.status === status) return { ok: false, reason: 'ALREADY_THERE' };
+
+  const membership = await resolveLeadAccess(userId, lead);
+  if (!membership) return { ok: false, reason: 'FORBIDDEN' };
+
+  const previousStatus = lead.status;
+  await prisma.lead.update({ where: { id: lead.id }, data: { status } });
+  await recordInteraction({
+    leadId: lead.id,
+    memberId: membership.id,
+    type: 'STATUS_CHANGE',
+    content: `${previousStatus} → ${status} (${logSuffix})`,
+  });
+  return { ok: true };
+}
+
 /**
  * Move o Lead do cliente automaticamente pro fim do funil (`WON` numa reserva/proposta aprovada,
  * `LOST` numa recusada) — o mesmo efeito de arrastar o card manualmente até a última coluna do
  * Kanban, só que sem precisar fazer isso à mão depois de já ter fechado o negócio pelo chat/
- * reserva. No-op se o imóvel não é de organização, não existe Lead ainda, ou o Lead já está nesse
- * status (evita log duplicado quando o mesmo lead recebe mais de uma reserva/proposta). Chamada
- * por `bookings.controller.ts`/`offers.controller.ts` logo depois de aprovar/recusar de verdade —
- * sempre dentro de um try/catch lá, aditivo: nunca derruba a aprovação/recusa se isso falhar.
+ * reserva. Chamada por `bookings.controller.ts`/`offers.controller.ts` logo depois de aprovar/
+ * recusar de verdade — sempre dentro de um try/catch lá, aditivo: nunca derruba a aprovação/
+ * recusa se isso falhar.
  */
 export async function closeLeadForDealOutcome(
   userId: string,
@@ -225,24 +265,27 @@ export async function closeLeadForDealOutcome(
   customerId: string,
   outcome: 'WON' | 'LOST'
 ): Promise<void> {
-  if (!listing.organizationId) return;
+  await transitionLeadStatus(
+    userId,
+    listing,
+    [customerId],
+    outcome,
+    `automático: reserva/proposta ${outcome === 'WON' ? 'aprovada' : 'recusada'}`
+  );
+}
 
-  const lead = await prisma.lead.findFirst({
-    where: { listingId: listing.id, organizationId: listing.organizationId, userId: customerId },
-  });
-  if (!lead || lead.status === outcome) return;
-
-  const membership = await resolveLeadAccess(userId, lead);
-  if (!membership) return;
-
-  const previousStatus = lead.status;
-  await prisma.lead.update({ where: { id: lead.id }, data: { status: outcome } });
-  await recordInteraction({
-    leadId: lead.id,
-    memberId: membership.id,
-    type: 'STATUS_CHANGE',
-    content: `${previousStatus} → ${outcome} (automático: ${outcome === 'WON' ? 'reserva/proposta aprovada' : 'reserva/proposta recusada'})`,
-  });
+/**
+ * Move o Lead pra `NEGOTIATION` — usada pelo comando de chat `/negociar` (`socket.ts`). Ao
+ * contrário de `closeLeadForDealOutcome`, não sabe de antemão qual participante é o cliente
+ * (o comando roda em cima de uma Conversation qualquer, sem reserva/proposta associada), então
+ * recebe todos os participantes e deixa `transitionLeadStatus` achar o Lead entre eles.
+ */
+export async function moveLeadToNegotiationFromChatCommand(
+  userId: string,
+  listing: { id: string; organizationId: string | null },
+  participantIds: string[]
+): Promise<LeadTransitionResult> {
+  return transitionLeadStatus(userId, listing, participantIds, 'NEGOTIATION', 'via comando de chat "/negociar"');
 }
 
 /**

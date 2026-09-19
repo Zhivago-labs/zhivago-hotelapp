@@ -5,17 +5,43 @@ import { sendNotification } from './services/notification.service.js';
 import { JWT_SECRET } from './lib/env.js';
 import { approveBookingCore, rejectBookingCore } from './controllers/bookings.controller.js';
 import { approveOfferCore, rejectOfferCore } from './controllers/offers.controller.js';
+import { moveLeadToNegotiationFromChatCommand } from './lib/leads.js';
 let ioInstance: SocketIOServer | null = null;
 
-// Comandos de texto no chat — fallback pra aprovar/recusar reserva ou proposta quando o botão de
-// ação não aparece (ex.: front desatualizado em cache) ou não é clicável por algum motivo. Age
-// sobre a solicitação (BOOKING_REQUEST/OFFER_REQUEST) mais recente ainda pendente na conversa —
-// mesma checagem de permissão do botão (`canManageListingConversation`), então digitar o comando
-// sem ser quem pode agir simplesmente falha, igual clicar no botão sem permissão falharia.
-const APPROVE_COMMANDS = new Set(['/aprovar', '/aprovado', '/aceitar', '/aceito']);
-const REJECT_COMMANDS = new Set(['/recusar', '/recusado', '/rejeitar', '/rejeitado']);
+/**
+ * Comandos de texto no chat — mesmo catálogo exposto ao front pelo menu "/" (`GET
+ * /conversations/:id/commands`, ver chat.controller.ts). `aprovar`/`recusar` são um fallback pra
+ * quando o botão de ação não aparece (ex.: front desatualizado em cache) ou não é clicável por
+ * algum motivo; `negociar` não tem botão equivalente hoje, só existe como comando. Todos usam a
+ * mesma checagem de permissão dos respectivos botões/endpoints, então digitar o comando sem ser
+ * quem pode agir simplesmente falha, igual clicar no botão sem permissão falharia.
+ */
+export const CHAT_COMMANDS = [
+  {
+    trigger: '/aprovar',
+    aliases: ['/aprovado', '/aceitar', '/aceito'],
+    label: 'Aprovar',
+    description: 'Aprova a reserva ou proposta pendente nesta conversa',
+  },
+  {
+    trigger: '/recusar',
+    aliases: ['/recusado', '/rejeitar', '/rejeitado'],
+    label: 'Recusar',
+    description: 'Recusa a reserva ou proposta pendente nesta conversa',
+  },
+  {
+    trigger: '/negociar',
+    aliases: ['/negociação', '/negociacao', '/negociando'],
+    label: 'Negociar',
+    description: 'Move este lead para "Em negociação" no funil',
+  },
+] as const;
 
-async function handleChatCommand(
+const APPROVE_COMMANDS = new Set<string>([CHAT_COMMANDS[0].trigger, ...CHAT_COMMANDS[0].aliases]);
+const REJECT_COMMANDS = new Set<string>([CHAT_COMMANDS[1].trigger, ...CHAT_COMMANDS[1].aliases]);
+const NEGOTIATE_COMMANDS = new Set<string>([CHAT_COMMANDS[2].trigger, ...CHAT_COMMANDS[2].aliases]);
+
+async function handleApproveRejectCommand(
   userId: string,
   conversationId: string,
   command: 'approve' | 'reject'
@@ -40,6 +66,28 @@ async function handleChatCommand(
   const { status, body } = await core(userId, id);
   if (status >= 300) {
     return { error: (body as { error?: string })?.error ?? 'Não foi possível concluir a ação.' };
+  }
+  return { success: true };
+}
+
+const NEGOTIATE_ERROR_MESSAGES: Record<string, string> = {
+  NOT_ORG_LISTING: 'Este comando só existe para imóveis de organização (CRM).',
+  NO_LEAD: 'Não existe um Lead de CRM associado a esta conversa.',
+  ALREADY_THERE: 'Este lead já está em negociação.',
+  FORBIDDEN: 'Sem permissão para mudar o status deste lead.',
+};
+
+async function handleNegotiateCommand(
+  userId: string,
+  conversation: { property: { id: string; organizationId: string | null }; participants: { id: string }[] }
+): Promise<{ error?: string; success?: boolean }> {
+  const result = await moveLeadToNegotiationFromChatCommand(
+    userId,
+    conversation.property,
+    conversation.participants.map((p) => p.id)
+  );
+  if (!result.ok) {
+    return { error: NEGOTIATE_ERROR_MESSAGES[result.reason] ?? 'Não foi possível concluir a ação.' };
   }
   return { success: true };
 }
@@ -91,11 +139,14 @@ export function setupSocket(io: SocketIOServer) {
       try {
         const { conversationId, content } = data;
 
-        // Validação de Segurança: Garante que a conversa existe e que o usuário solicitante 
+        // Validação de Segurança: Garante que a conversa existe e que o usuário solicitante
         // é de fato um dos participantes (comprador ou vendedor) dela
         const conversation = await prisma.conversation.findUnique({
           where: { id: conversationId },
-          include: { participants: true }
+          include: {
+            participants: { select: { id: true } },
+            property: { select: { id: true, organizationId: true } },
+          }
         });
 
         if (!conversation || !conversation.participants.some(p => p.id === user.id)) {
@@ -109,17 +160,21 @@ export function setupSocket(io: SocketIOServer) {
           return;
         }
 
-        // Comando de texto (fallback do botão aprovar/recusar) — não vira uma mensagem normal,
-        // age direto sobre a solicitação pendente e a confirmação chega via o próprio
-        // approveBookingCore/rejectBookingCore/approveOfferCore/rejectOfferCore (mesma mensagem e
-        // socket emit de quando se clica no botão).
+        // Comandos de texto (ver CHAT_COMMANDS acima) — nunca viram uma mensagem normal, agem
+        // direto sobre o lead/reserva/proposta e a confirmação chega via o mecanismo de cada um
+        // (mesma mensagem e socket emit de quando se clica no botão, no caso de aprovar/recusar).
         const trimmedContent = content.trim().toLowerCase();
         if (APPROVE_COMMANDS.has(trimmedContent) || REJECT_COMMANDS.has(trimmedContent)) {
-          const result = await handleChatCommand(
+          const result = await handleApproveRejectCommand(
             user.id,
             conversationId,
             APPROVE_COMMANDS.has(trimmedContent) ? 'approve' : 'reject'
           );
+          if (callback) callback(result);
+          return;
+        }
+        if (NEGOTIATE_COMMANDS.has(trimmedContent)) {
+          const result = await handleNegotiateCommand(user.id, conversation);
           if (callback) callback(result);
           return;
         }

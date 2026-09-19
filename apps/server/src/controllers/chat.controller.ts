@@ -2,6 +2,50 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { z } from 'zod';
 import { distributeLead, canManageListingConversation } from '../lib/leads.js';
+import { CHAT_COMMANDS } from '../socket.js';
+
+const LEAD_STATUSES_WITHOUT_NEGOTIATE_COMMAND = new Set(['NEGOTIATION', 'WON', 'LOST']);
+const COMMAND_BY_TRIGGER = Object.fromEntries(CHAT_COMMANDS.map((c) => [c.trigger, c]));
+
+/**
+ * Quais comandos de `/` fazem sentido oferecer agora nesta conversa — usado pelo menu de
+ * autocomplete do front (digitar "/" no chat). Mesma fonte de verdade que `socket.ts` realmente
+ * executa (`CHAT_COMMANDS`), só decide QUAIS mostrar: nada se o viewer não pode agir
+ * (`canManage`); aprovar/recusar só com uma solicitação ainda pendente; negociar só em imóvel de
+ * organização com Lead que ainda não chegou no fim do funil.
+ */
+async function computeAvailableCommands(
+  canManage: boolean,
+  conversation: { id: string; property: { id: string; organizationId: string | null }; participants: { id: string }[] }
+): Promise<(typeof CHAT_COMMANDS)[number][]> {
+  if (!canManage) return [];
+
+  const commands: (typeof CHAT_COMMANDS)[number][] = [];
+
+  const pendingRequest = await prisma.message.findFirst({
+    where: { conversationId: conversation.id, type: { in: ['BOOKING_REQUEST', 'OFFER_REQUEST'] } },
+    orderBy: { createdAt: 'desc' },
+  });
+  if (pendingRequest) {
+    commands.push(COMMAND_BY_TRIGGER['/aprovar']!, COMMAND_BY_TRIGGER['/recusar']!);
+  }
+
+  if (conversation.property.organizationId) {
+    const lead = await prisma.lead.findFirst({
+      where: {
+        listingId: conversation.property.id,
+        organizationId: conversation.property.organizationId,
+        userId: { in: conversation.participants.map((p) => p.id) },
+      },
+      select: { status: true },
+    });
+    if (lead && !LEAD_STATUSES_WITHOUT_NEGOTIATE_COMMAND.has(lead.status)) {
+      commands.push(COMMAND_BY_TRIGGER['/negociar']!);
+    }
+  }
+
+  return commands;
+}
 
 export async function getConversations(request: FastifyRequest, reply: FastifyReply) {
   const userId = (request.user as { id: string }).id;
@@ -162,9 +206,15 @@ export async function getConversation(request: FastifyRequest, reply: FastifyRep
       conversation.participants.map((p) => p.id)
     );
 
+    // Comandos de "/" que fazem sentido oferecer agora (ver computeAvailableCommands) — o menu de
+    // autocomplete do front usa isso pra saber o que listar, sem duplicar a regra de quando cada
+    // comando se aplica.
+    const availableCommands = await computeAvailableCommands(canManage, conversation);
+
     return reply.send({
       ...conversation,
       canManage,
+      availableCommands,
       property: {
         id: conversation.property.id,
         name: conversation.property.name,

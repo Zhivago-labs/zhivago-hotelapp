@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Flag, Lock, Unlock, Send, Handshake, CalendarRange } from "lucide-react";
 import { useChatSocket } from "./ChatSocketProvider";
 import { getPublicApiUrl } from "@/lib/public-api";
-import type { ChatMessage, ConversationDetail } from "@/lib/chat-api";
+import type { ChatCommand, ChatMessage, ConversationDetail } from "@/lib/chat-api";
 import styles from "./ChatConversation.module.css";
 
 interface ChatConversationProps {
@@ -58,6 +58,8 @@ export function ChatConversation({ conversation, initialMessages, token, current
   const [offerPaymentMethod, setOfferPaymentMethod] = useState(OFFER_PAYMENT_METHODS[0]);
   const [offerError, setOfferError] = useState<string | null>(null);
   const [isSubmittingOffer, setIsSubmittingOffer] = useState(false);
+  const [commandMenuIndex, setCommandMenuIndex] = useState(0);
+  const [commandMenuDismissed, setCommandMenuDismissed] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const isParticipant = conversation.participants.some((p) => p.id === currentUser.id);
@@ -71,6 +73,19 @@ export function ChatConversation({ conversation, initialMessages, token, current
     !isOwner &&
     isParticipant &&
     !isClosed;
+
+  // Menu de "/" (autocomplete de comandos, ver docs do backend em socket.ts CHAT_COMMANDS): digitar
+  // "/" abre a lista dos comandos que fazem sentido AGORA nesta conversa (já vem filtrada pelo
+  // backend em `conversation.availableCommands` — vazio se o viewer não pode agir); continuar
+  // digitando filtra pelo texto após a "/".
+  const slashQuery = input.startsWith("/") ? input.toLowerCase() : null;
+  const matchingCommands =
+    slashQuery !== null
+      ? conversation.availableCommands.filter(
+          (cmd) => cmd.trigger.startsWith(slashQuery) || cmd.aliases.some((alias) => alias.startsWith(slashQuery))
+        )
+      : [];
+  const showCommandMenu = !commandMenuDismissed && !isClosed && isParticipant && matchingCommands.length > 0;
 
   const markAsRead = () => {
     patchConversation(token, conversation.id, "read").catch(() => {});
@@ -101,9 +116,7 @@ export function ChatConversation({ conversation, initialMessages, token, current
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket, conversation.id]);
 
-  const handleSend = (event: React.FormEvent) => {
-    event.preventDefault();
-    const content = input.trim();
+  const sendContent = (content: string) => {
     if (!content || !socket || isClosed || !isParticipant) return;
 
     setSendError(null);
@@ -121,6 +134,39 @@ export function ChatConversation({ conversation, initialMessages, token, current
       }
     );
     setInput("");
+    setCommandMenuDismissed(false);
+  };
+
+  const handleSend = (event: React.FormEvent) => {
+    event.preventDefault();
+    sendContent(input.trim());
+  };
+
+  const handleSelectCommand = (command: ChatCommand) => {
+    sendContent(command.trigger);
+  };
+
+  const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const value = event.target.value;
+    setInput(value);
+    setCommandMenuIndex(0);
+    if (!value.startsWith("/")) setCommandMenuDismissed(false);
+  };
+
+  const handleInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!showCommandMenu) return;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setCommandMenuIndex((i) => (i + 1) % matchingCommands.length);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setCommandMenuIndex((i) => (i - 1 + matchingCommands.length) % matchingCommands.length);
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      handleSelectCommand(matchingCommands[commandMenuIndex]!);
+    } else if (event.key === "Escape") {
+      setCommandMenuDismissed(true);
+    }
   };
 
   const handleReport = async () => {
@@ -335,18 +381,40 @@ export function ChatConversation({ conversation, initialMessages, token, current
       ) : isAuditor ? (
         <p className={styles.closedNotice}>Você está visualizando no modo auditoria (apenas leitura).</p>
       ) : isParticipant ? (
-        <form onSubmit={handleSend} className={styles.inputRow}>
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder={`Mensagem para ${other?.name ?? "..."}`}
-            className={styles.input}
-          />
-          <button type="submit" className={styles.sendButton} aria-label="Enviar">
-            <Send size={18} />
-          </button>
-        </form>
+        <div className={styles.commandMenuWrapper}>
+          {showCommandMenu && (
+            <div className={styles.commandMenu} role="listbox">
+              {matchingCommands.map((command, index) => (
+                <button
+                  key={command.trigger}
+                  type="button"
+                  role="option"
+                  aria-selected={index === commandMenuIndex}
+                  className={`${styles.commandMenuItem} ${index === commandMenuIndex ? styles.commandMenuItemActive : ""}`}
+                  onMouseEnter={() => setCommandMenuIndex(index)}
+                  onClick={() => handleSelectCommand(command)}
+                >
+                  <span className={styles.commandMenuTrigger}>{command.trigger}</span>
+                  <span className={styles.commandMenuLabel}>{command.label}</span>
+                  <span className={styles.commandMenuDescription}>{command.description}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <form onSubmit={handleSend} className={styles.inputRow}>
+            <input
+              type="text"
+              value={input}
+              onChange={handleInputChange}
+              onKeyDown={handleInputKeyDown}
+              placeholder={`Mensagem para ${other?.name ?? "..."}`}
+              className={styles.input}
+            />
+            <button type="submit" className={styles.sendButton} aria-label="Enviar">
+              <Send size={18} />
+            </button>
+          </form>
+        </div>
       ) : null}
 
       {sendError && <p className={styles.sendError}>{sendError}</p>}

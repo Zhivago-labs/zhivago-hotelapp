@@ -20,6 +20,7 @@ export default function ChatScreen() {
   const [loading, setLoading] = useState(true);
   const [property, setProperty] = useState<any>(null);
   const [canManage, setCanManage] = useState(false);
+  const [availableCommands, setAvailableCommands] = useState<{ trigger: string; aliases: string[]; label: string; description: string }[]>([]);
   const [isParticipant, setIsParticipant] = useState(false);
   const [isClosed, setIsClosed] = useState(false);
   const [isReported, setIsReported] = useState(false);
@@ -71,6 +72,7 @@ export default function ChatScreen() {
         const currentConv = await convRes.json();
         setProperty(currentConv.property);
         setCanManage(!!currentConv.canManage);
+        setAvailableCommands(currentConv.availableCommands ?? []);
         setIsParticipant(currentConv.participants.some((p: any) => p.id === user?.id));
         setIsClosed(currentConv.isClosed);
         setIsReported(currentConv.isReported);
@@ -138,22 +140,33 @@ export default function ChatScreen() {
     }
   };
 
-  const sendMessage = () => {
-    if (!input.trim() || !socket || isClosed) return;
+  const sendContent = (content: string) => {
+    if (!content.trim() || !socket || isClosed) return;
 
-    const content = input.trim();
     setInput('');
 
-    socket.emit('sendMessage', { conversationId: id, content }, (response: any) => {
+    socket.emit('sendMessage', { conversationId: id, content: content.trim() }, (response: any) => {
       if (response.error) {
         Alert.alert('Erro', response.error);
         return;
       }
-      if (response.success) {
+      if (response.message) {
         setMessages(prev => [...prev, response.message]);
       }
     });
   };
+
+  const sendMessage = () => sendContent(input);
+
+  // Menu de "/" (autocomplete de comandos) — mesma lista que o backend calcula pra esta conversa
+  // (`availableCommands`, ver computeAvailableCommands em chat.controller.ts), filtrada pelo texto
+  // digitado depois da "/".
+  const slashQuery = input.startsWith('/') ? input.toLowerCase() : null;
+  const matchingCommands = slashQuery
+    ? availableCommands.filter(
+        (cmd) => cmd.trigger.startsWith(slashQuery) || cmd.aliases.some((alias) => alias.startsWith(slashQuery))
+      )
+    : [];
 
   const handleReport = () => {
     Alert.alert(
@@ -461,17 +474,34 @@ export default function ChatScreen() {
           <Text style={{ color: '#EF4444', fontWeight: 'bold' }}>Esta conversa foi encerrada pelo administrador.</Text>
         </View>
       ) : isParticipant ? (
-        <View style={[styles.inputContainer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-          <TextInput
-            style={styles.input}
-            placeholder="Digite sua mensagem..."
-            value={input}
-            onChangeText={setInput}
-            onSubmitEditing={sendMessage}
-          />
-          <TouchableOpacity style={styles.sendButton} onPress={sendMessage}>
-            <Ionicons name="send" size={20} color="white" />
-          </TouchableOpacity>
+        <View>
+          {matchingCommands.length > 0 && (
+            <View style={styles.commandMenu}>
+              {matchingCommands.map((command) => (
+                <TouchableOpacity
+                  key={command.trigger}
+                  style={styles.commandMenuItem}
+                  onPress={() => sendContent(command.trigger)}
+                >
+                  <Text style={styles.commandMenuTrigger}>{command.trigger}</Text>
+                  <Text style={styles.commandMenuLabel}>{command.label}</Text>
+                  <Text style={styles.commandMenuDescription} numberOfLines={1}>{command.description}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+          <View style={[styles.inputContainer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+            <TextInput
+              style={styles.input}
+              placeholder="Digite sua mensagem..."
+              value={input}
+              onChangeText={setInput}
+              onSubmitEditing={sendMessage}
+            />
+            <TouchableOpacity style={styles.sendButton} onPress={sendMessage}>
+              <Ionicons name="send" size={20} color="white" />
+            </TouchableOpacity>
+          </View>
         </View>
       ) : (
         <View style={[styles.inputContainer, { justifyContent: 'center', paddingBottom: Math.max(insets.bottom, 16) }]}>
@@ -607,6 +637,35 @@ const styles = StyleSheet.create({
     backgroundColor: '#4F46E5',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  commandMenu: {
+    backgroundColor: 'white',
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+  },
+  commandMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  commandMenuTrigger: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#4F46E5',
+  },
+  commandMenuLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1E293B',
+  },
+  commandMenuDescription: {
+    flex: 1,
+    fontSize: 12,
+    color: '#94A3B8',
   },
   actionBtn: {
     flex: 1,
