@@ -185,6 +185,32 @@ export async function canViewLeadAccess(userId: string, lead: { id: string; orga
 }
 
 /**
+ * Quem pode agir do "lado do anúncio" numa conversa/reserva/proposta — usada por
+ * `bookings.controller.ts`/`offers.controller.ts` (aprovar/recusar) e por `getConversation`
+ * (pra dizer ao front se o viewer atual pode ver os botões de ação). Imóvel de pessoa física:
+ * só o `ownerId`. Imóvel de organização: `ownerId` é sempre `null` (nunca bate), então cai na
+ * mesma regra de `resolveLeadAccess` — OWNER/ADMIN/MANAGER da organização, ou o corretor
+ * atualmente responsável pelo Lead do cliente. Sem isso, ninguém nunca conseguia aprovar
+ * reserva/proposta em imóvel de organização (bug pré-existente: o check antigo comparava contra
+ * `ownerId`, que não existe pra esse tipo de imóvel), e reatribuir o Lead pro CRM não passava
+ * essa autoridade adiante pro novo corretor.
+ */
+export async function canManageListingConversation(
+  userId: string,
+  listing: { id: string; ownerId: string | null; organizationId: string | null },
+  customerIds: string[]
+): Promise<boolean> {
+  if (listing.ownerId) return listing.ownerId === userId;
+  if (!listing.organizationId) return false;
+
+  const lead = await prisma.lead.findFirst({
+    where: { listingId: listing.id, organizationId: listing.organizationId, userId: { in: customerIds } },
+  });
+  if (!lead) return false;
+  return !!(await resolveLeadAccess(userId, lead));
+}
+
+/**
  * Registra um contato com o cliente. Se a atribuição aberta do lead ainda não tem
  * `firstContactAt` (base de SLA, Fase 4), preenche com agora — só na 1ª interação.
  */

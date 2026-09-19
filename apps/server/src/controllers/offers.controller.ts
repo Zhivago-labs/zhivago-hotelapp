@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { sendNotification } from '../services/notification.service.js';
 import { getIO } from '../socket.js';
+import { canManageListingConversation } from '../lib/leads.js';
 
 export async function createOffer(request: FastifyRequest, reply: FastifyReply) {
   const { id: userId } = request.user as { id: string };
@@ -39,10 +40,18 @@ export async function createOffer(request: FastifyRequest, reply: FastifyReply) 
 
     let conversation;
 
-    if (listing.ownerId) {
-      // Dispara uma notificação push para o dono do imóvel avisando que há uma nova proposta
+    // Dono da pessoa física (ownerId) ou corretor/contato responsável no caso de imóvel de
+    // organização (agentId) — imóvel de imobiliária nunca tem ownerId preenchido, então o check
+    // antigo (`if (listing.ownerId)`) pulava esse bloco inteiro pra qualquer proposta em imóvel
+    // de organização: nenhuma notificação, nenhuma mensagem no chat, proposta ficava invisível
+    // pro comprador e pra quem deveria responder. Mesmo fallback já usado em
+    // chat.controller.ts/bookings.controller.ts.
+    const contactId = listing.ownerId ?? listing.agentId;
+
+    if (contactId) {
+      // Dispara uma notificação push para o dono/responsável do imóvel avisando que há uma nova proposta
       await sendNotification({
-        userId: listing.ownerId,
+        userId: contactId,
         title: 'Nova Proposta de Compra',
         message: `Você recebeu uma proposta de R$ ${value.toLocaleString('pt-BR')} para o imóvel "${listing.name}".`,
         type: 'INFO',
@@ -50,16 +59,16 @@ export async function createOffer(request: FastifyRequest, reply: FastifyReply) 
 
       /**
        * ─── DETECÇÃO OU CRIAÇÃO DE CONVERSA ──────────────────────────────────────────────
-       * O sistema de proposta é integrado ao chat. Para que os dois usuários negociem,
-       * primeiro verificamos se já há uma conversa existente entre o comprador e o dono
-       * do imóvel referente a este anúncio. Se não houver, criamos uma nova na hora.
+       * O sistema de proposta é integrado ao chat. Busca só pelo comprador (`userId`), não pelo
+       * par [userId, contactId] — em imóvel de organização o responsável muda conforme o Lead é
+       * (re)atribuído no CRM (ver `assignLead`/`syncConversationParticipant` em lib/leads.ts),
+       * então travar a busca no `contactId` de hoje deixaria de achar a conversa já aberta assim
+       * que o corretor responsável mudasse, e duplicaria conversa.
        */
       conversation = await prisma.conversation.findFirst({
         where: {
           propertyId: listingId,
-          participants: {
-            every: { id: { in: [userId, listing.ownerId] } }
-          }
+          participants: { some: { id: userId } }
         }
       });
 
@@ -68,7 +77,7 @@ export async function createOffer(request: FastifyRequest, reply: FastifyReply) 
           data: {
             propertyId: listingId,
             participants: {
-              connect: [{ id: userId }, { id: listing.ownerId }]
+              connect: [{ id: userId }, { id: contactId }]
             }
           }
         });
@@ -100,7 +109,7 @@ export async function createOffer(request: FastifyRequest, reply: FastifyReply) 
        */
       try {
         const io = getIO();
-        io.to(`room_${listing.ownerId}`).emit('receiveMessage', message);
+        io.to(`room_${contactId}`).emit('receiveMessage', message);
         io.to(`room_${userId}`).emit('receiveMessage', message);
       } catch (e) {}
 
@@ -130,8 +139,11 @@ export async function approveOffer(request: FastifyRequest, reply: FastifyReply)
     });
 
     if (!offer) return reply.status(404).send({ error: 'Proposta não encontrada.' });
-    // Garante que quem está aprovando é de fato o proprietário do imóvel anunciado
-    if (offer.listing.ownerId !== user.id) return reply.status(403).send({ error: 'Sem permissão.' });
+    // Dono do imóvel (pessoa física) ou, no caso de organização, quem pode agir no Lead do
+    // comprador (OWNER/ADMIN/MANAGER ou o corretor responsável — ver canManageListingConversation).
+    if (!(await canManageListingConversation(user.id, offer.listing, [offer.buyerId]))) {
+      return reply.status(403).send({ error: 'Sem permissão.' });
+    }
 
     // Atualiza o status da proposta para aceito
     const updated = await prisma.offer.update({
@@ -217,7 +229,9 @@ export async function rejectOffer(request: FastifyRequest, reply: FastifyReply) 
     });
 
     if (!offer) return reply.status(404).send({ error: 'Proposta não encontrada.' });
-    if (offer.listing.ownerId !== user.id) return reply.status(403).send({ error: 'Sem permissão.' });
+    if (!(await canManageListingConversation(user.id, offer.listing, [offer.buyerId]))) {
+      return reply.status(403).send({ error: 'Sem permissão.' });
+    }
 
     // Atualiza status da proposta para recusada (o anúncio segue livre para outras ofertas)
     const updated = await prisma.offer.update({

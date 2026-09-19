@@ -19,6 +19,7 @@ export default function ChatScreen() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(true);
   const [property, setProperty] = useState<any>(null);
+  const [canManage, setCanManage] = useState(false);
   const [isParticipant, setIsParticipant] = useState(false);
   const [isClosed, setIsClosed] = useState(false);
   const [isReported, setIsReported] = useState(false);
@@ -69,6 +70,7 @@ export default function ChatScreen() {
       if (convRes.ok) {
         const currentConv = await convRes.json();
         setProperty(currentConv.property);
+        setCanManage(!!currentConv.canManage);
         setIsParticipant(currentConv.participants.some((p: any) => p.id === user?.id));
         setIsClosed(currentConv.isClosed);
         setIsReported(currentConv.isReported);
@@ -325,7 +327,7 @@ export default function ChatScreen() {
                       do imóvel, caso a proposta ainda esteja pendente (`OFFER_REQUEST`) e ele não 
                       esteja visualizando no modo de auditoria administrativa.
                   */}
-                  {item.type === 'OFFER_REQUEST' && !isAuditor && user?.id === property?.ownerId && (
+                  {item.type === 'OFFER_REQUEST' && !isAuditor && canManage && (
                     <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
                       <TouchableOpacity 
                         style={[styles.actionBtn, { backgroundColor: '#10B981' }]}
@@ -394,7 +396,7 @@ export default function ChatScreen() {
                   )}
 
                   {/* Se for o dono do imóvel e não for auditor, exibe os botões apenas se for PENDENTE */}
-                  {item.type === 'BOOKING_REQUEST' && !isAuditor && user?.id === property?.ownerId && (
+                  {item.type === 'BOOKING_REQUEST' && !isAuditor && canManage && (
                     <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
                       <TouchableOpacity 
                         style={[styles.actionBtn, { backgroundColor: '#10B981' }]}

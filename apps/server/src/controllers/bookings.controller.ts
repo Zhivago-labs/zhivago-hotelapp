@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { sendNotification } from '../services/notification.service.js';
 import { getIO } from '../socket.js';
-import { distributeLead } from '../lib/leads.js';
+import { distributeLead, canManageListingConversation } from '../lib/leads.js';
 import { canManageOrgListing } from './listings.controller.js';
 
 export async function createBooking(request: FastifyRequest, reply: FastifyReply) {
@@ -69,13 +69,15 @@ export async function createBooking(request: FastifyRequest, reply: FastifyReply
         type: 'BOOKING',
       });
 
-      // Find or create conversation between guest and host
+      // Find or create conversation between guest and host — busca só pelo hóspede (`userId`), não
+      // pelo par [userId, contactId]: em imóvel de organização o responsável muda conforme o Lead
+      // é (re)atribuído no CRM (ver `assignLead`/`syncConversationParticipant` em lib/leads.ts),
+      // então travar a busca no `contactId` de hoje deixaria de achar a conversa já aberta assim
+      // que o corretor responsável mudasse, e duplicaria conversa.
       conversation = await prisma.conversation.findFirst({
         where: {
           propertyId: listingId,
-          participants: {
-            every: { id: { in: [userId, contactId] } }
-          }
+          participants: { some: { id: userId } }
         }
       });
 
@@ -185,7 +187,9 @@ export async function approveBooking(request: FastifyRequest, reply: FastifyRepl
     });
 
     if (!booking) return reply.status(404).send({ error: 'Reserva não encontrada.' });
-    if (booking.listing.ownerId !== user.id) return reply.status(403).send({ error: 'Sem permissão.' });
+    if (!(await canManageListingConversation(user.id, booking.listing, [booking.userId]))) {
+      return reply.status(403).send({ error: 'Sem permissão.' });
+    }
 
     const updated = await prisma.booking.update({
       where: { id },
@@ -250,7 +254,9 @@ export async function rejectBooking(request: FastifyRequest, reply: FastifyReply
     });
 
     if (!booking) return reply.status(404).send({ error: 'Reserva não encontrada.' });
-    if (booking.listing.ownerId !== user.id) return reply.status(403).send({ error: 'Sem permissão.' });
+    if (!(await canManageListingConversation(user.id, booking.listing, [booking.userId]))) {
+      return reply.status(403).send({ error: 'Sem permissão.' });
+    }
 
     const updated = await prisma.booking.update({
       where: { id },

@@ -38,6 +38,11 @@ export interface ConversationDetail {
   isClosed: boolean;
   createdAt: string;
   updatedAt: string;
+  // Se o viewer atual pode aprovar/recusar reserva ou proposta nesta conversa — calculado no
+  // backend (ver canManageListingConversation em lib/leads.ts) porque não dá pra derivar isso só
+  // de `property.ownerId`: imóvel de organização nunca tem `ownerId` preenchido, e quem responde
+  // muda conforme o Lead é (re)atribuído no CRM.
+  canManage: boolean;
   property: {
     id: string;
     name: string;

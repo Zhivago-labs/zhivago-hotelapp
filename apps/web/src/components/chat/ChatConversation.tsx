@@ -195,7 +195,7 @@ export function ChatConversation({ conversation, initialMessages, token, current
     }
 
     const metadata = message.metadata ? JSON.parse(message.metadata) : null;
-    const canRespond = !isAuditor && isOwner && isParticipant;
+    const canRespond = !isAuditor && conversation.canManage && isParticipant;
 
     if (isOfferType) {
       return (

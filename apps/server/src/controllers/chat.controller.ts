@@ -1,7 +1,7 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { z } from 'zod';
-import { distributeLead } from '../lib/leads.js';
+import { distributeLead, canManageListingConversation } from '../lib/leads.js';
 
 export async function getConversations(request: FastifyRequest, reply: FastifyReply) {
   const userId = (request.user as { id: string }).id;
@@ -134,6 +134,7 @@ export async function getConversation(request: FastifyRequest, reply: FastifyRep
             name: true,
             price: true,
             ownerId: true,
+            organizationId: true,
             category: true,
             status: true,
             images: { take: 1, orderBy: { order: 'asc' }, select: { url: true } },
@@ -151,8 +152,19 @@ export async function getConversation(request: FastifyRequest, reply: FastifyRep
       return reply.status(403).send({ message: 'Access denied' });
     }
 
+    // Quem pode aprovar/recusar reserva ou proposta nesta conversa (ver canManageListingConversation
+    // em lib/leads.ts) — o front não consegue derivar isso sozinho a partir de `ownerId` porque
+    // imóvel de organização nunca tem `ownerId` preenchido, e quem responde muda conforme o Lead é
+    // (re)atribuído no CRM.
+    const canManage = await canManageListingConversation(
+      userId,
+      conversation.property,
+      conversation.participants.map((p) => p.id)
+    );
+
     return reply.send({
       ...conversation,
+      canManage,
       property: {
         id: conversation.property.id,
         name: conversation.property.name,
