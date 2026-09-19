@@ -1,0 +1,62 @@
+.footer {
+  padding: 56px 0 32px;
+  border-top: 1px solid var(--line);
+}
+
+.top {
+  display: flex;
+  justify-content: space-between;
+  gap: 48px;
+  flex-wrap: wrap;
+  padding-bottom: 40px;
+}
+
+.logo {
+  font-family: var(--font-landing-serif), Georgia, serif;
+  font-weight: 700;
+  font-size: 20px;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.logo span {
+  color: var(--coral);
+}
+
+.groups {
+  display: flex;
+  gap: 56px;
+  flex-wrap: wrap;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 140px;
+}
+
+.groupTitle {
+  font-size: 12.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--slate-light);
+  margin-bottom: 4px;
+}
+
+.groupLink {
+  font-size: 14.5px;
+  color: var(--slate);
+}
+
+.groupLink:hover {
+  color: var(--ink);
+}
+
+.bottom {
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--slate-light);
+}

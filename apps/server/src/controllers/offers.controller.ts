@@ -1,0 +1,279 @@
+import type { FastifyRequest, FastifyReply } from 'fastify';
+import { z } from 'zod';
+import { prisma } from '../lib/prisma.js';
+import { sendNotification } from '../services/notification.service.js';
+import { getIO } from '../socket.js';
+
+export async function createOffer(request: FastifyRequest, reply: FastifyReply) {
+  const { id: userId } = request.user as { id: string };
+  const { id: listingId } = request.params as { id: string };
+
+  const schema = z.object({
+    value: z.number().positive(),
+    paymentMethod: z.string().min(1),
+  });
+
+  const parsed = schema.safeParse(request.body);
+  if (!parsed.success) {
+    return reply.status(400).send({ error: parsed.error.errors });
+  }
+
+  const { value, paymentMethod } = parsed.data;
+
+  // Garante que o imóvel de fato existe, está à venda e ainda não foi negociado/vendido
+  const listing = await prisma.listing.findUnique({ where: { id: listingId } });
+  if (!listing) return reply.status(404).send({ error: 'Imóvel não encontrado.' });
+  if (listing.category !== 'venda') return reply.status(400).send({ error: 'Propostas só estão disponíveis para venda.' });
+  if (listing.status === 'SOLD') return reply.status(400).send({ error: 'Este imóvel já foi vendido.' });
+
+  try {
+    // Cria a proposta no banco de dados para auditoria futura
+    const offer = await prisma.offer.create({
+      data: {
+        value,
+        paymentMethod,
+        buyerId: userId,
+        listingId,
+      }
+    });
+
+    let conversation;
+
+    if (listing.ownerId) {
+      // Dispara uma notificação push para o dono do imóvel avisando que há uma nova proposta
+      await sendNotification({
+        userId: listing.ownerId,
+        title: 'Nova Proposta de Compra',
+        message: `Você recebeu uma proposta de R$ ${value.toLocaleString('pt-BR')} para o imóvel "${listing.name}".`,
+        type: 'INFO',
+      });
+
+      /**
+       * ─── DETECÇÃO OU CRIAÇÃO DE CONVERSA ──────────────────────────────────────────────
+       * O sistema de proposta é integrado ao chat. Para que os dois usuários negociem,
+       * primeiro verificamos se já há uma conversa existente entre o comprador e o dono
+       * do imóvel referente a este anúncio. Se não houver, criamos uma nova na hora.
+       */
+      conversation = await prisma.conversation.findFirst({
+        where: {
+          propertyId: listingId,
+          participants: {
+            every: { id: { in: [userId, listing.ownerId] } }
+          }
+        }
+      });
+
+      if (!conversation) {
+        conversation = await prisma.conversation.create({
+          data: {
+            propertyId: listingId,
+            participants: {
+              connect: [{ id: userId }, { id: listing.ownerId }]
+            }
+          }
+        });
+      }
+
+      /**
+       * ─── CRIAÇÃO DA MENSAGEM ESPECIAL DE PROPOSTA ─────────────────────────────────────
+       * Em vez de uma mensagem de texto simples, criamos uma mensagem com o tipo
+       * `OFFER_REQUEST`. Os dados específicos da proposta (ID, valor, forma de pagamento)
+       * são serializados em JSON e salvos no campo "metadata" do banco.
+       * Isso permite ao app renderizar um card interativo com botões de "Aceitar" e "Recusar".
+       */
+      const message = await prisma.message.create({
+        data: {
+          content: `Proposta de Compra: R$ ${value.toLocaleString('pt-BR')} via ${paymentMethod}`,
+          type: 'OFFER_REQUEST',
+          metadata: JSON.stringify({ offerId: offer.id, value, paymentMethod }),
+          senderId: userId,
+          conversationId: conversation.id
+        },
+        include: { sender: { select: { id: true, name: true, avatar: true } } }
+      });
+
+      /**
+       * ─── EMISSÃO VIA WEBSOCKET EM TEMPO REAL ──────────────────────────────────────────
+       * Emitimos a mensagem criada para as salas individuais de ambos os participantes.
+       * Isso atualiza a tela de chat do comprador (mostrando a proposta dele como enviada)
+       * e do vendedor (mostrando o card interativo de proposta a ser aceito ou recusado).
+       */
+      try {
+        const io = getIO();
+        io.to(`room_${listing.ownerId}`).emit('receiveMessage', message);
+        io.to(`room_${userId}`).emit('receiveMessage', message);
+      } catch (e) {}
+
+      // Atualiza o updatedAt da conversa para fins de ordenação da inbox
+      await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { updatedAt: new Date() }
+      });
+    }
+
+    return reply.status(201).send({ offer, conversationId: conversation?.id });
+  } catch (error) {
+    console.error('Offer Creation Error:', error);
+    return reply.status(500).send({ error: 'Erro ao criar proposta.' });
+  }
+}
+
+export async function approveOffer(request: FastifyRequest, reply: FastifyReply) {
+  const { id } = request.params as { id: string };
+  const user = request.user as { id: string };
+
+  try {
+    // Busca a proposta e o imóvel associado
+    const offer = await prisma.offer.findUnique({
+      where: { id },
+      include: { listing: true }
+    });
+
+    if (!offer) return reply.status(404).send({ error: 'Proposta não encontrada.' });
+    // Garante que quem está aprovando é de fato o proprietário do imóvel anunciado
+    if (offer.listing.ownerId !== user.id) return reply.status(403).send({ error: 'Sem permissão.' });
+
+    // Atualiza o status da proposta para aceito
+    const updated = await prisma.offer.update({
+      where: { id },
+      data: { status: 'ACCEPTED' }
+    });
+
+    /**
+     * ─── FECHAMENTO DO IMÓVEL (MARCAÇÃO DE VENDA) ─────────────────────────────────────
+     * Quando uma proposta é aceita, o imóvel é marcado como 'SOLD' (Vendido).
+     * Isso impede novas propostas no mesmo anúncio e bloqueia novas conversações sobre ele.
+     */
+    await prisma.listing.update({
+      where: { id: offer.listingId },
+      data: { status: 'SOLD' }
+    });
+
+    // Envia notificação push para o comprador avisando que a proposta dele foi aceita
+    await sendNotification({
+      userId: offer.buyerId,
+      title: 'Proposta Aceita! 🎉',
+      message: `Sua proposta para o imóvel "${offer.listing.name}" foi aceita pelo proprietário.`,
+      type: 'INFO',
+    });
+
+    // Busca a conversa entre as partes para poder atualizar o histórico do chat
+    const conversation = await prisma.conversation.findFirst({
+      where: {
+        propertyId: offer.listingId,
+        participants: { every: { id: { in: [offer.buyerId, user.id] } } }
+      }
+    });
+
+    if (conversation) {
+      /**
+       * ─── ATUALIZAÇÃO DA MENSAGEM DO CHAT ──────────────────────────────────────────────
+       * Para refletir visualmente no histórico de chat que a proposta foi resolvida,
+       * atualizamos o tipo da mensagem original de `OFFER_REQUEST` para `OFFER_APPROVED`.
+       * O app do celular mudará a renderização do bubble ocultando os botões de ação e
+       * exibindo o selo de "Proposta Aceita".
+       */
+      await prisma.message.updateMany({
+        where: { conversationId: conversation.id, type: 'OFFER_REQUEST', metadata: { contains: id } },
+        data: { type: 'OFFER_APPROVED' }
+      });
+
+      // Cria uma nova mensagem de texto padrão notificando o fechamento do negócio
+      const message = await prisma.message.create({
+        data: {
+          content: `✅ O proprietário aceitou sua proposta de R$ ${offer.value.toLocaleString('pt-BR')} via ${offer.paymentMethod}!`,
+          type: 'TEXT',
+          senderId: user.id,
+          conversationId: conversation.id
+        },
+        include: { sender: { select: { id: true, name: true, avatar: true } } }
+      });
+
+      await prisma.conversation.update({ where: { id: conversation.id }, data: { updatedAt: new Date() } });
+
+      // Avisa ambos os clientes conectados via socket
+      try {
+        const io = getIO();
+        io.to(`room_${offer.buyerId}`).emit('receiveMessage', message);
+        io.to(`room_${user.id}`).emit('receiveMessage', message);
+      } catch (e) {}
+    }
+
+    return reply.send(updated);
+  } catch (error) {
+    console.error('Approve Offer Error:', error);
+    return reply.status(500).send({ error: 'Erro ao aprovar proposta.' });
+  }
+}
+
+export async function rejectOffer(request: FastifyRequest, reply: FastifyReply) {
+  const { id } = request.params as { id: string };
+  const user = request.user as { id: string };
+
+  try {
+    const offer = await prisma.offer.findUnique({
+      where: { id },
+      include: { listing: true }
+    });
+
+    if (!offer) return reply.status(404).send({ error: 'Proposta não encontrada.' });
+    if (offer.listing.ownerId !== user.id) return reply.status(403).send({ error: 'Sem permissão.' });
+
+    // Atualiza status da proposta para recusada (o anúncio segue livre para outras ofertas)
+    const updated = await prisma.offer.update({
+      where: { id },
+      data: { status: 'REJECTED' }
+    });
+
+    // Envia push de aviso ao comprador
+    await sendNotification({
+      userId: offer.buyerId,
+      title: 'Proposta Recusada',
+      message: `Sua proposta para o imóvel "${offer.listing.name}" foi recusada pelo proprietário.`,
+      type: 'INFO',
+    });
+
+    const conversation = await prisma.conversation.findFirst({
+      where: {
+        propertyId: offer.listingId,
+        participants: { every: { id: { in: [offer.buyerId, user.id] } } }
+      }
+    });
+
+    if (conversation) {
+      /**
+       * ─── ATUALIZAÇÃO DA MENSAGEM DO CHAT ──────────────────────────────────────────────
+       * Semelhante ao fluxo de aprovação, atualizamos o tipo da mensagem original para 
+       * `OFFER_REJECTED` para atualizar a interface visual do chat.
+       */
+      await prisma.message.updateMany({
+        where: { conversationId: conversation.id, type: 'OFFER_REQUEST', metadata: { contains: id } },
+        data: { type: 'OFFER_REJECTED' }
+      });
+
+      // Cria a mensagem de texto registrando a recusa
+      const message = await prisma.message.create({
+        data: {
+          content: `❌ O proprietário recusou a proposta de R$ ${offer.value.toLocaleString('pt-BR')} via ${offer.paymentMethod}.`,
+          type: 'TEXT',
+          senderId: user.id,
+          conversationId: conversation.id
+        },
+        include: { sender: { select: { id: true, name: true, avatar: true } } }
+      });
+
+      await prisma.conversation.update({ where: { id: conversation.id }, data: { updatedAt: new Date() } });
+
+      try {
+        const io = getIO();
+        io.to(`room_${offer.buyerId}`).emit('receiveMessage', message);
+        io.to(`room_${user.id}`).emit('receiveMessage', message);
+      } catch (e) {}
+    }
+
+    return reply.send(updated);
+  } catch (error) {
+    console.error('Reject Offer Error:', error);
+    return reply.status(500).send({ error: 'Erro ao recusar proposta.' });
+  }
+}

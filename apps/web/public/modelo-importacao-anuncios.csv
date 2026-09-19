@@ -1,0 +1,3 @@
+nome,descricao,preco,tipo,categoria,ciclo_cobranca,localizacao,quartos,banheiros,vagas,imagens
+Apartamento Centro,Apartamento reformado a 5 min do metrô,350000,apartamento,venda,,"São Paulo, SP",2,1,1,https://exemplo.com/foto1.jpg|https://exemplo.com/foto2.jpg
+Casa de Praia,Casa com vista para o mar,450,casa,aluguel,noite,"Guarujá, SP",3,2,2,https://exemplo.com/foto3.jpg

@@ -1,0 +1,127 @@
+.main {
+  max-width: 100%;
+  padding: 40px 48px 80px;
+}
+
+.title {
+  font-size: 32px;
+  font-weight: 850;
+  letter-spacing: -0.04em;
+  color: var(--foreground);
+  margin: 0 0 28px;
+}
+
+.empty {
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 500;
+  padding: 24px 0;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.item {
+  display: flex;
+  gap: 16px;
+  padding: 16px 20px;
+  border-radius: var(--radius-lg);
+  border: 1px solid transparent;
+  background: var(--card-bg);
+  box-shadow: var(--shadow-sm);
+  transition: var(--transition);
+}
+
+.item:hover {
+  transform: translateY(-1px);
+  border-color: var(--border-hover);
+  box-shadow: var(--shadow-md);
+}
+
+.avatar {
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-full);
+  object-fit: cover;
+  border: 1px solid var(--border);
+  background: #f1f5f9;
+  flex-shrink: 0;
+}
+
+.body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.name {
+  font-size: 15px;
+  font-weight: 750;
+  color: var(--foreground);
+  letter-spacing: -0.01em;
+}
+
+.time {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.preview {
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.propertyName {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+  margin-top: 2px;
+  opacity: 0.8;
+}
+
+.reportedBadge {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--error);
+  background: rgba(239, 68, 68, 0.08);
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.unreadBadge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-size: 11px;
+  font-weight: 800;
+  box-shadow: 0 2px 6px rgba(255, 56, 92, 0.2);
+}

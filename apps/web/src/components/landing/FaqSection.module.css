@@ -1,0 +1,46 @@
+.section {
+  padding: 0 0 88px;
+}
+
+.list {
+  max-width: 720px;
+  border-top: 1px solid var(--line);
+}
+
+.item {
+  border-bottom: 1px solid var(--line);
+}
+
+.question {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: none;
+  border: none;
+  padding: 20px 4px;
+  text-align: left;
+  font-size: 15.5px;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.chevron {
+  flex-shrink: 0;
+  color: var(--slate);
+  transition: transform 0.15s ease;
+}
+
+.chevronOpen {
+  transform: rotate(180deg);
+}
+
+.answer {
+  margin: 0;
+  padding: 0 28px 20px 4px;
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--slate);
+}

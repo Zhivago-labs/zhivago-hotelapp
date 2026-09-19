@@ -1,0 +1,133 @@
+.main {
+  max-width: 720px;
+  padding: 40px 48px 80px;
+}
+
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  margin-bottom: 20px;
+  transition: var(--transition);
+}
+
+.backLink:hover {
+  color: var(--foreground);
+}
+
+.restricted {
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.title {
+  font-size: 28px;
+  font-weight: 850;
+  letter-spacing: -0.03em;
+  color: var(--foreground);
+  margin: 0;
+}
+
+.subtitle {
+  font-size: 14px;
+  color: var(--muted);
+  margin: 4px 0 0;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.responseTime {
+  font-size: 12.5px;
+  color: var(--muted);
+  margin: 10px 0 0;
+}
+
+.listingLink {
+  display: inline-block;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 28px;
+}
+
+.listingLink:hover {
+  text-decoration: underline;
+}
+
+.section {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 20px;
+}
+
+.sectionTitle {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--foreground);
+  margin: 0 0 14px;
+}
+
+.plain {
+  font-size: 14px;
+  color: var(--foreground);
+  margin: 0;
+}
+
+.empty {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0;
+}
+
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.timelineItem {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.timelineType {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--foreground);
+}
+
+.timelineContent {
+  font-size: 13px;
+  color: var(--foreground);
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.timelineMeta {
+  font-size: 12px;
+  color: var(--muted);
+}

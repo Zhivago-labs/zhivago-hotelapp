@@ -1,0 +1,196 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 1rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+  padding: 0 0.25rem;
+}
+
+.monthTitle {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--foreground);
+}
+
+.navButtons {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.navButton {
+  background: var(--background);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 8px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.navButton:hover {
+  background: var(--hover-bg);
+  color: var(--foreground);
+}
+
+.weekdaysGrid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  text-align: center;
+  margin-bottom: 0.5rem;
+}
+
+.weekday {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.daysGrid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.dayCell {
+  position: relative;
+  aspect-ratio: 1;
+  border: none;
+  background: transparent;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--foreground);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  padding: 0;
+}
+
+.dayCell:hover:not(:disabled) {
+  background: var(--accent-light);
+  color: var(--accent);
+}
+
+.otherMonth {
+  opacity: 0.25;
+  pointer-events: none;
+}
+
+.pastDay {
+  color: #cbd5e1;
+  pointer-events: none;
+}
+
+.bookedDay {
+  background-color: #fee2e2 !important;
+  color: #dc2626 !important;
+  cursor: not-allowed;
+  opacity: 0.85;
+}
+
+.lockIcon {
+  position: absolute;
+  bottom: 3px;
+  color: #dc2626;
+}
+
+.startDay,
+.endDay {
+  background-color: var(--accent) !important;
+  color: #ffffff !important;
+  font-weight: 700;
+  border-radius: 10px;
+}
+
+.inRangeDay {
+  background-color: #ffe4e6 !important;
+  color: #e61e4d !important;
+  border-radius: 0;
+}
+
+.loadingBox {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 2.5rem 1rem;
+  color: #64748b;
+  font-size: 0.85rem;
+}
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid #e2e8f0;
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.warningText {
+  color: #dc2626;
+  font-size: 0.78rem;
+  margin-top: 0.5rem;
+  text-align: center;
+}
+
+.legendRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  margin-top: 0.85rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #f1f5f9;
+}
+
+.legendItem {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.73rem;
+  color: #64748b;
+}
+
+.legendDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.availableDot {
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+}
+
+.bookedDot {
+  background: #fee2e2;
+  border: 1px solid #fca5a5;
+}
+
+.selectedDot {
+  background: var(--accent);
+}

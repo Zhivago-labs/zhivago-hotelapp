@@ -1,0 +1,62 @@
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 480px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 20px;
+  margin-bottom: 32px;
+}
+
+.label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--foreground);
+}
+
+.input,
+.textarea {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--foreground);
+  background: var(--background);
+}
+
+.textarea {
+  min-height: 80px;
+  resize: vertical;
+}
+
+.radioRow {
+  display: flex;
+  gap: 16px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.submit {
+  align-self: flex-start;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent-contrast);
+  background: var(--accent);
+  border-radius: var(--radius-full);
+  padding: 8px 20px;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.submit:hover {
+  background: var(--accent-hover);
+}
+
+.success {
+  color: #22c55e;
+  font-size: 13px;
+  font-weight: 600;
+}

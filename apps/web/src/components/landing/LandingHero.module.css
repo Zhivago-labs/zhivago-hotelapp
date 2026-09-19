@@ -1,0 +1,380 @@
+.hero {
+  padding: 96px 0 72px;
+  position: relative;
+}
+
+.heroGrid {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 56px;
+  align-items: center;
+}
+
+@media (max-width: 880px) {
+  .heroGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  border-radius: 99px;
+  background: var(--paper-2);
+  border: 1px solid var(--sand);
+  font-size: 13px;
+  color: var(--coral-deep);
+  font-weight: 600;
+  margin-bottom: 28px;
+}
+
+.badge svg {
+  flex-shrink: 0;
+}
+
+.heroTitle {
+  font-family: var(--font-landing-serif), Georgia, serif;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-size: clamp(36px, 5.2vw, 60px);
+  line-height: 1.06;
+  color: var(--ink);
+  max-width: 15ch;
+  margin: 0;
+}
+
+.heroSub {
+  margin-top: 22px;
+  font-size: 18px;
+  line-height: 1.6;
+  color: var(--slate);
+  max-width: 46ch;
+}
+
+.heroActions {
+  margin-top: 22px;
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+/* ── busca real (form GET pra /imoveis) ── */
+
+.searchCard {
+  margin-top: 30px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: var(--shadow-premium, 0 12px 30px -10px rgba(18, 21, 28, 0.12));
+  display: flex;
+  align-items: stretch;
+  padding: 8px;
+  gap: 4px;
+  max-width: 660px;
+}
+
+@media (max-width: 720px) {
+  .searchCard {
+    flex-direction: column;
+    padding: 14px;
+    gap: 14px;
+  }
+}
+
+.searchField {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 14px;
+  min-width: 0;
+}
+
+.searchField label {
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--slate-light);
+}
+
+.searchField input,
+.searchField select {
+  border: none;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--ink);
+  padding: 0;
+  appearance: none;
+  cursor: pointer;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.searchField select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235b6472' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right center;
+  background-size: 13px;
+  padding-right: 20px;
+}
+
+.searchField input {
+  cursor: text;
+}
+
+.searchField input::placeholder {
+  color: var(--slate-light);
+  font-weight: 500;
+}
+
+.searchDivider {
+  width: 1px;
+  background: var(--line);
+  margin: 8px 0;
+}
+
+@media (max-width: 720px) {
+  .searchDivider {
+    display: none;
+  }
+}
+
+.searchSubmit {
+  flex-shrink: 0;
+  align-self: center;
+  background: var(--coral);
+  color: #fff;
+  border: none;
+  padding: 14px 22px;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  box-shadow: 0 8px 20px -6px rgba(255, 56, 92, 0.5);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.searchSubmit:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px -6px rgba(255, 56, 92, 0.6);
+}
+
+@media (max-width: 720px) {
+  .searchSubmit {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* ── card de imóvel (dado real, mais visto) ── */
+
+.heroVisual {
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+
+.propCard {
+  display: block;
+  width: 320px;
+  background: #fff;
+  border-radius: 20px;
+  box-shadow: 0 30px 60px -20px rgba(18, 21, 28, 0.25);
+  overflow: hidden;
+  transform: rotate(2.5deg);
+  opacity: 0;
+  animation: cardIn 0.8s cubic-bezier(0.2, 0.7, 0.3, 1) 0.15s forwards;
+  transition: transform 0.25s ease;
+}
+
+.propCard:hover {
+  transform: rotate(0deg) translateY(-2px);
+}
+
+.propCardEmpty {
+  width: 320px;
+  min-height: 260px;
+  background: var(--paper-2);
+  border: 1.5px dashed var(--sand);
+  border-radius: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--slate-light);
+  font-size: 13.5px;
+  font-weight: 600;
+  text-align: center;
+  padding: 24px;
+}
+
+@keyframes cardIn {
+  from {
+    opacity: 0;
+    transform: rotate(2.5deg) translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: rotate(2.5deg) translateY(0);
+  }
+}
+
+.propPhoto {
+  height: 190px;
+  background: linear-gradient(135deg, #ffd3dc 0%, #ffb0c2 40%, #ff8aa3 100%);
+  position: relative;
+  overflow: hidden;
+}
+
+.propImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.propFav {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+}
+
+.propBody {
+  padding: 18px 20px 20px;
+}
+
+.propLoc {
+  font-size: 12.5px;
+  color: var(--slate-light);
+  margin-bottom: 4px;
+}
+
+.propName {
+  font-family: var(--font-landing-serif), Georgia, serif;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.propMeta {
+  display: flex;
+  gap: 14px;
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: var(--slate);
+}
+
+.propMeta span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.propFoot {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.propPrice {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.propPrice small {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--slate-light);
+}
+
+.propStatus {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ok);
+  background: rgba(47, 158, 106, 0.12);
+  padding: 4px 9px;
+  border-radius: 99px;
+}
+
+.floatChip {
+  position: absolute;
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 14px 30px -10px rgba(18, 21, 28, 0.22);
+  padding: 11px 15px;
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  opacity: 0;
+  animation: chipIn 0.7s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+}
+
+@keyframes chipIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.chipMsg {
+  top: -6px;
+  right: -18px;
+  animation-delay: 0.55s;
+  color: var(--ink);
+}
+
+.chipMsg .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 99px;
+  background: var(--coral);
+}
+
+.chipVerify {
+  bottom: -16px;
+  left: -36px;
+  animation-delay: 0.8s;
+  color: var(--ok);
+}
+
+@media (max-width: 520px) {
+  .chipMsg,
+  .chipVerify {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .propCard,
+  .floatChip {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: rotate(2.5deg) !important;
+  }
+  .chipMsg,
+  .chipVerify {
+    transform: none !important;
+  }
+}

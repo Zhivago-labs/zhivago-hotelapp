@@ -1,0 +1,81 @@
+.assignForm {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.distributionForm {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.distributionLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.select {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.textarea {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  color: var(--foreground);
+  font-size: 13px;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 60px;
+}
+
+.input {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.submitButton {
+  align-self: flex-start;
+  padding: 7px 16px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  color: var(--accent-foreground, #fff);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.submitButton:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.submitButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.error {
+  color: var(--error, #ef4444);
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0;
+}

@@ -1,0 +1,140 @@
+.main {
+  min-height: 100vh;
+  background: #f8fafc;
+  padding: 2rem 1.5rem 4rem;
+}
+
+.container {
+  max-width: 960px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #64748b;
+  text-decoration: none;
+  transition: color 0.15s ease;
+  width: fit-content;
+  margin-bottom: 0.5rem;
+}
+
+.backLink:hover {
+  color: var(--accent);
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.title {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  font-size: 1.65rem;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0;
+}
+
+.titleIcon {
+  color: var(--accent);
+}
+
+.countBadge {
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  color: #e61e4d;
+  padding: 0.25rem 0.75rem;
+  border-radius: 20px;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.subtitle {
+  font-size: 0.92rem;
+  color: #64748b;
+  margin: 0;
+}
+
+.bookingsList {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.emptyCard {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
+  padding: 3.5rem 2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 1rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.03);
+}
+
+.emptyIconCircle {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: #fff1f2;
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+}
+
+.emptyTitle {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0;
+}
+
+.emptyText {
+  font-size: 0.92rem;
+  color: #64748b;
+  max-width: 480px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.exploreButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  padding: 0.75rem 1.5rem;
+  border-radius: 12px;
+  font-size: 0.92rem;
+  font-weight: 700;
+  text-decoration: none;
+  transition: all 0.15s ease;
+  margin-top: 0.5rem;
+  box-shadow: 0 4px 14px rgba(255, 56, 92, 0.2);
+}
+
+.exploreButton:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+}

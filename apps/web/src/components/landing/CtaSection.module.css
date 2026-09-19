@@ -1,0 +1,29 @@
+.ctaSection {
+  padding: 88px 0;
+  background: var(--paper);
+}
+
+.ctaCard {
+  max-width: 640px;
+  margin: 0 auto;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 28px;
+}
+
+.ctaCard h3 {
+  font-family: var(--font-landing-serif), Georgia, serif;
+  font-size: clamp(26px, 3.2vw, 34px);
+  font-weight: 600;
+  line-height: 1.2;
+  margin: 0;
+}
+
+.ctaActions {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  justify-content: center;
+}

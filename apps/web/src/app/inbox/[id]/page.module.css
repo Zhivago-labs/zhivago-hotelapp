@@ -1,0 +1,7 @@
+.main {
+  max-width: 100%;
+  padding: 24px 48px 0;
+  height: calc(100vh - 68px);
+  display: flex;
+  flex-direction: column;
+}

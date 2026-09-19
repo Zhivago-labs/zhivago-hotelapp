@@ -1,0 +1,219 @@
+.card {
+  position: relative;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  transition: var(--transition);
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-hover);
+}
+
+.image {
+  width: 100%;
+  aspect-ratio: 16 / 11;
+  object-fit: cover;
+  display: block;
+  background: #f1f5f9;
+}
+
+.statusBadge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  box-shadow: var(--shadow-sm);
+}
+
+.statusDot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+}
+
+.body {
+  padding: 16px;
+}
+
+.name {
+  font-size: 16px;
+  font-weight: 750;
+  color: var(--foreground);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.location {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 4px 0 0;
+  font-weight: 500;
+}
+
+.priceRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.oldPrice {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.price {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--accent);
+  margin: 0;
+}
+
+.discountTag {
+  font-size: 10px;
+  font-weight: 800;
+  background: var(--accent-light);
+  color: var(--accent);
+  border: 1px solid var(--accent-light-border);
+  padding: 2px 6px;
+  border-radius: var(--radius-full);
+}
+
+.discountBadge {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 4px 10px rgba(255, 56, 92, 0.3);
+  z-index: 3;
+}
+
+.metrics {
+  display: flex;
+  gap: 16px;
+  margin-top: 10px;
+}
+
+.metric {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.editButton,
+.deleteButton,
+.publishButton,
+.unpublishButton,
+.duplicateButton,
+.discountButton {
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: var(--radius-full);
+  padding: 6px 14px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: var(--transition);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  justify-content: center;
+}
+
+.editButton {
+  color: var(--accent);
+  border: 1.5px solid rgba(255, 56, 92, 0.4);
+  background: none;
+}
+
+.editButton:hover {
+  background: rgba(255, 56, 92, 0.06);
+  border-color: var(--accent);
+}
+
+.discountButton {
+  color: #8b5cf6;
+  border: 1.5px solid rgba(139, 92, 246, 0.4);
+  background: none;
+}
+
+.discountButton:hover {
+  background: rgba(139, 92, 246, 0.08);
+  border-color: #8b5cf6;
+}
+
+.deleteButton {
+  color: #ef4444;
+  border: 1.5px solid rgba(239, 68, 68, 0.4);
+  background: none;
+}
+
+.deleteButton:hover {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: #ef4444;
+}
+
+.publishButton {
+  color: #22c55e;
+  border: 1.5px solid rgba(34, 197, 94, 0.4);
+  background: none;
+}
+
+.publishButton:hover {
+  background: rgba(34, 197, 94, 0.08);
+  border-color: #22c55e;
+}
+
+.unpublishButton {
+  color: #64748b;
+  border: 1.5px solid rgba(100, 116, 139, 0.4);
+  background: none;
+}
+
+.unpublishButton:hover {
+  background: rgba(100, 116, 139, 0.08);
+  border-color: #64748b;
+}
+
+.duplicateButton {
+  color: var(--muted);
+  border: 1.5px solid var(--border);
+  background: none;
+}
+
+.duplicateButton:hover {
+  color: var(--foreground);
+  border-color: var(--border-hover);
+  background: rgba(15, 23, 42, 0.02);
+}

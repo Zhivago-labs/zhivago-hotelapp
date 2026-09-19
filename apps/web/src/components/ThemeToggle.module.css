@@ -1,0 +1,89 @@
+.button {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  color: var(--foreground);
+  border-radius: var(--radius-full);
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: var(--transition);
+  padding: 0;
+  box-shadow: var(--shadow-sm);
+}
+
+.button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  transform: scale(1.05);
+}
+
+.sunIcon {
+  color: #f59e0b;
+}
+
+.menuItemButton {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--foreground);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-family: inherit;
+  transition: var(--transition);
+}
+
+.menuItemButton:hover {
+  background: rgba(15, 23, 42, 0.04);
+  color: var(--accent);
+}
+
+.menuItemLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.menuItemLeft svg {
+  color: var(--muted);
+  transition: var(--transition);
+}
+
+.menuItemButton:hover .menuItemLeft svg {
+  color: var(--accent);
+}
+
+.switchBadge {
+  width: 34px;
+  height: 18px;
+  border-radius: 12px;
+  background: #cbd5e1;
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  transition: all 0.2s ease;
+}
+
+.switchBadgeActive {
+  background: var(--accent);
+}
+
+.switchDot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #ffffff;
+  transition: transform 0.2s ease;
+}
+
+.switchBadgeActive .switchDot {
+  transform: translateX(16px);
+}

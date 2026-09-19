@@ -1,0 +1,472 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  // Em produção (Neon), DATABASE_URL é a connection string com pooling (host "-pooler") usada pelo
+  // app em runtime, e DIRECT_URL é a conexão direta (sem pooler) usada só por `prisma migrate` —
+  // sem isso, migrations podem falhar contra o pooler do Neon. Em dev local, sem Neon, as duas
+  // env vars podem apontar pro mesmo Postgres local (ver .env.example).
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─── USUÁRIO ─────────────────────────────────────────────────────────────────
+
+model User {
+  id           String     @id @default(uuid())
+  name         String
+  email        String     @unique
+  passwordHash String
+  phone        String?
+  avatar       String?
+  role         String     @default("USER")    // "USER" | "ADMIN"
+  status       String     @default("ACTIVE")  // "ACTIVE" | "SUSPENDED" | "BANNED"
+  createdAt    DateTime   @default(now())
+  resetToken       String?
+  resetTokenExpiry DateTime?
+
+  // Segurança: contador de versão de token — incrementado em cada ação que deve
+  // invalidar sessões existentes (ban, troca de role, troca de senha, etc.).
+  // O JWT carrega o tokenVersion no momento da emissão; o middleware compara com
+  // o valor atual do banco e rejeita tokens desatualizados.
+  tokenVersion Int @default(0)
+
+  // Segurança: contador de tentativas falhas de OTP de reset de senha.
+  // Resetado ao gerar novo OTP ou ao acertar. Bloqueado ao atingir limite.
+  resetAttempts Int @default(0)
+
+  accountType String  @default("INDIVIDUAL") // "INDIVIDUAL" | "AGENCY"
+  document    String? // CPF ou CNPJ
+  creci       String? // registro CRECI do corretor/imobiliária
+  companyName String? // nome fantasia, exibido na vitrine pública
+  logoUrl     String?
+  verified    Boolean @default(false) // aprovado pelo admin
+
+  listings         Listing[]      @relation("ListingOwner")
+  assignedListings Listing[]      @relation("ListingAgent")
+  reviews       Review[]
+  bookings      Booking[]
+  conversations Conversation[] @relation("ConversationParticipants")
+  messages      Message[]
+  notifications Notification[]
+  offers        Offer[]
+  devices       UserDevice[]
+
+  // B2B (Organization/OrganizationMember) — v1: um usuário pertence a no máximo uma organização
+  // ativa, daí @unique em OrganizationMember.userId; elimina a necessidade de um conceito de
+  // "organização ativa" na sessão/JWT. Documentado como escolha de V1, não limite definitivo —
+  // ver docs/crm-b2b-organizacoes-leads.md, seção "Multi-organização".
+  organizationMembership OrganizationMember?
+  leads                  Lead[]
+  adminActionLogs        AdminActionLog[]
+
+  @@index([status])
+  @@index([role])
+  @@index([accountType])
+}
+
+// ─── IMÓVEL ──────────────────────────────────────────────────────────────────
+
+model Listing {
+  id           String   @id @default(uuid())
+  name         String
+  description  String?
+  price        Float
+  originalPrice Float?
+  type         String   // "casa" | "apartamento"
+  category     String   // "aluguel" | "venda"
+  billingCycle String?  // "noite" | "mês"
+  location     String
+
+  bedrooms     Int      @default(0)
+  bathrooms    Int      @default(0)
+  parking      Int      @default(0)
+  amenities    String?  // JSON stringified array of selected amenity keys/names
+
+  // Regras da casa, segurança e cancelamento
+  checkInTime        String?  @default("15:00")
+  checkOutTime       String?  @default("11:00")
+  customMaxGuests    Int?
+  houseRules         String?  // JSON stringified object
+  safetyItems        String?  // JSON stringified object
+  cancellationPolicy String?  @default("FLEXIBLE") // "FLEXIBLE" | "MODERATE" | "STRICT"
+
+  // Status de moderação pelo admin / ciclo de vida do dono
+  // SEGURANÇA: default alterado de "APPROVED" para "PENDING" — novos anúncios
+  // entram em moderação, não ficam públicos automaticamente.
+  status       String   @default("PENDING") // "DRAFT" | "PENDING" | "APPROVED" | "REJECTED" | "REMOVED" | "SOLD"
+  rejectReason String?
+
+  viewCount    Int      @default(0)
+
+  ownerId      String?
+  owner        User?    @relation("ListingOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  agentId      String?
+  agent        User?    @relation("ListingAgent", fields: [agentId], references: [id], onDelete: SetNull)
+
+  reviews       Review[]
+  bookings      Booking[]
+  conversations Conversation[]
+  offers        Offer[]
+  images        ListingImage[]
+  leads         Lead[]
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([status])
+  @@index([ownerId])
+  @@index([organizationId])
+  @@index([agentId])
+  @@index([category])
+  @@index([type])
+}
+
+// ─── IMAGENS DO IMÓVEL ───────────────────────────────────────────────────────
+
+model ListingImage {
+  id        String   @id @default(uuid())
+  url       String
+  order     Int      @default(0)
+
+  listingId String
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([listingId])
+}
+
+// ─── AVALIAÇÕES (Apenas para Aluguel) ────────────────────────────────────────
+
+model Review {
+  id        String   @id @default(uuid())
+  rating    Int      // 1 a 5
+  comment   String?
+
+  listingId String
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([listingId])
+  @@index([userId])
+}
+
+// ─── RESERVAS (Apenas para Aluguel) ──────────────────────────────────────────
+
+model Booking {
+  id        String   @id @default(uuid())
+  startDate DateTime
+  endDate   DateTime
+  status    String   @default("PENDING") // "PENDING" | "CONFIRMED" | "CANCELLED" | "REJECTED"
+
+  // Preço travado no momento da reserva — nunca recalculado a partir de Listing.price depois.
+  // Corrige o bug de desconto retroativo: mudar o desconto do anúncio não pode alterar o valor
+  // de uma reserva já feita. discountedPrice é um desconto pontual que o dono aplica só nesta
+  // reserva (distinto do desconto do anúncio); quando presente, prevalece sobre `price`.
+  price           Float?
+  discountedPrice Float?
+
+  listingId String
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([listingId, status])
+  @@index([userId])
+}
+
+// ─── CHAT ────────────────────────────────────────────────────────────────────
+
+model Conversation {
+  id           String    @id @default(uuid())
+
+  propertyId   String
+  property     Listing   @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  participants User[]    @relation("ConversationParticipants")
+  messages     Message[]
+
+  isReported   Boolean   @default(false)
+  isClosed     Boolean   @default(false)
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([propertyId])
+}
+
+model Message {
+  id             String       @id @default(uuid())
+  content        String
+  type           String       @default("TEXT") // "TEXT" | "BOOKING_REQUEST"
+  metadata       String?      // JSON string for extra data like bookingId
+
+  senderId       String
+  sender         User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  isRead         Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+
+  @@index([conversationId])
+  @@index([senderId])
+}
+
+// ─── NOTIFICATIONS ───────────────────────────────────────────────────────────
+
+model Notification {
+  id        String   @id @default(uuid())
+  title     String
+  message   String
+  type      String   @default("INFO") // "INFO" | "MESSAGE" | "BOOKING" | "SYSTEM"
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead])
+}
+
+// ─── DISPOSITIVOS PARA PUSH (multiplataforma) ────────────────────────────────
+
+model UserDevice {
+  id        String   @id @default(uuid())
+  platform  String   // "IOS" | "ANDROID" | "WEB"
+  token     String
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, platform])
+}
+
+// ─── B2B: ORGANIZAÇÕES (imobiliárias com time — CRM, ver docs/crm-b2b-organizacoes-leads.md) ──
+// Evoluído de `Company`/`CompanyMember` (Fase B) em 2026-08-30: mesma tabela, papéis e convite
+// ampliados — não é um modelo novo e paralelo, é o mesmo conceito reforçado.
+
+model Organization {
+  id       String @id @default(uuid())
+  name     String
+  type     String @default("AGENCY") // "AGENCY" | "INDIVIDUAL" — reservado p/ CONSTRUTORA, INCORPORADORA no futuro
+  document String // CNPJ
+
+  email       String?
+  phone       String?
+  logo        String?
+  description String?
+
+  verified Boolean @default(false)
+
+  // Distribuição de leads (CRM, Fase 2): "MANUAL" (padrão) ou "ROUND_ROBIN" — "SMART" reservado,
+  // não implementado. leadRoundRobinCursor guarda o último OrganizationMember que recebeu um lead
+  // (só relevante em modo ROUND_ROBIN).
+  leadDistributionMode String  @default("MANUAL")
+  leadRoundRobinCursor String?
+
+  members  OrganizationMember[] @relation("OrganizationMembers")
+  invites  OrganizationInvite[]
+  listings Listing[]
+  leads    Lead[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model OrganizationMember {
+  id     String @id @default(uuid())
+  role   String @default("BROKER") // "OWNER" | "ADMIN" | "MANAGER" | "BROKER"
+  status String @default("ACTIVE") // "ACTIVE" | "INACTIVE" — sem "INVITED": membro só existe após aceitar convite
+
+  // Opt-out de receber leads (só relevante para BROKER/MANAGER, os papéis elegíveis pra
+  // distribuição). Bloqueado pelo backend se for o último elegível ativo da organização —
+  // sempre precisa sobrar alguém que possa receber.
+  receiveLeads Boolean @default(true)
+
+  userId String @unique // v1: um usuário pertence a no máximo uma organização (ver User.organizationMembership)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  organizationId String
+  organization   Organization @relation("OrganizationMembers", fields: [organizationId], references: [id], onDelete: Cascade)
+
+  leadAssignments  LeadAssignment[]
+  leadInteractions LeadInteraction[]
+  visits           Visit[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+}
+
+// Caminho único de ingresso numa organização: sempre passa por aqui, exista ou não o `User` no
+// momento do convite. Um `OrganizationMember` só é criado quando o convite é aceito.
+model OrganizationInvite {
+  id             String @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  email      String
+  role       String // papel que o convidado terá ao aceitar
+  invitedBy  String // userId de quem convidou
+
+  token      String    @unique
+  expiresAt  DateTime
+  acceptedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId])
+  @@index([email])
+}
+
+// ─── CRM B2B: LEADS (Fase 2, ver docs/crm-b2b-organizacoes-leads.md) ──────────
+// Um Lead nasce quando um usuário demonstra interesse (hoje: abre uma Conversation) num imóvel
+// de organização. Só existe para Listing.organizationId preenchido — imóvel de pessoa física
+// continua só com o chat existente, sem CRM.
+
+model Lead {
+  id     String @id @default(uuid())
+  status String @default("NEW") // NEW|CONTACTED|QUALIFIED|VISIT_SCHEDULED|PROPOSAL|NEGOTIATION|WON|LOST
+  source String @default("CHAT") // hoje só "CHAT"; futuro: "SITE_FORM", "WHATSAPP", etc.
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  listingId String
+  listing   Listing @relation(fields: [listingId], references: [id])
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  assignments  LeadAssignment[]
+  interactions LeadInteraction[]
+  visits       Visit[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, status])
+  @@index([listingId])
+  @@index([userId])
+}
+
+// Histórico de atribuição de um Lead a um corretor (OrganizationMember, nunca User direto —
+// garante que o corretor pertence à organização do Lead). Nunca sobrescrito: reatribuir fecha
+// (unassignedAt) a linha aberta e cria uma nova. Sem currentAssignmentId em Lead — otimização
+// prematura, "WHERE leadId = X AND unassignedAt IS NULL" resolve no MVP.
+model LeadAssignment {
+  id     String @id @default(uuid())
+  leadId String
+  lead   Lead   @relation(fields: [leadId], references: [id])
+
+  brokerId String
+  broker   OrganizationMember @relation(fields: [brokerId], references: [id])
+
+  assignedBy String? // OrganizationMember que atribuiu manualmente; null = round robin automático
+
+  assignedAt     DateTime  @default(now())
+  firstContactAt DateTime? // preenchido na 1ª LeadInteraction — base de SLA, Fase 4
+  unassignedAt   DateTime?
+  reason         String?
+
+  @@index([leadId])
+  @@index([brokerId])
+}
+
+// Log de contato com o cliente (Fase 3). STATUS_CHANGE é reservado ao sistema — nunca escolhível
+// manualmente no endpoint de criação, só gerado automaticamente quando Lead.status muda.
+model LeadInteraction {
+  id     String @id @default(uuid())
+  leadId String
+  lead   Lead   @relation(fields: [leadId], references: [id])
+
+  memberId String // OrganizationMember que registrou a interação
+  member   OrganizationMember @relation(fields: [memberId], references: [id])
+
+  type    String // PHONE_CALL|WHATSAPP|EMAIL|NOTE|VISIT|STATUS_CHANGE
+  content String?
+
+  createdAt DateTime @default(now())
+
+  @@index([leadId])
+}
+
+// Agendamento estruturado de visita (Fase 3). listingId não é duplicado aqui — deriva de
+// lead.listingId, evitando uma segunda fonte de verdade (mesma decisão já registrada no doc).
+model Visit {
+  id     String @id @default(uuid())
+  leadId String
+  lead   Lead   @relation(fields: [leadId], references: [id])
+
+  brokerId String
+  broker   OrganizationMember @relation(fields: [brokerId], references: [id])
+
+  scheduledAt DateTime
+  status      String   @default("SCHEDULED") // SCHEDULED|CONFIRMED|COMPLETED|CANCELLED|NO_SHOW
+  notes       String?
+
+  createdAt DateTime @default(now())
+
+  @@index([leadId])
+}
+
+// ─── LOG DE AÇÕES DO ADMIN (auditoria) ───────────────────────────────────────
+
+model AdminActionLog {
+  id     String @id @default(uuid())
+  adminId String
+  admin   User  @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  action     String  // USER_STATUS_CHANGE | USER_ROLE_CHANGE | USER_VERIFY | ORG_VERIFY |
+                      // LISTING_APPROVE | LISTING_REJECT | LISTING_PENDING | LISTING_DELETE |
+                      // BOOKING_FORCE_CANCEL | REVIEW_DELETE | MASS_NOTIFICATION
+  targetType String  // USER | ORGANIZATION | LISTING | BOOKING | REVIEW | BROADCAST
+  targetId   String?
+  reason     String?
+  metadata   Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([adminId])
+  @@index([targetType, targetId])
+  @@index([createdAt])
+}
+
+// ─── PROPOSTAS DE COMPRA (Apenas para Venda) ──────────────────────────────────
+
+model Offer {
+  id            String   @id @default(uuid())
+  value         Float    // Valor proposto pelo comprador
+  paymentMethod String   // Método de pagamento
+  status        String   @default("PENDING") // "PENDING" | "ACCEPTED" | "REJECTED" | "CANCELLED"
+
+  listingId     String
+  listing       Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  buyerId       String
+  buyer         User     @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+
+  createdAt     DateTime @default(now())
+
+  @@index([listingId])
+  @@index([buyerId])
+}

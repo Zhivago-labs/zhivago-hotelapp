@@ -1,0 +1,122 @@
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: rgba(251, 247, 241, 0.88);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+
+.navInner {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 18px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.logo {
+  font-family: var(--font-landing-serif), Georgia, serif;
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.logo span {
+  color: var(--coral);
+}
+
+.navLinks {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  font-size: 15px;
+  color: var(--slate);
+}
+
+.navLink {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.navLink:hover {
+  color: var(--ink);
+}
+
+.navCta {
+  background: var(--coral);
+  color: #fff;
+  padding: 9px 18px;
+  border-radius: 99px;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 4px 14px -4px rgba(255, 56, 92, 0.5);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.navCta:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px -4px rgba(255, 56, 92, 0.6);
+}
+
+.menuToggle {
+  display: none;
+  background: none;
+  border: none;
+  color: var(--ink);
+  padding: 4px;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── mobile: esconde os links de âncora da barra e mostra o botão de menu ── */
+
+@media (max-width: 720px) {
+  .navLink {
+    display: none;
+  }
+
+  .menuToggle {
+    display: flex;
+  }
+}
+
+.mobilePanel {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .mobilePanel[data-open="true"] {
+    display: flex;
+    flex-direction: column;
+    padding: 4px 20px 14px;
+    border-top: 1px solid var(--line);
+  }
+
+  .mobilePanel a,
+  .mobilePanel button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    padding: 13px 0;
+    font-size: 15px;
+    font-weight: 550;
+    color: var(--ink);
+    cursor: pointer;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .mobilePanel a:last-child,
+  .mobilePanel button:last-child {
+    border-bottom: none;
+  }
+}

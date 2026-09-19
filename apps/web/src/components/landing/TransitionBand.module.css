@@ -1,0 +1,24 @@
+.transition {
+  background: var(--ink);
+  color: var(--paper);
+  padding: 88px 0 0;
+  text-align: left;
+}
+
+.transition h2 {
+  font-family: var(--font-landing-serif), Georgia, serif;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-size: clamp(28px, 4vw, 44px);
+  line-height: 1.15;
+  max-width: 16ch;
+  margin: 0;
+}
+
+.transition p {
+  margin-top: 18px;
+  font-size: 17px;
+  color: #b9bfca;
+  max-width: 52ch;
+  line-height: 1.6;
+}

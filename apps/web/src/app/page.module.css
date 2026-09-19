@@ -1,0 +1,53 @@
+/*
+ * Paleta e espaçamentos exclusivos da landing page — deliberadamente distintos dos tokens
+ * globais (--accent, --foreground, --background...) usados no restante do app. Ficam
+ * escopados a `.landingRoot` (não `:root`) para não vazar pra nenhuma outra rota; os
+ * componentes em `components/landing/*` herdam essas variáveis por cascata do DOM.
+ */
+.landingRoot {
+  --ink: #12151c;
+  --ink-soft: #1c212c;
+  --paper: #fbf7f1;
+  --paper-2: #f3ecdf;
+  --coral: #ff385c;
+  --coral-deep: #c41e3a;
+  --slate: #5b6472;
+  --slate-light: #8891a0;
+  --sand: #e7ddc9;
+  --line: rgba(18, 21, 28, 0.1);
+  --line-dark: rgba(251, 247, 241, 0.14);
+  --ok: #2f9e6a;
+  --warn: #d98a1f;
+  --bad: #e5484d;
+  --neutral: #7c8794;
+
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-landing-sans), system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+.landingRoot :where(h1, h2, h3) {
+  font-family: var(--font-landing-serif), Georgia, serif;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.landingRoot :focus-visible {
+  outline: 2px solid var(--coral-deep);
+  outline-offset: 3px;
+}
+
+.wrap {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 32px;
+}
+
+@media (max-width: 640px) {
+  .wrap {
+    padding: 0 20px;
+  }
+}

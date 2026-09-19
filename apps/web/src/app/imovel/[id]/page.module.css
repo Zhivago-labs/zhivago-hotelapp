@@ -1,0 +1,390 @@
+.main {
+  max-width: 100%;
+  padding: 32px 48px 140px;
+}
+
+.similarSection {
+  margin-top: 40px;
+  padding-top: 32px;
+  border-top: 1px solid var(--border);
+}
+
+.similarTitle {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--foreground);
+  margin: 0 0 20px;
+}
+
+.similarGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 24px;
+}
+
+.gallerySection {
+  position: relative;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-md);
+  margin-bottom: 32px;
+}
+
+.backButton {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-full);
+  background: var(--card-bg);
+  color: var(--foreground);
+  box-shadow: var(--shadow-md);
+  transition: var(--transition);
+}
+
+.backButton:hover {
+  background: var(--card-bg);
+  transform: scale(1.05);
+}
+
+.soldBadge {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: var(--foreground);
+  color: var(--card-bg);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+}
+
+.contentGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 32px;
+}
+
+@media (min-width: 1024px) {
+  .contentGrid {
+    grid-template-columns: 1.6fr 1fr;
+    align-items: start;
+  }
+  .main {
+    padding-bottom: 64px;
+  }
+}
+
+.mainContent {
+  display: flex;
+  flex-direction: column;
+}
+
+.name {
+  font-size: 28px;
+  font-weight: 850;
+  letter-spacing: -0.03em;
+  color: var(--foreground);
+  line-height: 1.25;
+  margin: 0 0 6px;
+}
+
+.location {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--muted);
+  margin: 0;
+}
+
+.subtitleSpecs {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--muted);
+  margin: 6px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.bulletDot {
+  display: inline-block;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 24px 0;
+}
+
+.ownerCard {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.ownerAvatar {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  border: 1.5px solid var(--border);
+  background: #f1f5f9;
+  flex-shrink: 0;
+}
+
+.ownerAvatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ownerInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.ownerLink {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.ownerLink:hover {
+  text-decoration: underline;
+}
+
+.sectionTitle {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--foreground);
+  margin: 0 0 16px;
+  letter-spacing: -0.02em;
+}
+
+.amenitiesGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.amenityBox {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #475569;
+  background: var(--card-bg);
+  transition: var(--transition);
+}
+
+.amenityBox:hover {
+  border-color: var(--border-hover);
+  box-shadow: var(--shadow-sm);
+}
+
+.amenityBox svg {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.description {
+  line-height: 1.7;
+  font-size: 15px;
+  color: #334155;
+  white-space: pre-wrap;
+  margin: 0;
+}
+
+/* Sidebar para Desktop */
+.sidebar {
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  .sidebar {
+    display: block;
+  }
+}
+
+.stickyCard {
+  position: sticky;
+  top: 96px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 28px;
+  box-shadow: var(--shadow-premium);
+}
+
+.priceSection {
+  margin-bottom: 24px;
+}
+
+.priceLabel {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.priceValue {
+  font-size: 26px;
+  font-weight: 850;
+  color: var(--accent);
+  margin: 0;
+  letter-spacing: -0.02em;
+  display: inline-block;
+}
+
+.oldPriceDetail {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--muted);
+  text-decoration: line-through;
+  display: block;
+  margin-bottom: 2px;
+}
+
+.discountBadgeDetail {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 850;
+  background: var(--accent-light);
+  color: var(--accent);
+  border: 1px solid var(--accent-light-border);
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.priceSuffix {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+  display: inline-block;
+  margin-left: 4px;
+}
+
+.sidebarActions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.whatsappButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 48px;
+  padding: 0 24px;
+  border-radius: var(--radius-full);
+  background: #25d366;
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 15px;
+  transition: var(--transition);
+  box-shadow: 0 4px 12px rgba(37, 211, 102, 0.15);
+}
+
+.whatsappButton:hover {
+  background: #20ba59;
+  box-shadow: 0 6px 16px rgba(37, 211, 102, 0.25);
+  transform: translateY(-1px);
+}
+
+.chatButtonLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 48px;
+  padding: 0 24px;
+  border-radius: var(--radius-full);
+  background: var(--foreground);
+  color: var(--card-bg);
+  font-weight: 700;
+  font-size: 15px;
+  transition: var(--transition);
+  box-shadow: var(--shadow-md);
+}
+
+.chatButtonLink:hover {
+  background: #020617;
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-lg);
+}
+
+.chatButtonDisabled {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 48px;
+  padding: 0 24px;
+  border-radius: var(--radius-full);
+  background: #e2e8f0;
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 15px;
+  cursor: not-allowed;
+}
+
+/* Footer Fixo Mobile */
+.footer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--card-bg);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.08);
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  z-index: 99;
+}
+
+@media (min-width: 1024px) {
+  .footer {
+    display: none;
+  }
+}
+
+.footerActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.footer .whatsappButton,
+.footer .chatButtonDisabled {
+  height: 44px;
+  padding: 0 18px;
+  font-size: 14px;
+}

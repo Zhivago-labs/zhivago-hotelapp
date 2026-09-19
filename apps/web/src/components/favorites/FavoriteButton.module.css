@@ -1,0 +1,51 @@
+.button {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  color: #475569;
+  padding: 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.button:hover {
+  transform: scale(1.1);
+  background: #ffffff;
+  color: var(--accent);
+}
+
+.active {
+  background: #ffffff;
+  color: var(--accent) !important;
+  box-shadow: 0 4px 12px rgba(255, 56, 92, 0.25);
+}
+
+.heartOutline {
+  stroke-width: 2;
+  transition: stroke 0.2s ease;
+}
+
+.heartFilled {
+  fill: var(--accent);
+  stroke: var(--accent);
+  animation: heartPulse 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes heartPulse {
+  0% {
+    transform: scale(0.6);
+  }
+  50% {
+    transform: scale(1.25);
+  }
+  100% {
+    transform: scale(1);
+  }
+}

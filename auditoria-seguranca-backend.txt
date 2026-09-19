@@ -1,0 +1,833 @@
+===============================================================================
+AUDITORIA DE SEGURANCA - BACKEND E API (apps/server) - Zhivago / hotelapp
+===============================================================================
+
+>>> ACHADO URGENTE - ACAO IMEDIATA RECOMENDADA <<<
+
+Durante o mapeamento encontrei DOIS SEGREDOS REAIS COMMITADOS NO HISTORICO DO
+GIT (repo Zhivago-labs/zhivago-hotelapp no GitHub):
+
+1. server/prisma/seed.ts (historico) contem e-mail e senha reais em texto
+   puro de uma conta ADMIN (fabiodemelo123s@outlook.com / senha em claro
+   no codigo).
+
+2. server/prisma/prisma/dev.db (historico) e um dump SQLite real com a
+   tabela User completa - 6 usuarios reais, incluindo e-mails pessoais
+   (maria123@gmail.com, luizlopes12@gmail.com, luanatostes407@gmail.com,
+   etc.) e os hashes bcrypt de senha de todos eles.
+
+Recomendacao: trocar essa senha de admin onde for reaproveitada, e tratar o
+historico do Git como comprometido (precisara ser reescrito/purgado se o
+repositorio for ou vier a ser publico, ou se colaboradores externos tiveram
+acesso).
+
+===============================================================================
+1. MAPEAMENTO DA SUPERFICIE DE ATAQUE
+===============================================================================
+
+Stack: Fastify 5 + @fastify/jwt + Prisma (SQLite) + Socket.io, em
+apps/server/src.
+
+Endpoint                              | Metodo   | Auth          | Autorizacao              | Dados acessados                    | Risco
+---------------------------------------------------------------------------------------------------------------------------------------------------
+/auth/register                        | POST     | Publica       | -                        | cria User                          | Medio
+/auth/login                           | POST     | Publica       | -                        | User                               | Alto (sem rate limit)
+/auth/me                              | GET/PATCH| JWT           | proprio                 | User                                | Baixo
+/auth/password                        | PATCH    | JWT           | proprio                 | User.passwordHash                  | Baixo
+/auth/forgot-password                 | POST     | Publica       | -                        | gera OTP                           | Alto (sem rate limit)
+/auth/reset-password                  | POST     | Publica       | -                        | OTP 6 digitos                      | Critico (brute-force)
+/listings, /listings/:id              | GET      | Publica/JWT op| status-based             | Listing+owner(email/phone)         | Alto (exposicao)
+/listings                             | POST     | JWT           | -                        | cria Listing                       | Alto (self-approve)
+/listings/:id                         | PUT      | JWT           | owner/company            | Listing                            | Alto (self-approve)
+/listings/:id                         | DELETE   | JWT           | owner/admin/company OWNER| Listing                            | Baixo
+/listings/:id/duplicate               | POST     | JWT           | owner/admin/company      | Listing                            | Baixo
+/listings/import                      | POST     | JWT           | accountType AGENCY       | Listing[]                          | Medio
+/listings/:id/agent                   | PATCH    | JWT           | company OWNER            | Listing                            | Baixo
+/me/listings                          | GET      | JWT           | proprio (ownerId)        | Listing[]                          | Baixo
+/admin/* (stats,users,companies,list.)| GET/PATCH/DELETE | JWT+role ADMIN | funcao         | User/Company/Listing               | Alto (role no JWT stale)
+/users/:id                            | GET      | Publica       | -                        | User (phone!) + Listing + Review   | Alto (exposicao PII)
+/users/me/*                           | GET/PATCH| JWT           | proprio                 | stats/bookings/push-token           | Baixo
+/listings/:id/reviews                 | POST     | JWT           | precisa booking CONFIRMED| Review                             | Baixo
+/listings/:id/reviews                 | GET      | Publica       | -                        | Review                             | Informativo
+/listings/:id/bookings                | POST     | JWT           | -                        | Booking                            | Medio (race condition)
+/listings/:id/bookings                | GET      | Publica       | -                        | datas CONFIRMED apenas              | Informativo
+/bookings/:id/approve|reject          | PATCH    | JWT           | listing.ownerId          | Booking                            | Medio
+/bookings/:id/cancel                  | PATCH    | JWT           | guest ou owner           | Booking                            | Baixo
+/conversations                        | GET/POST | JWT           | participante (ou admin)  | Conversation                       | Baixo
+/conversations/:id                    | GET      | JWT           | participante/admin       | Conversation+property              | Baixo
+/conversations/:id/messages           | GET      | JWT           | participante/admin       | Message[]                          | Baixo
+/conversations/:id/read               | PATCH    | JWT           | NENHUMA!                 | Message.isRead                     | Medio (IDOR)
+/conversations/:id/report             | PATCH    | JWT           | property.ownerId         | Conversation                       | Baixo
+/conversations/:id/close|reopen       | PATCH    | JWT+role ADMIN| funcao                   | Conversation                       | Baixo
+/offers/:id/approve|reject            | PATCH    | JWT           | listing.ownerId          | Offer+Listing                      | Baixo
+/companies                            | POST     | JWT           | accountType AGENCY       | Company                            | Baixo
+/companies/me                         | GET      | JWT           | proprio                 | Company                            | Baixo
+/companies/members                    | POST     | JWT           | company OWNER            | CompanyMember                      | Baixo
+/companies/listings                   | GET      | JWT           | company OWNER            | Listing[]                          | Baixo
+/companies/my-assigned-listings       | GET      | JWT           | membro                   | Listing[]                          | Baixo
+/notifications*                       | GET/PUT  | JWT           | proprio (checado)        | Notification                       | Baixo
+/uploads/*                            | GET (static) | Publica   | -                        | arquivos de imagem                 | Informativo
+/hello                                 | GET      | Publica       | -                        | health check                       | Informativo
+socket "sendMessage"                  | WS event | JWT no handshake | participante          | Message                            | Medio (sem re-check de status)
+
+Nao encontrei endpoints de debug/teste expostos via HTTP (o check-bookings.ts
+e o k6.js sao scripts locais, nao rotas), nem versoes antigas de API
+paralelas.
+
+===============================================================================
+VULNERABILIDADES DETALHADAS
+===============================================================================
+
+-------------------------------------------------------------------------------
+[CRIT-1] Banco de dados real (com hashes de senha) commitado no Git
+-------------------------------------------------------------------------------
+Severidade: Critica
+Categoria: Secrets/Sensitive Data Exposure (API Design/Configuration)
+Localizacao: server/prisma/prisma/dev.db (historico do Git, commits 6aecbd7
+e 0a72d3b)
+
+Problema: O arquivo SQLite usado como banco de dados foi commitado no
+repositorio antes de existir a regra .gitignore. Confirmei ao extrair o blob
+do historico que ele contem a tabela User com 6 registros reais (e-mails
+pessoais + passwordHash bcrypt de cada um) alem de Listing, Booking, Review,
+Message, Conversation.
+
+Por que e vulneravel: Qualquer pessoa com acesso de leitura ao repositorio
+(historico incluido) consegue extrair e-mails e hashes de senha reais, mesmo
+que o arquivo tenha sido removido depois - remocao do arquivo do working
+tree nao remove do historico.
+
+Impacto: Vazamento de PII e de hashes de senha de usuarios reais; se algum
+desses usuarios reutiliza senha em outros servicos, um ataque offline de
+cracking sobre os hashes pode levar a comprometimento de contas fora do
+sistema.
+
+Evidencia: "git show 6aecbd78:server/prisma/prisma/dev.db" -> tabela User
+com 6 linhas, e-mails reais confirmados.
+
+Cenario de exploracao seguro: Um colaborador (ou qualquer pessoa que ja
+tenha clonado o repo) roda "git log --all" e recupera o blob antigo do
+dev.db, extrai a tabela User e obtem e-mail+hash de todos os usuarios de
+teste/reais cadastrados até aquele commit.
+
+Correcao recomendada: Remover o arquivo do historico (git filter-repo ou
+BFG Repo-Cleaner), forcar rotacao de senha de todos os usuarios que estavam
+nesse dump, e nunca versionar arquivos .db.
+
+Correcao minima: Adicionar *.db ao .gitignore (raiz e apps/server/.gitignore
+ja cobre node_modules, mas confirme que *.db esta incluido) e remover o
+arquivo do indice atual com "git rm --cached".
+
+Correcao ideal: Reescrever o historico removendo o blob (coordenando com
+todos que ja clonaram, ja que reescreve hashes de commit), migrar para um
+banco de dados gerenciado com credenciais rotativas fora do repositorio, e
+considerar o repositorio atual como potencialmente exposto.
+
+Risco residual: Se o repositorio ja foi clonado por terceiros antes da
+limpeza, o dump antigo continua acessivel fora do controle da equipe.
+
+-------------------------------------------------------------------------------
+[CRIT-2] Credenciais de administrador reais em texto puro no codigo
+-------------------------------------------------------------------------------
+Severidade: Critica
+Categoria: Hardcoded Secrets / Broken Authentication
+Localizacao: server/prisma/seed.ts:7-8 (historico) e
+apps/server/prisma/seed.ts:7-8 (arquivo atual, ainda nao commitado no novo
+caminho, mas identico)
+
+Problema: "const email = 'fabiodemelo123s@outlook.com'; const password =
+'eusoulost11';" - usados para criar/garantir uma conta ADMIN real.
+
+Por que e vulneravel: Senha real de uma conta administrativa, em texto
+plano, versionada em um repositorio remoto (GitHub).
+
+Impacto: Qualquer pessoa com acesso ao repositorio obtem credenciais de
+login funcionais de uma conta ADMIN - acesso total ao painel administrativo
+(banir usuarios, aprovar/rejeitar imoveis, verificar empresas, promover
+outros usuarios a admin).
+
+Evidencia:
+  const email = 'fabiodemelo123s@outlook.com';
+  const password = 'eusoulost11';
+  ...
+  role: 'ADMIN', status: 'ACTIVE',
+
+Cenario de exploracao seguro: Ler o arquivo seed.ts do repositorio (publico
+ou de qualquer colaborador com acesso) e usar essas credenciais diretamente
+em POST /auth/login.
+
+Correcao recomendada: Trocar essa senha imediatamente em qualquer ambiente
+onde e usada. Ler credenciais de seed via variaveis de ambiente
+(SEED_ADMIN_EMAIL/SEED_ADMIN_PASSWORD), nunca hardcoded.
+
+Correcao minima:
+  const email = process.env.SEED_ADMIN_EMAIL!;
+  const password = process.env.SEED_ADMIN_PASSWORD!;
+
+Correcao ideal: Gerar senha aleatoria forte no primeiro seed, forcar troca
+no primeiro login, e nunca reutilizar a mesma senha entre ambientes.
+
+Risco residual: Mesmo corrigido no codigo novo, a senha antiga permanece no
+historico do Git - precisa ser tratada como comprometida (trocar ja, nao so
+"quando limpar o historico").
+
+-------------------------------------------------------------------------------
+[CRIT-3] Ausencia total de rate limiting + OTP de reset de senha de baixa
+entropia -> account takeover
+-------------------------------------------------------------------------------
+Severidade: Critica
+Categoria: Broken Authentication / Unrestricted Resource Consumption (API4)
+Localizacao: apps/server/src/server.ts (nenhum plugin de rate limit
+registrado); apps/server/src/controllers/auth.controller.ts
+(forgotPassword/resetPassword, linhas 235-326)
+
+Problema: Nao ha @fastify/rate-limit (ou equivalente) em nenhuma rota. O
+token de reset de senha e numerico de 6 digitos (Math.floor(100000 +
+Math.random()*900000)), valido por 1 hora, e resetPassword (linha 308)
+apenas compara user.resetToken !== token sem qualquer contador de tentativas
+ou bloqueio.
+
+Por que e vulneravel: 6 digitos = 900.000 combinacoes possiveis. Sem rate
+limit, um script pode testar todas em minutos (a resposta e rapida, sem
+captcha, sem lockout). Basta o atacante saber o e-mail da vitima (nao
+precisa ser secreto) para acionar forgotPassword e depois forca-bruta o
+resetPassword.
+
+Impacto: Tomada de conta completa de qualquer usuario cujo e-mail seja
+conhecido, incluindo contas ADMIN/AGENCY. Tambem habilita brute-force de
+senha em /auth/login e espalhamento de contas falsas via /auth/register.
+
+Evidencia:
+  const token = Math.floor(100000 + Math.random() * 900000).toString();
+  ...
+  if (!user || user.resetToken !== token || ... ) { return reply.status(400)...}
+Nenhum contador de tentativas, nenhum plugin de rate limit no server.ts.
+
+Cenario de exploracao seguro: Chamar POST /auth/forgot-password com o
+e-mail da vitima, entao automatizar POST /auth/reset-password testando os
+900.000 codigos possiveis dentro da janela de 1h; ao acertar, definir nova
+senha e logar como a vitima.
+
+Correcao recomendada: Registrar @fastify/rate-limit globalmente (mais
+agressivo em /auth/*), adicionar contador de tentativas por (email, IP) com
+bloqueio/backoff, e considerar token com mais entropia (ex.: UUID/token
+opaco de 32+ bytes) em vez de 6 digitos numericos.
+
+Correcao minima:
+  app.register(rateLimit, { max: 5, timeWindow: '15 minutes' }); // aplicado
+  min. em /auth/*
+mais um contador de tentativas em resetToken que zera o token apos N
+falhas.
+
+Correcao ideal: Rate limiting em multiplas camadas (IP + conta), CAPTCHA em
+fluxos sensiveis, e token de reset com entropia criptografica.
+
+Risco residual: Rate limit por IP pode ser contornado com multiplos
+IPs/proxies - o aumento de entropia do token e a mitigacao estrutural mais
+forte.
+
+-------------------------------------------------------------------------------
+[CRIT-4] Claims do JWT nunca revalidados contra o banco - ban/promocao/troca
+de senha nao revogam sessoes
+-------------------------------------------------------------------------------
+Severidade: Critica
+Categoria: Broken Authentication / Session Management (API2)
+Localizacao: apps/server/src/middlewares/authenticate.ts,
+apps/server/src/middlewares/requireAdmin.ts, apps/server/src/socket.ts:14-30
+
+Problema: authenticate so chama request.jwtVerify() (valida
+assinatura/expiracao), nunca busca o usuario atual no banco. requireAdmin
+usa request.user.role, que veio do payload do JWT assinado no momento do
+login, 7 dias atras. O mesmo vale para a autenticacao do Socket.io
+(jwt.verify sem consulta ao banco).
+
+Por que e vulneravel: role e status da conta sao "congelados" no token. Nao
+existe blacklist, versionamento de token, nem checagem de user.status/
+user.role a cada request autenticado.
+
+Impacto:
+ - Admin realiza PATCH /admin/users/:id/status para BANNED/SUSPENDED -> o
+   usuario banido continua acessando normalmente com o token ja emitido
+   até ele expirar (até 7 dias).
+ - Admin usa PATCH /admin/users/:id/role para rebaixar outro admin -> o
+   token antigo dele continua passando por requireAdmin por até 7 dias.
+ - updatePassword/resetPassword nao invalidam tokens ja emitidos - se um
+   token foi roubado, trocar a senha nao expulsa o atacante.
+
+Evidencia:
+  // authenticate.ts
+  await request.jwtVerify(); // so verifica assinatura/exp, nao consulta o banco
+  // requireAdmin.ts
+  const user = request.user as { role: string }; // role vem do payload do JWT, nao do banco
+
+Cenario de exploracao seguro: Usuario e banido por ma conduta; ele mantem o
+token ja emitido no app e continua reservando imoveis, enviando mensagens e
+criando anuncios normalmente, porque o servidor nunca volta a consultar
+user.status.
+
+Correcao recomendada: Buscar o usuario no banco em authenticate (ou ao
+menos checar status), e/ou implementar versionamento de token
+(tokenVersion incrementado em ban/troca de senha/mudanca de role,
+verificado no middleware) - assim revogar e imediato, sem precisar de
+blacklist distribuida.
+
+Correcao minima: Em authenticate, apos jwtVerify, buscar user.status no
+banco e retornar 403 se nao for ACTIVE; em requireAdmin, buscar role fresco
+do banco em vez de confiar no payload.
+
+Correcao ideal: Coluna tokenVersion em User, incluida no payload do JWT e
+comparada a cada request; incrementar em ban, troca de senha, reset de
+senha e mudanca de role - invalida instantaneamente todos os tokens antigos
+sem precisar de estado de sessao no servidor.
+
+Risco residual: Mesmo com tokenVersion, ainda ha uma janela entre a
+emissao do token e sua proxima verificacao - mas ela passa a ser da ordem
+de uma request, nao de dias.
+
+-------------------------------------------------------------------------------
+[HIGH-1] Fila de moderacao de anuncios e opcional - dono/agente pode se
+autoaprovar
+-------------------------------------------------------------------------------
+Severidade: Alta
+Categoria: Broken Function Level Authorization / Business Logic
+Localizacao: apps/server/src/controllers/listings.controller.ts:185
+(createListing) e :302 (updateListing)
+
+Problema: O schema de criacao define
+status: z.enum(['DRAFT','APPROVED']).default('APPROVED') - ou seja, se o
+campo nao vier no formulario, o anuncio ja nasce APPROVED e aparece em
+GET /listings imediatamente. Pior: no updateListing, o mesmo enum permite
+que o proprio dono ou o AGENT responsavel ponha status: 'APPROVED' em
+qualquer momento - inclusive depois de um admin ter chamado
+PATCH /admin/listings/:id/reject.
+
+Por que e vulneravel: Existe todo um fluxo admin de moderacao
+(PENDING->APPROVED/REJECTED, com rejectReason), mas nada no backend impede
+que o proprio autor do anuncio ignore esse fluxo - a "regra de negocio" de
+moderacao depende inteiramente do frontend nunca enviar status: 'APPROVED'
+diretamente, o que nao e garantido pela API.
+
+Impacto: Qualquer usuario autenticado publica conteudo (inclusive
+fraudulento) sem nunca passar por moderacao, e pode reverter uma rejeicao
+do admin sozinho, tornando a rejeicao administrativa cosmetica.
+
+Evidencia:
+  status: z.enum(['DRAFT', 'APPROVED']).default('APPROVED'), // createListing
+  ...
+  status: z.enum(['DRAFT', 'APPROVED']).optional(), // updateListing - dono/
+  agente pode setar de volta p/ APPROVED
+
+Cenario de exploracao seguro: Um AGENT cria um anuncio via POST /listings
+sem enviar status (nasce APPROVED, ja publico). Um admin depois roda
+PATCH /admin/listings/:id/reject. O mesmo AGENT chama PUT /listings/:id com
+{ status: 'APPROVED' } e o anuncio volta a ficar publico, sem qualquer nova
+revisao.
+
+Correcao recomendada: Backend nunca deve aceitar status diretamente do
+dono/agente para os valores APPROVED/REJECTED/PENDING - essas transicoes
+devem ser exclusivas dos endpoints /admin/listings/:id/*. O dono so deveria
+poder alternar entre DRAFT (oculto) e PENDING (pedir revisao), nunca
+APPROVED diretamente.
+
+Correcao minima:
+  // createListing: default deve ser 'PENDING', nao 'APPROVED'
+  status: z.enum(['DRAFT', 'PENDING']).default('PENDING'),
+  // updateListing: remover 'APPROVED' do enum aceito pelo dono
+  status: z.enum(['DRAFT', 'PENDING']).optional(),
+
+Correcao ideal: Maquina de estados explicita no backend (owner/agent so
+dispara DRAFT<->PENDING; so admin dispara PENDING->APPROVED/REJECTED), com
+testes que garantam que nenhuma outra transicao e aceita via API.
+
+Risco residual: Anuncios ja publicados sem revisao antes da correcao
+continuam publicos até um admin auditar o catalogo existente.
+
+-------------------------------------------------------------------------------
+[HIGH-2] Exposicao de e-mail e telefone de usuarios em endpoints publicos
+-------------------------------------------------------------------------------
+Severidade: Alta
+Categoria: Excessive Data Exposure (API3)
+Localizacao: apps/server/src/controllers/listings.controller.ts:61-72
+(getListingById); apps/server/src/controllers/users.controller.ts:14-24
+(getUserProfile)
+
+Problema: GET /listings/:id (publico, sem auth) inclui owner: { email:
+true, phone: true, ... } na resposta. GET /users/:id (publico) retorna
+phone: true do perfil de qualquer usuario.
+
+Por que e vulneravel: Nao ha necessidade de expor e-mail/telefone brutos a
+visitantes anonimos - o fluxo de contato ja existe via chat interno
+(/conversations). Expor esses dados permite raspagem em massa (scraping) de
+contatos de todos os anunciantes.
+
+Impacto: Qualquer bot pode colher e-mails/telefones de todos os donos de
+imoveis/corretores do catalogo publico, para spam, phishing direcionado ou
+vazamento de dados pessoais em violacao a LGPD.
+
+Evidencia:
+  owner: { select: { id:true, name:true, avatar:true, email:true,
+  phone:true, ... } } // getListingById
+  ...
+  select: { id:true, name:true, avatar:true, phone:true, ... } //
+  getUserProfile
+
+Cenario de exploracao seguro: Um scraper itera GET /listings e depois
+GET /listings/:id de cada resultado, coletando e-mail e telefone de todo
+dono/corretor cadastrado, sem precisar de conta.
+
+Correcao recomendada: Remover email/phone do payload publico; se o
+frontend precisa exibir "contato" na pagina do imovel, isso deveria ser
+mediado por um endpoint autenticado (ex.: iniciar conversa) e nao pelo
+detalhe publico do anuncio.
+
+Correcao minima: Retirar "email: true, phone: true" do select em ambos
+endpoints publicos.
+
+Correcao ideal: Campo de "contato" so liberado apos autenticacao e,
+idealmente, apenas via o proprio fluxo de chat (que ja existe), nunca no
+payload cru do listing/perfil.
+
+Risco residual: Nenhum, uma vez removido - nao ha outra rota publica que
+exponha os mesmos campos apos a correcao.
+
+-------------------------------------------------------------------------------
+[HIGH-3] Ausencia de handler de erro centralizado - mensagens internas podem
+vazar ao cliente
+-------------------------------------------------------------------------------
+Severidade: Alta
+Categoria: Error Handling / Information Disclosure
+Localizacao: apps/server/src/server.ts (nenhum app.setErrorHandler);
+apps/server/src/controllers/admin.controller.ts:144-163 (updateUserRole,
+sem try/catch e sem checar existencia previa)
+
+Problema: A maioria dos controllers tem try/catch com mensagens genericas,
+mas updateUserRole chama prisma.user.update({ where: { id } ... })
+diretamente, sem checar se o usuario existe e sem try/catch. Se id nao
+existir, o Prisma lanca (P2025), e como nao ha setErrorHandler global no
+Fastify, o erro sobe para o handler default, cuja resposta pode incluir a
+mensagem interna do Prisma (nome de modelo, condicao da query).
+
+Por que e vulneravel: Sem handler de erro centralizado, o comportamento de
+"o que o cliente ve quando algo falha" varia rota a rota e depende de cada
+desenvolvedor lembrar de tratar - uma classe de bug facil de reintroduzir.
+
+Impacto: Baixo a medio por si so (nao expoe segredos), mas revela detalhes
+de implementacao (nomes de modelo Prisma, mensagens de erro internas) que
+ajudam um atacante a mapear o backend.
+
+Evidencia:
+  export async function updateUserRole(request, reply) {
+    const { id } = request.params as { id: string };
+    ...
+    const updated = await prisma.user.update({ where: { id }, data: {...} });
+    // sem try/catch, sem checar user existe
+    return reply.send(updated);
+  }
+
+Cenario de exploracao seguro: Admin autenticado chama
+PATCH /admin/users/id-inexistente/role; a resposta de erro (nao tratada)
+pode incluir texto como "No 'User' record(s) were found for a where
+condition..." - confirma nomes de modelo internos.
+
+Correcao recomendada: Registrar app.setErrorHandler generico que sempre
+retorna mensagem sanitizada em producao (e loga detalhes internamente);
+adicionar o mesmo padrao de findUnique + 404 que as outras rotas admin ja
+seguem.
+
+Correcao minima:
+  const user = await prisma.user.findUnique({ where: { id } });
+  if (!user) return reply.status(404).send({ error: 'Usuario nao encontrado.' });
+
+Correcao ideal: Handler de erro global que diferencia erros conhecidos
+(Zod, Prisma P2025) de erros inesperados, nunca repassando error.message
+bruto ao cliente em producao.
+
+Risco residual: Baixo apos a correcao - vale auditar os demais controllers
+em busca do mesmo padrao (a maioria ja tem try/catch com mensagem
+generica).
+
+-------------------------------------------------------------------------------
+[MED-1] IDOR em PATCH /conversations/:id/read - sem checagem de participante
+-------------------------------------------------------------------------------
+Severidade: Media
+Categoria: BOLA/IDOR
+Localizacao: apps/server/src/controllers/chat.controller.ts:239-258
+(markAsRead)
+
+Problema: Ao contrario de todos os outros endpoints de chat (getMessages,
+getConversation, reportConversation), markAsRead nao verifica se userId e
+participante da conversa antes de executar o updateMany.
+
+Por que e vulneravel: Falta o mesmo padrao de checagem
+(conversation.participants.some(p => p.id === userId)) usado nas rotas
+vizinhas do mesmo arquivo - inconsistencia clara de que a checagem foi
+esquecida, nao omitida por design.
+
+Impacto: Qualquer usuario autenticado pode marcar como lidas as mensagens
+de uma conversa da qual nao faz parte, adulterando o estado de "nao lida"
+de terceiros (pode mascarar uma mensagem importante como ja vista, ou zerar
+badges de outro usuario).
+
+Evidencia:
+  export async function markAsRead(request, reply) {
+    const userId = request.user.id;
+    const { id: conversationId } = request.params as { id: string };
+    await prisma.message.updateMany({
+      where: { conversationId, senderId: { not: userId }, isRead: false },
+      data: { isRead: true }
+    }); // nenhuma checagem de que userId participa de conversationId
+
+Cenario de exploracao seguro: Usuario A descobre/adivinha o id (UUID) de
+uma conversa entre B e C e chama PATCH /conversations/{id}/read, zerando o
+contador de nao lidas de B e C sem nunca ter acesso ao conteudo.
+
+Correcao recomendada: Adicionar a mesma checagem de participante usada em
+getMessages/getConversation antes do updateMany.
+
+Correcao minima:
+  const conversation = await prisma.conversation.findUnique({ where: { id:
+  conversationId }, include: { participants: true } });
+  if (!conversation || !conversation.participants.some(p => p.id === userId)) {
+    return reply.status(403).send({ message: 'Access denied' });
+  }
+
+Correcao ideal: Extrair a checagem de participante para uma funcao
+compartilhada usada por todos os handlers de /conversations/:id/*, evitando
+repeticao e esquecimento futuro.
+
+Risco residual: Baixo - o impacto e limitado a integridade do status
+"lido", nao a divulgacao de conteudo (o UUID de conversa nao e facilmente
+adivinhavel).
+
+-------------------------------------------------------------------------------
+[MED-2] Header Host do cliente confiado para persistir URLs de imagem
+-------------------------------------------------------------------------------
+Severidade: Media
+Categoria: Improper Input Validation / Data Integrity
+Localizacao: apps/server/src/controllers/listings.controller.ts:155-157
+
+Problema:
+  const host = request.headers['host'] ?? 'localhost:3333';
+  const protocol = request.protocol ?? 'http';
+  imageUrls.push(`${protocol}://${host}/uploads/${filename}`);
+A URL da imagem salva permanentemente no banco (ListingImage.url) e
+construida a partir do header Host enviado pelo proprio cliente na
+requisicao de upload, sem validacao contra uma allowlist.
+
+Por que e vulneravel: O header Host e controlado pelo cliente em qualquer
+requisicao HTTP crua (fora de um navegador, que normalmente o define
+automaticamente, mas um cliente de API pode enviar qualquer valor). Nao ha
+verificacao de que o valor corresponde ao dominio real do servidor.
+
+Impacto: Um atacante pode fazer com que a URL da imagem persistida no
+banco (e depois exibida a todos os visitantes do anuncio) aponte para um
+dominio arbitrario - nao executa codigo, mas pode ser usado para servir
+conteudo trocado depois da aprovacao do anuncio, tracking pixels, ou
+quebra de conteudo misto (HTTP em pagina HTTPS).
+
+Evidencia: trecho acima - nenhuma comparacao com uma lista de hosts
+esperados (ex.: API_PUBLIC_URL de ambiente).
+
+Cenario de exploracao seguro: Ao criar um anuncio via chamada direta a API
+(sem passar pelo app), o atacante envia Host: attacker.example no upload; a
+URL salva no banco vira http://attacker.example/uploads/arquivo.webp,
+exibida depois para todos que visualizarem o anuncio.
+
+Correcao recomendada: Construir a URL a partir de uma variavel de ambiente
+fixa (PUBLIC_API_URL), nunca do header da requisicao.
+
+Correcao minima:
+  const base = process.env.PUBLIC_API_URL ?? `http://localhost:3333`;
+  imageUrls.push(`${base}/uploads/${filename}`);
+
+Correcao ideal: Servir uploads de um bucket/CDN dedicado com URL fixa,
+independente do host da API.
+
+Risco residual: Nenhum apos fixar a base de URL via configuracao.
+
+-------------------------------------------------------------------------------
+[MED-3] @fastify/multipart sem limite de numero de arquivos - potencial
+exaustao de memoria
+-------------------------------------------------------------------------------
+Severidade: Media
+Categoria: Unrestricted Resource Consumption (API4)
+Localizacao: apps/server/src/server.ts:40-42;
+apps/server/src/controllers/listings.controller.ts:140-161
+
+Problema: O plugin e registrado so com limits: { fileSize: 50MB }, sem
+files (maximo de partes de arquivo por requisicao). Em createListing, o
+loop "for await (const part of parts)" sempre chama part.toBuffer()
+(carregando o arquivo inteiro em memoria) mesmo para imagens alem do
+limite de 10, so descartando depois via continue.
+
+Por que e vulneravel: Um unico POST /listings pode conter
+centenas/milhares de partes de arquivo de até 50MB cada, todas sendo
+bufferizadas em memoria, mesmo que so as 10 primeiras sejam processadas.
+
+Impacto: Um usuario autenticado (a rota exige authenticate, mas nada mais)
+pode enviar uma requisicao multipart com muitas partes grandes e esgotar
+memoria do processo Node, degradando ou derrubando o servidor para todos os
+usuarios (negacao de servico).
+
+Evidencia:
+  multipart, { limits: { fileSize: 50 * 1024 * 1024 } } // sem 'files'
+  ...
+  const buffer = await part.toBuffer(); // sempre bufferiza, mesmo além do
+  limite
+  if (imageUrls.length >= MAX_LISTING_IMAGES) continue;
+
+Cenario de exploracao seguro: Usuario autenticado envia um POST /listings
+multipart com 200 partes de imagem de ~50MB cada; o servidor bufferiza cada
+uma antes de descartar as excedentes, multiplicando o uso de memoria por
+requisicao.
+
+Correcao recomendada: Configurar limits.files no plugin (ex.: files:
+MAX_LISTING_IMAGES) para que o Fastify rejeite a requisicao antes de
+processar partes excedentes.
+
+Correcao minima:
+  app.register(multipart, { limits: { fileSize: 50 * 1024 * 1024, files: 10 } });
+
+Correcao ideal: Alem do limite de files, aplicar rate limiting por usuario
+nas rotas de upload e considerar limite de tamanho total por requisicao,
+nao so por arquivo.
+
+Risco residual: Ainda e possivel abusar dentro do limite de 10 arquivos x
+50MB = 500MB por requisicao; avaliar se esse teto por requisicao e
+aceitavel ou deve ser reduzido.
+
+-------------------------------------------------------------------------------
+[MED-4] Condicao de corrida na aprovacao de reservas - possivel
+double-booking
+-------------------------------------------------------------------------------
+Severidade: Media
+Categoria: Race Condition / Business Logic
+Localizacao: apps/server/src/controllers/bookings.controller.ts:142-205
+(approveBooking)
+
+Problema: createBooking so verifica sobreposicao contra reservas ja
+CONFIRMED (linha 29-40) - reservas PENDING concorrentes nao bloqueiam umas
+as outras, o que e esperado (varias solicitacoes podem coexistir). O
+problema e que approveBooking nao repete essa checagem de sobreposicao
+antes de mudar o status para CONFIRMED - ele so verifica se
+booking.listing.ownerId === user.id.
+
+Por que e vulneravel: Nada no backend impede que o anfitriao aprove duas
+solicitacoes PENDING diferentes com datas sobrepostas para o mesmo imovel
+(por engano, ou via duas chamadas PATCH quase simultaneas ao mesmo tempo em
+duas abas).
+
+Impacto: Duas reservas CONFIRMED sobrepostas para o mesmo imovel -
+overbooking, com impacto direto no negocio (dois hospedes achando que
+garantiram a mesma estadia).
+
+Evidencia:
+  export async function approveBooking(request, reply) {
+    ...
+    if (booking.listing.ownerId !== user.id) return reply.status(403)...;
+    const updated = await prisma.booking.update({ where: { id }, data: {
+    status: 'CONFIRMED' } });
+    // nenhuma verificacao de outras reservas CONFIRMED sobrepostas antes
+    de confirmar
+
+Cenario de exploracao seguro: Dois hospedes solicitam o mesmo periodo
+(ambas ficam PENDING); o anfitriao aprova as duas em sequencia rapida (ou
+clica duas vezes por engano) - ambas ficam CONFIRMED sem qualquer bloqueio.
+
+Correcao recomendada: Repetir a checagem de sobreposicao (contra
+CONFIRMED) dentro de approveBooking, dentro de uma transacao, antes de
+confirmar.
+
+Correcao minima:
+  const overlapping = await prisma.booking.findFirst({
+    where: { listingId: booking.listingId, status: 'CONFIRMED', id: { not: id },
+      startDate: { lte: booking.endDate }, endDate: { gte: booking.startDate } }
+  });
+  if (overlapping) return reply.status(409).send({ error: 'Ja existe uma
+  reserva confirmada para este periodo.' });
+
+Correcao ideal: Constraint a nivel de aplicacao dentro de uma transacao
+Prisma ($transaction) que releia e confirme atomicamente, evitando TOCTOU
+mesmo sob concorrencia real.
+
+Risco residual: Uma janela de corrida ainda existe entre a checagem e o
+update sem uma transacao serializavel explicita - de impacto pratico baixo
+dado o volume esperado de aprovacoes simultaneas, mas vale endereçar se o
+produto crescer.
+
+===============================================================================
+ACHADOS DE MENOR SEVERIDADE (tratamento condensado)
+===============================================================================
+
+[LOW-1] .env da raiz commitado e ainda rastreado no HEAD
+Severidade: Baixa. Categoria: Configuration.
+O arquivo contem so EXPO_PUBLIC_API_URL=http://10.x.x.x:3333 (IP de LAN,
+nao um segredo real), mas esta em "git ls-files" até hoje, apesar do
+.gitignore do app do servidor (apps/server/.gitignore) ignorar .env.
+Correcao: "git rm --cached .env", confirmar que o .gitignore da raiz
+tambem cobre .env.
+
+[LOW-2] Scripts de debug/carga no pacote do servidor
+Severidade: Baixa/Informativa.
+check-bookings.ts e k6.js nao sao rotas HTTP expostas (nao ha risco
+direto), mas nao deveriam viver dentro de apps/server/src/raiz do pacote
+publicavel - mover para uma pasta scripts/ fora do build de producao.
+
+===============================================================================
+ACHADOS INFORMATIVOS
+===============================================================================
+
+[INFO-1] Sem plugin de security headers (@fastify/helmet)
+Nao e uma vulnerabilidade comprovada (a API e JSON/bearer-token, nao HTML
+renderizado pelo proprio servidor), mas defesa em profundidade recomenda
+registrar helmet mesmo assim, especialmente por causa do @fastify/static
+servindo /uploads/*.
+
+[INFO-2] SQLite como banco em producao
+Nao e vulnerabilidade em si, mas e um fator de risco correlacionado ao
+CRIT-1 (arquivo unico em disco e mais facil de ser acidentalmente
+commitado/copiado do que um banco gerenciado com controle de acesso
+proprio).
+
+[INFO-3 - verificado e considerado seguro] Nenhuma injecao de SQL/comando
+encontrada. Rodei uma busca por $queryRaw, $executeRaw, exec(, eval( em
+todo apps/server/src e nao houve nenhuma ocorrencia - todo acesso a dados
+passa pelo Prisma Client com queries parametrizadas/type-safe. O filtro de
+busca em getReceivedBookings (contains: search) tambem passa pelo Prisma,
+sem concatenacao de string SQL.
+
+[INFO-4 - verificado e considerado seguro] Mass assignment mitigado por
+schemas Zod explicitos. createListing/updateListing/register usam
+z.object({...}).parse(...), que por padrao do Zod descarta chaves nao
+declaradas no schema - ownerId, companyId, agentId, role, verified,
+viewCount nunca aparecem nos schemas de entrada, entao nao podem ser
+setados pelo cliente mesmo que ele envie esses campos no corpo da
+requisicao. Confirmado lendo os tres schemas linha a linha.
+
+[INFO-5 - verificado e considerado seguro] Prevencao de user enumeration
+em forgotPassword esta correta. O endpoint retorna a mesma resposta 200
+generica independentemente de o e-mail existir (linha 259 vs 277 do
+auth.controller.ts) - implementacao correta do padrao anti-enumeracao,
+apesar do problema de brute-force do token em si (CRIT-3).
+
+[INFO-6 - verificado e considerado seguro] SSRF via CSV import nao se
+aplica. As URLs de imagem informadas no CSV (importListings) sao gravadas
+como estao no banco - o servidor nunca faz fetch/download dessas URLs,
+entao nao ha superficie de SSRF ali, apesar de ser um vetor comum em
+importacoes desse tipo.
+
+===============================================================================
+PRIORIZACAO
+===============================================================================
+
+CRITICAS
+ - CRIT-1: Banco SQLite real (PII + hashes) commitado no Git
+ - CRIT-2: Credenciais de admin reais em texto puro no seed.ts
+ - CRIT-3: Sem rate limiting + OTP de 6 digitos brute-forcavel -> account
+   takeover
+ - CRIT-4: JWT/claims nunca revalidados -> ban/promocao/reset de senha nao
+   revogam sessao
+
+ALTAS
+ - HIGH-1: Autoaprovacao de anuncios, bypass da moderacao admin
+ - HIGH-2: E-mail/telefone expostos em endpoints publicos
+ - HIGH-3: Sem handler de erro global; algumas rotas sem try/catch
+
+MEDIAS
+ - MED-1: IDOR em PATCH /conversations/:id/read
+ - MED-2: Host header confiado para persistir URL de imagem
+ - MED-3: Sem limite de numero de arquivos no multipart (exaustao de
+   memoria)
+ - MED-4: Race condition na aprovacao de reservas (double-booking)
+
+BAIXAS
+ - LOW-1: .env da raiz ainda rastreado no Git
+ - LOW-2: Scripts de debug/carga dentro do pacote do servidor
+
+INFORMATIVAS
+ - INFO-1: Sem @fastify/helmet
+ - INFO-2: SQLite em producao (fator de risco correlacionado)
+ - INFO-3/4/5/6: Pontos verificados e considerados seguros (injecao, mass
+   assignment, enumeracao de usuario, SSRF via CSV)
+
+===============================================================================
+MATRIZ FINAL
+===============================================================================
+
+ID       | Vulnerabilidade                       | Severidade | Endpoint/Arquivo                              | Impacto                          | Correcao
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+CRIT-1   | DB real commitado no Git               | Critica    | server/prisma/prisma/dev.db                   | Vazamento de PII + hashes senha  | Purgar historico, rotacionar senhas
+CRIT-2   | Credenciais admin em texto puro         | Critica    | prisma/seed.ts                                | Acesso admin total               | Trocar senha, mover p/ env vars
+CRIT-3   | Sem rate limit + OTP fraco              | Critica    | /auth/forgot-password, /auth/reset-password   | Account takeover                 | Rate limit + token com mais entropia
+CRIT-4   | JWT nunca revalidado                   | Critica    | authenticate.ts, requireAdmin.ts, socket.ts   | Ban/promocao nao revoga acesso   | Checar status/tokenVersion no DB
+HIGH-1   | Autoaprovacao de anuncio                | Alta       | PUT /listings/:id, POST /listings             | Bypass de moderacao              | Remover APPROVED do enum do dono
+HIGH-2   | Exposicao de email/phone publico        | Alta       | GET /listings/:id, GET /users/:id             | Scraping de PII                  | Remover campos do select publico
+HIGH-3   | Sem handler de erro global              | Alta       | server.ts, admin.controller.ts                | Vazamento de msg interna         | setErrorHandler + checagens 404
+MED-1    | IDOR em marcar como lido               | Media      | PATCH /conversations/:id/read                 | Adulterar status de terceiros    | Checar participante
+MED-2    | Host header em URL persistida           | Media      | createListing (upload)                        | URL de imagem manipulavel        | Usar PUBLIC_API_URL fixa
+MED-3    | Sem limite de numero de arquivos        | Media      | multipart plugin                              | Exaustao de memoria               | limits.files
+MED-4    | Race condition em aprovacao de reserva  | Media      | approveBooking                                | Double-booking                   | Rechecar sobreposicao antes de confirmar
+LOW-1    | .env raiz no Git                       | Baixa      | .env                                          | IP de LAN exposto                 | git rm --cached
+LOW-2    | Scripts de debug no pacote               | Baixa      | check-bookings.ts, k6.js                      | Higiene                          | Mover para scripts/
+
+===============================================================================
+PERGUNTAS FINAIS
+===============================================================================
+
+1. Qual e a vulnerabilidade mais perigosa?
+CRIT-1 (banco de dados real com hashes de senha commitado no GitHub) - e a
+unica que ja representa um vazamento consumado, nao uma possibilidade
+futura.
+
+2. Qual vulnerabilidade e mais facil de explorar?
+CRIT-2 - nao exige nem "exploracao": e ler um arquivo do repositorio e usar
+a senha diretamente no login.
+
+3. Existe possibilidade de acesso a dados de outro usuario?
+Sim - HIGH-2 (email/phone publicos), MED-1 (IDOR no status de leitura de
+chat), e indiretamente CRIT-1 (dump historico com dados de todos os
+usuarios daquele momento).
+
+4. Existe possibilidade de escalacao de privilegio?
+Indiretamente sim, via CRIT-2 (credencial admin real vazada) e CRIT-4 (um
+admin rebaixado mantem privilegio por até 7 dias com o token antigo). Nao
+encontrei um caminho de escalacao vertical dentro da logica normal da API
+(o requireAdmin em si e bem aplicado a todas as rotas admin).
+
+5. Existe algum endpoint que nao deveria estar exposto?
+Nao encontrei rotas HTTP "esquecidas"/debug - a superficie mapeada
+corresponde ao que esta registrado em server.ts. O ponto de atencao e
+diferente: dados que nao deveriam estar em respostas de endpoints
+legitimos e publicos (HIGH-2).
+
+6. Existe algum segredo ou dado sensivel exposto?
+Sim, os dois achados criticos de secrets (CRIT-1 e CRIT-2), confirmados
+por extracao direta do historico do Git.
+
+7. Existe alguma regra de seguranca dependendo do frontend?
+Sim - HIGH-1 e exatamente isso: a separacao entre "anuncio moderado" e
+"anuncio publicado" depende inteiramente do frontend nunca enviar
+status: 'APPROVED' por conta propria; a API aceita perfeitamente se alguem
+enviar via curl/Postman.
+
+8. Qual e o maior problema arquitetural encontrado?
+CRIT-4 - a ausencia de qualquer mecanismo de revogacao de sessao e um
+problema estrutural (nao um bug pontual): toda decisao de seguranca tomada
+por um admin depois do login (ban, rebaixar role, reset de senha) fica sem
+efeito pratico por até 7 dias.
+
+9. Quais correcoes devem ser feitas imediatamente?
+Rotacionar a senha do CRIT-2 e tratar o historico do CRIT-1 como
+comprometido - isso e independente de qualquer deploy de codigo. Em
+paralelo, registrar rate limiting (CRIT-3) e uma mudanca pequena e de alto
+retorno.
+
+10. Quais problemas devem ser corrigidos antes de colocar o sistema em
+producao?
+Todos os quatro Criticos e os tres Altos, no minimo - em especial
+CRIT-3/CRIT-4 (autenticacao) e HIGH-1 (a fila de moderacao, que e a
+protecao de conteudo do marketplace, hoje e opcional).
+
+===============================================================================
+FIM DO RELATORIO
+===============================================================================

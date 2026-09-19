@@ -1,0 +1,470 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.companyBanner {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 28px 32px;
+  box-shadow: var(--shadow-sm);
+}
+
+.companyBannerHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.companyTitleGroup {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.companyIconWrap {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-md);
+  background: rgba(59, 130, 246, 0.08);
+  color: #2563eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.companyName {
+  font-size: 24px;
+  font-weight: 850;
+  color: var(--foreground);
+  margin: 0;
+  letter-spacing: -0.03em;
+}
+
+.companyDocument {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--muted);
+  margin: 4px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.inlineIcon {
+  color: var(--muted);
+}
+
+.companyBadges {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.verifiedBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(34, 197, 94, 0.08);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.2);
+  font-weight: 750;
+  font-size: 12.5px;
+  padding: 6px 14px;
+  border-radius: var(--radius-full);
+}
+
+.pendingBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(245, 158, 11, 0.08);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  font-weight: 750;
+  font-size: 12.5px;
+  padding: 6px 14px;
+  border-radius: var(--radius-full);
+}
+
+.metaStatBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #f8fafc;
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  font-weight: 700;
+  font-size: 12.5px;
+  padding: 6px 14px;
+  border-radius: var(--radius-full);
+}
+
+.section {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 32px;
+  box-shadow: var(--shadow-sm);
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 24px;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.sectionTitle {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--foreground);
+  letter-spacing: -0.02em;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.titleIcon {
+  color: var(--accent);
+}
+
+.sectionSubtitle {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--muted);
+  margin: 4px 0 0;
+}
+
+/* Grid de Membros */
+.membersGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+  margin-bottom: 24px;
+}
+
+.memberCard {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  row-gap: 8px;
+  gap: 12px;
+  padding: 14px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  box-shadow: var(--shadow-sm);
+  transition: var(--transition);
+}
+
+.memberCard:hover {
+  border-color: var(--border-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.memberAvatar {
+  width: 42px;
+  height: 42px;
+  border-radius: var(--radius-full);
+  object-fit: cover;
+  border: 1.5px solid var(--border);
+  flex-shrink: 0;
+}
+
+.memberInfo {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.memberName {
+  font-size: 14px;
+  font-weight: 750;
+  color: var(--foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memberEmail {
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 1px;
+}
+
+.roleBadge {
+  font-size: 10.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+}
+
+.roleBadgeOwner {
+  background: rgba(99, 102, 241, 0.1);
+  color: #6366f1;
+  border: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+.roleBadgeAgent {
+  background: rgba(34, 197, 94, 0.1);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.2);
+}
+
+.removeMemberButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  background: rgba(239, 68, 68, 0.08);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  font-weight: 700;
+  font-size: 12px;
+  padding: 6px 12px;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  font-family: inherit;
+  transition: var(--transition);
+  white-space: nowrap;
+}
+
+.removeMemberButton:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.removeMemberButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.removeMemberError {
+  font-size: 12px;
+  color: #ef4444;
+  margin: 4px 0 0;
+}
+
+/* Form de Adicionar Membro */
+.addMemberBox {
+  margin-top: 24px;
+  padding: 24px;
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.addMemberHeader {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.addMemberIcon {
+  color: var(--accent);
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.addMemberTitle {
+  font-size: 15px;
+  font-weight: 750;
+  color: var(--foreground);
+  margin: 0;
+}
+
+.addMemberSubtitle {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 2px 0 0;
+}
+
+.inlineForm {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.inputWrapper {
+  flex: 1;
+  min-width: 240px;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.inputIcon {
+  position: absolute;
+  left: 14px;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.inlineInputWithIcon {
+  width: 100%;
+  padding: 10px 14px 10px 40px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-family: inherit;
+  background: var(--card-bg);
+  color: var(--foreground);
+  transition: var(--transition);
+}
+
+.inlineInputWithIcon:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(255, 56, 92, 0.12);
+}
+
+.primaryInlineButton {
+  padding: 10px 20px;
+  background: var(--foreground);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-md);
+  font-weight: 750;
+  font-size: 13.5px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: var(--transition);
+  white-space: nowrap;
+}
+
+.primaryInlineButton:hover {
+  background: #0f172a;
+  transform: translateY(-1px);
+}
+
+.primaryInlineButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.emptyStateBox {
+  padding: 32px 24px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  text-align: center;
+  background: #f8fafc;
+}
+
+.empty {
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 500;
+  margin: 0;
+}
+
+.listingsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 20px;
+}
+
+.listingCardWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pendingInvitesBox {
+  margin-top: 20px;
+  padding: 20px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+}
+
+.pendingInvitesTitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  font-weight: 750;
+  color: var(--foreground);
+  margin: 0 0 12px;
+}
+
+.pendingInvitesList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pendingInviteRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  flex-wrap: wrap;
+}
+
+.pendingInviteEmail {
+  flex: 1;
+  min-width: 160px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.pendingInviteRole {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.agentSelectError {
+  color: var(--error, #ef4444);
+  font-size: 12px;
+  font-weight: 600;
+  margin: 6px 0 0;
+  width: 100%;
+}
+
+.pipelineLinkRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.pipelineLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 18px;
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  color: var(--accent-foreground, #fff);
+  font-size: 13.5px;
+  font-weight: 700;
+  transition: var(--transition);
+}
+
+.pipelineLink:hover {
+  opacity: 0.9;
+}

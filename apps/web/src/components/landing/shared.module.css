@@ -1,0 +1,98 @@
+/* Estilos compartilhados só entre os componentes de components/landing/* — nada aqui é
+   importado fora da landing page. */
+
+.wrap {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 32px;
+}
+
+@media (max-width: 640px) {
+  .wrap {
+    padding: 0 20px;
+  }
+}
+
+.sectionHead {
+  max-width: 640px;
+  margin-bottom: 52px;
+}
+
+.sectionKicker {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--coral-deep);
+  margin-bottom: 12px;
+}
+
+.sectionTitle {
+  font-size: clamp(28px, 3.4vw, 38px);
+  line-height: 1.15;
+  color: inherit;
+}
+
+.sectionSub {
+  margin-top: 16px;
+  font-size: 16.5px;
+  line-height: 1.6;
+  color: var(--slate);
+}
+
+.sectionSubDark {
+  composes: sectionSub;
+  color: #b9bfca;
+}
+
+.sectionKickerDark {
+  composes: sectionKicker;
+  color: #ff8fa3;
+}
+
+.btnPrimary {
+  background: var(--coral);
+  color: #fff;
+  padding: 14px 26px;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 8px 20px -6px rgba(255, 56, 92, 0.5);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.btnPrimary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px -6px rgba(255, 56, 92, 0.6);
+}
+
+.btnSecondary {
+  background: transparent;
+  color: var(--ink);
+  padding: 14px 22px;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  border: 1.5px solid var(--line);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.btnSecondary:hover {
+  border-color: var(--ink);
+}
+
+.btnLight {
+  background: #fff;
+  color: var(--ink);
+  padding: 14px 24px;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}

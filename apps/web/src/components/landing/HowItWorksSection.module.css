@@ -1,0 +1,43 @@
+.section {
+  padding: 64px 0;
+}
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 40px;
+}
+
+@media (max-width: 760px) {
+  .steps {
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
+}
+
+.step {
+  border-top: 1px solid var(--line);
+  padding-top: 20px;
+}
+
+.num {
+  font-family: var(--font-landing-serif), Georgia, serif;
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--sand);
+  -webkit-text-stroke: 1px var(--coral-deep);
+  margin-bottom: 10px;
+}
+
+.title {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.text {
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--slate);
+  max-width: 32ch;
+}

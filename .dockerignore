@@ -1,0 +1,14 @@
+# Contexto do build é a raiz do monorepo (ver apps/server/Dockerfile) — o Dockerfile só copia os
+# arquivos explícitos que precisa, mas isso mantém o contexto enviado ao daemon do Docker pequeno.
+node_modules
+**/node_modules
+apps/server/dist
+apps/server/uploads
+apps/server/.env
+apps/server/.env.*
+.env
+.env.*
+.git
+apps/web/.next
+apps/web/node_modules
+apps/mobile/node_modules

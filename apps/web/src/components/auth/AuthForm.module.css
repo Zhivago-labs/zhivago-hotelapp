@@ -1,0 +1,366 @@
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  width: 100%;
+}
+
+/* ─── BRAND HEADER ──────────────────────────────────────────────────────── */
+
+.brandHeader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  margin-bottom: 6px;
+}
+
+.logoLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.logoLink:hover {
+  opacity: 0.9;
+  transform: scale(1.03);
+}
+
+.brandLogo {
+  height: 48px;
+  width: auto;
+  object-fit: contain;
+}
+
+.welcomeTitle {
+  font-size: 24px;
+  font-weight: 850;
+  color: var(--foreground, #0f172a);
+  letter-spacing: -0.03em;
+  margin: 0 0 4px;
+}
+
+.welcomeSubtitle {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--muted, #64748b);
+  margin: 0;
+}
+
+/* ─── BLOCO DE INPUTS AGRUPADOS ESTILO AIRBNB ────────────────────────────── */
+
+.airbnbInputGroup {
+  border: 1px solid var(--border-hover, #cbd5e1);
+  border-radius: 16px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.9);
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+}
+
+.airbnbInputGroup:focus-within {
+  border-color: var(--foreground, #0f172a);
+  box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.08);
+}
+
+.airbnbInputField {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+
+.airbnbInputField:last-child {
+  border-bottom: none;
+}
+
+.airbnbInputField:focus-within {
+  background: rgba(255, 255, 255, 1);
+}
+
+.airbnbLabelRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.airbnbLabel {
+  font-size: 10.5px;
+  font-weight: 800;
+  color: var(--muted, #64748b);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 2px;
+}
+
+.airbnbInput {
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--foreground, #0f172a);
+  font-family: inherit;
+  width: 100%;
+  padding: 2px 0;
+}
+
+.airbnbInput::placeholder {
+  color: #94a3b8;
+  font-weight: 400;
+}
+
+.passwordWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.togglePasswordBtn {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  color: var(--muted, #64748b);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease;
+}
+
+.togglePasswordBtn:hover {
+  color: var(--foreground, #0f172a);
+}
+
+.forgotPasswordRow {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: -6px;
+  margin-bottom: 2px;
+}
+
+.forgotLink {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted, #64748b);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.forgotLink:hover {
+  color: var(--foreground, #0f172a);
+  text-decoration: underline;
+}
+
+/* ─── SELETOR DE TIPO DE CONTA (TABS AIRBNB) ────────────────────────────── */
+
+.airbnbTypeSelector {
+  display: flex;
+  gap: 8px;
+  background: rgba(241, 245, 249, 0.8);
+  border: 1px solid var(--border, #e2e8f0);
+  padding: 4px;
+  border-radius: 14px;
+}
+
+.airbnbTypeTab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--muted, #64748b);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.airbnbTypeTab:hover {
+  color: var(--foreground, #0f172a);
+}
+
+.airbnbTypeTabActive {
+  background: #ffffff;
+  color: #ff385c;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+/* ─── TEXTOS LEGAIS & DIVISORES ─────────────────────────────────────────── */
+
+.legalDisclaimer {
+  font-size: 12px;
+  color: var(--muted, #64748b);
+  line-height: 1.45;
+  margin: 0;
+  text-align: center;
+}
+
+.error {
+  color: var(--error, #ef4444);
+  font-size: 13px;
+  background: rgba(239, 68, 68, 0.06);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.successBox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #15803d;
+  font-size: 13px;
+  background: rgba(34, 197, 94, 0.08);
+  border: 1px solid rgba(34, 197, 94, 0.25);
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.successContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+  padding: 12px 0;
+}
+
+.successIconCircle {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: rgba(34, 197, 94, 0.12);
+  color: #16a34a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+
+/* ─── BOTÃO CORAL AIRBNB ────────────────────────────────────────────────── */
+
+.airbnbButton {
+  background: linear-gradient(135deg, #ff385c 0%, #e61e4d 100%);
+  color: #ffffff;
+  border: none;
+  border-radius: 14px;
+  padding: 14px 24px;
+  font-size: 15.5px;
+  font-weight: 850;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 4px 16px rgba(255, 56, 92, 0.35);
+  width: 100%;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.airbnbButton:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 22px rgba(255, 56, 92, 0.45);
+}
+
+.airbnbButton:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.airbnbButton:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.dividerRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 2px 0;
+}
+
+.dividerLine {
+  flex: 1;
+  height: 1px;
+  background: #e2e8f0;
+}
+
+.dividerText {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted, #94a3b8);
+}
+
+/* ─── BOTÕES SOCIAIS ESTILO AIRBNB ─────────────────────────────────────── */
+
+.socialButtons {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.socialButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  height: 46px;
+  border: 1px solid #cbd5e1;
+  border-radius: 14px;
+  background: #ffffff;
+  color: var(--foreground, #0f172a);
+  font-size: 14px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.socialButton:hover {
+  background: #f8fafc;
+  border-color: #94a3b8;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.socialIcon {
+  flex-shrink: 0;
+}
+
+.footerRow {
+  text-align: center;
+  font-size: 14px;
+  color: var(--muted, #64748b);
+  font-weight: 500;
+  margin-top: 4px;
+}
+
+.airbnbLink {
+  color: var(--foreground, #0f172a);
+  font-weight: 800;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.airbnbLink:hover {
+  color: #ff385c;
+}

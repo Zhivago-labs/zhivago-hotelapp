@@ -1,0 +1,81 @@
+.section {
+  padding: 88px 0 96px;
+}
+
+.head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 36px;
+}
+
+.head > div {
+  max-width: 640px;
+}
+
+@media (max-width: 640px) {
+  .head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+.viewAll {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--ink);
+  padding-bottom: 4px;
+  border-bottom: 1.5px solid var(--ink);
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 32px;
+}
+
+.filterChip {
+  background: #fff;
+  border: 1.5px solid var(--line);
+  color: var(--slate);
+  padding: 9px 18px;
+  border-radius: 99px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.filterChip:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.filterChipActive,
+.filterChipActive:hover {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  gap: 24px;
+}
+
+.stateMessage {
+  font-size: 15px;
+  color: var(--slate);
+  padding: 32px;
+  text-align: center;
+  background: var(--paper-2);
+  border: 1px solid var(--sand);
+  border-radius: 16px;
+}

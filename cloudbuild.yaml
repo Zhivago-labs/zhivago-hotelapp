@@ -1,0 +1,21 @@
+# Build da imagem do apps/server via Cloud Build. Precisa ficar na raiz do monorepo porque o
+# Dockerfile (apps/server/Dockerfile) usa a raiz como contexto — depende do workspace
+# @zhivago/shared e do package-lock.json compartilhado (ver comentário no topo do Dockerfile).
+# $BUILD_ID é sempre preenchido pelo Cloud Build, mesmo em builds de source local (diferente de
+# $SHORT_SHA, que só existe em builds disparados por um trigger conectado a um repositório Git).
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - build
+      - '-f'
+      - 'apps/server/Dockerfile'
+      - '-t'
+      - 'southamerica-east1-docker.pkg.dev/$PROJECT_ID/zhivago-server/api:$BUILD_ID'
+      - '-t'
+      - 'southamerica-east1-docker.pkg.dev/$PROJECT_ID/zhivago-server/api:latest'
+      - '.'
+images:
+  - 'southamerica-east1-docker.pkg.dev/$PROJECT_ID/zhivago-server/api:$BUILD_ID'
+  - 'southamerica-east1-docker.pkg.dev/$PROJECT_ID/zhivago-server/api:latest'
+options:
+  logging: CLOUD_LOGGING_ONLY

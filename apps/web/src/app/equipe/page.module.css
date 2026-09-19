@@ -1,0 +1,48 @@
+.main {
+  max-width: 100%;
+  padding: 40px 48px 80px;
+}
+
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  margin-bottom: 20px;
+  transition: var(--transition);
+}
+
+.backLink:hover {
+  color: var(--foreground);
+}
+
+.title {
+  font-size: 32px;
+  font-weight: 850;
+  letter-spacing: -0.04em;
+  color: var(--foreground);
+  margin: 0 0 6px;
+}
+
+.subtitle {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--muted);
+  max-width: 640px;
+  line-height: 1.6;
+  margin: 0 0 32px;
+}
+
+.restricted {
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.invitesList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 32px;
+}

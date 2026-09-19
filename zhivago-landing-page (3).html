@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zhivago — marketplace de imóveis e CRM para imobiliárias</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#12151c;
+    --ink-soft:#1c212c;
+    --paper:#fbf7f1;
+    --paper-2:#f3ecdf;
+    --coral:#ff385c;
+    --coral-deep:#c41e3a;
+    --slate:#5b6472;
+    --slate-light:#8891a0;
+    --sand:#e7ddc9;
+    --line:rgba(18,21,28,0.1);
+    --line-dark:rgba(251,247,241,0.14);
+    --ok:#2f9e6a;
+    --warn:#d98a1f;
+    --bad:#e5484d;
+    --neutral:#7c8794;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'Inter',system-ui,-apple-system,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+  h1,h2,h3,.serif{
+    font-family:'Fraunces',Georgia,serif;
+    font-weight:600;
+    letter-spacing:-0.01em;
+    margin:0;
+  }
+  p{margin:0;}
+  a{color:inherit;text-decoration:none;}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 32px;}
+  @media (max-width:640px){.wrap{padding:0 20px;}}
+
+  /* ---------- NAV ---------- */
+  nav{
+    position:sticky;top:0;z-index:50;
+    background:rgba(251,247,241,0.88);
+    backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--line);
+  }
+  .nav-inner{
+    max-width:1120px;margin:0 auto;padding:18px 32px;
+    display:flex;align-items:center;justify-content:space-between;
+  }
+  .logo{
+    font-family:'Fraunces',serif;font-weight:700;font-size:22px;letter-spacing:-0.01em;
+  }
+  .logo span{color:var(--coral);}
+  .nav-links{display:flex;align-items:center;gap:32px;font-size:15px;color:var(--slate);}
+  .nav-links a:hover{color:var(--ink);}
+  .nav-cta{
+    background:var(--ink);color:var(--paper);
+    padding:9px 18px;border-radius:99px;font-size:14px;font-weight:600;
+  }
+  .nav-mobile-hide{display:flex;}
+  @media (max-width:720px){.nav-mobile-hide{display:none;}}
+
+  /* ---------- HERO ---------- */
+  .hero{
+    padding:96px 0 72px;
+    position:relative;
+  }
+  .hero-grid{
+    display:grid;grid-template-columns:1.1fr 0.9fr;gap:56px;align-items:center;
+  }
+  @media (max-width:880px){.hero-grid{grid-template-columns:1fr;}}
+  .badge{
+    display:inline-flex;align-items:center;gap:8px;
+    padding:7px 14px;border-radius:99px;
+    background:var(--paper-2);border:1px solid var(--sand);
+    font-size:13px;color:var(--coral-deep);font-weight:600;
+    margin-bottom:28px;
+  }
+  .badge svg{flex-shrink:0;}
+  h1.hero-title{
+    font-size:clamp(36px,5.2vw,60px);
+    line-height:1.06;
+    color:var(--ink);
+    max-width:15ch;
+  }
+  .hero-sub{
+    margin-top:22px;
+    font-size:18px;line-height:1.6;
+    color:var(--slate);
+    max-width:46ch;
+  }
+  .hero-actions{
+    margin-top:34px;display:flex;gap:14px;flex-wrap:wrap;
+  }
+  .btn-primary{
+    background:var(--coral);color:#fff;
+    padding:14px 26px;border-radius:12px;
+    font-size:15px;font-weight:600;
+    display:inline-flex;align-items:center;gap:8px;
+    box-shadow:0 8px 20px -6px rgba(255,56,92,0.5);
+    transition:transform .15s ease, box-shadow .15s ease;
+  }
+  .btn-primary:hover{transform:translateY(-1px);box-shadow:0 10px 24px -6px rgba(255,56,92,0.6);}
+  .btn-secondary{
+    background:transparent;color:var(--ink);
+    padding:14px 22px;border-radius:12px;
+    font-size:15px;font-weight:600;
+    border:1.5px solid var(--line);
+    display:inline-flex;align-items:center;gap:8px;
+  }
+  .btn-secondary:hover{border-color:var(--ink);}
+
+  /* Hero mockup: property card */
+  .hero-visual{position:relative;display:flex;justify-content:center;}
+  .prop-card{
+    width:320px;background:#fff;border-radius:20px;
+    box-shadow:0 30px 60px -20px rgba(18,21,28,0.25);
+    overflow:hidden;
+    transform:rotate(2.5deg);
+    opacity:0;
+    animation:card-in .8s cubic-bezier(.2,.7,.3,1) .15s forwards;
+  }
+  @keyframes card-in{
+    from{opacity:0;transform:rotate(2.5deg) translateY(18px);}
+    to{opacity:1;transform:rotate(2.5deg) translateY(0);}
+  }
+  .prop-photo{
+    height:190px;
+    background:
+      linear-gradient(135deg, #ffd3dc 0%, #ffb0c2 40%, #ff8aa3 100%);
+    position:relative;
+  }
+  .prop-photo svg{position:absolute;bottom:14px;left:16px;}
+  .prop-fav{
+    position:absolute;top:14px;right:14px;
+    width:32px;height:32px;border-radius:99px;
+    background:rgba(18,21,28,0.35);
+    display:flex;align-items:center;justify-content:center;
+  }
+  .prop-body{padding:18px 20px 20px;}
+  .prop-loc{font-size:12.5px;color:var(--slate-light);margin-bottom:4px;}
+  .prop-name{font-family:'Fraunces',serif;font-size:18px;font-weight:600;color:var(--ink);}
+  .prop-meta{display:flex;gap:14px;margin-top:10px;font-size:12.5px;color:var(--slate);}
+  .prop-meta span{display:flex;align-items:center;gap:5px;}
+  .prop-foot{
+    margin-top:14px;padding-top:14px;border-top:1px solid var(--line);
+    display:flex;align-items:baseline;justify-content:space-between;
+  }
+  .prop-price{font-size:17px;font-weight:700;color:var(--ink);}
+  .prop-price small{font-size:12px;font-weight:500;color:var(--slate-light);}
+  .prop-status{
+    font-size:11px;font-weight:700;color:var(--ok);
+    background:rgba(47,158,106,0.12);padding:4px 9px;border-radius:99px;
+  }
+  .float-chip{
+    position:absolute;background:#fff;border-radius:14px;
+    box-shadow:0 14px 30px -10px rgba(18,21,28,0.22);
+    padding:11px 15px;font-size:13px;font-weight:600;
+    display:flex;align-items:center;gap:8px;
+    opacity:0;animation:chip-in .7s cubic-bezier(.2,.7,.3,1) forwards;
+  }
+  @keyframes chip-in{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);}}
+  .chip-msg{top:-6px;right:-18px;animation-delay:.55s;color:var(--ink);}
+  .chip-msg .dot{width:8px;height:8px;border-radius:99px;background:var(--coral);}
+  .chip-verify{bottom:-16px;left:-36px;animation-delay:.8s;color:var(--ok);}
+  @media (max-width:520px){.chip-msg,.chip-verify{display:none;}}
+
+  /* ---------- SECTION HEADERS ---------- */
+  .section{padding:88px 0;}
+  .section-head{max-width:640px;margin-bottom:52px;}
+  .section-kicker{
+    font-size:14px;font-weight:600;color:var(--coral-deep);margin-bottom:12px;
+  }
+  .section-title{font-size:clamp(28px,3.4vw,38px);line-height:1.15;color:inherit;}
+  .section-sub{margin-top:16px;font-size:16.5px;line-height:1.6;color:var(--slate);}
+  .dark .section-sub{color:#b9bfca;}
+  .dark .section-kicker{color:#ff8fa3;}
+
+  /* ---------- MARKETPLACE FEATURES ---------- */
+  .feat-grid{
+    display:grid;grid-template-columns:repeat(3,1fr);gap:1px;
+    background:var(--line);border:1px solid var(--line);border-radius:20px;
+    overflow:hidden;
+  }
+  @media (max-width:880px){.feat-grid{grid-template-columns:1fr 1fr;}}
+  @media (max-width:560px){.feat-grid{grid-template-columns:1fr;}}
+  .feat-cell{background:var(--paper);padding:32px 28px;}
+  .feat-icon{
+    width:38px;height:38px;border-radius:10px;
+    background:var(--paper-2);border:1px solid var(--sand);
+    display:flex;align-items:center;justify-content:center;
+    color:var(--coral-deep);margin-bottom:18px;
+  }
+  .feat-title{font-family:'Fraunces',serif;font-size:18px;font-weight:600;margin-bottom:8px;}
+  .feat-text{font-size:14.5px;line-height:1.55;color:var(--slate);}
+
+  /* ---------- PROCESS (3 steps, genuinely sequential) ---------- */
+  .process{margin-top:64px;}
+  .process-title{font-family:'Fraunces',serif;font-size:22px;margin-bottom:32px;}
+  .process-row{display:flex;gap:0;position:relative;}
+  @media (max-width:760px){.process-row{flex-direction:column;gap:28px;}}
+  .process-step{flex:1;position:relative;padding-right:28px;}
+  .process-step:not(:last-child)::after{
+    content:"";position:absolute;top:15px;right:0;left:calc(100% - 20px);
+    height:1px;background:var(--sand);
+  }
+  @media (max-width:760px){.process-step:not(:last-child)::after{display:none;}}
+  .process-num{
+    width:30px;height:30px;border-radius:99px;
+    background:var(--ink);color:var(--paper);
+    display:flex;align-items:center;justify-content:center;
+    font-size:13px;font-weight:700;margin-bottom:16px;
+  }
+  .process-step h4{font-size:15.5px;font-weight:700;margin-bottom:6px;}
+  .process-step p{font-size:14px;line-height:1.55;color:var(--slate);}
+
+  /* ---------- TRANSITION BAND ---------- */
+  .transition{
+    background:var(--ink);color:var(--paper);
+    padding:88px 0 0;
+  }
+  .transition .wrap{text-align:left;}
+  .transition h2{font-size:clamp(28px,4vw,44px);line-height:1.15;max-width:16ch;}
+  .transition p{margin-top:18px;font-size:17px;color:#b9bfca;max-width:52ch;line-height:1.6;}
+
+  /* ---------- CRM DARK SECTION ---------- */
+  .dark{background:var(--ink);color:var(--paper);}
+  .dark .section{padding-top:56px;}
+
+  /* Kanban mockup */
+  .kanban{
+    display:flex;gap:14px;overflow-x:auto;padding-bottom:10px;
+    margin-bottom:12px;
+  }
+  .kanban::-webkit-scrollbar{height:6px;}
+  .kanban::-webkit-scrollbar-thumb{background:var(--line-dark);border-radius:99px;}
+  .kcol{
+    flex:0 0 190px;background:var(--ink-soft);border:1px solid var(--line-dark);
+    border-radius:14px;padding:14px;
+  }
+  .kcol-title{font-size:12.5px;font-weight:700;color:#c9cfd9;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;}
+  .kcol-title span.n{color:#6b7482;font-weight:600;}
+  .kcard{
+    background:#252b38;border-radius:10px;padding:11px 12px;margin-bottom:9px;
+    font-size:12.5px;
+  }
+  .kcard-name{font-weight:600;color:#f1f2f5;margin-bottom:8px;}
+  .sla{
+    display:inline-flex;align-items:center;gap:5px;
+    font-size:10.5px;font-weight:700;padding:3px 8px;border-radius:99px;
+  }
+  .sla .d{width:6px;height:6px;border-radius:99px;}
+  .sla.ok{background:rgba(47,158,106,0.18);color:#5fd39a;}
+  .sla.ok .d{background:#5fd39a;}
+  .sla.warn{background:rgba(217,138,31,0.18);color:#f0ae4e;}
+  .sla.warn .d{background:#f0ae4e;}
+  .sla.bad{background:rgba(229,72,77,0.18);color:#ff8a8d;}
+  .sla.bad .d{background:#ff8a8d;}
+  .sla.neutral{background:rgba(124,135,148,0.2);color:#a7afbb;}
+  .sla.neutral .d{background:#a7afbb;}
+  .kanban-legend{display:flex;gap:18px;flex-wrap:wrap;font-size:12.5px;color:#8891a0;margin-bottom:56px;}
+  .kanban-legend span{display:flex;align-items:center;gap:6px;}
+  .kanban-legend .d{width:7px;height:7px;border-radius:99px;}
+
+  .crm-feat-grid{
+    display:grid;grid-template-columns:repeat(3,1fr);gap:1px;
+    background:var(--line-dark);border:1px solid var(--line-dark);border-radius:20px;
+    overflow:hidden;margin-bottom:64px;
+  }
+  @media (max-width:880px){.crm-feat-grid{grid-template-columns:1fr 1fr;}}
+  @media (max-width:560px){.crm-feat-grid{grid-template-columns:1fr;}}
+  .crm-feat-cell{background:var(--ink);padding:30px 26px;}
+  .crm-feat-cell .feat-icon{background:var(--ink-soft);border-color:var(--line-dark);color:#ff8fa3;}
+  .crm-feat-cell .feat-title{color:var(--paper);}
+  .crm-feat-cell .feat-text{color:#9aa2ae;}
+
+  /* Team roles */
+  .team-block{display:grid;grid-template-columns:1fr 1.1fr;gap:56px;align-items:center;}
+  @media (max-width:880px){.team-block{grid-template-columns:1fr;}}
+  .role-list{display:flex;flex-direction:column;gap:2px;}
+  .role-row{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:16px 0;border-bottom:1px solid var(--line-dark);
+  }
+  .role-row:last-child{border-bottom:none;}
+  .role-name{font-size:15px;font-weight:600;color:var(--paper);}
+  .role-desc{font-size:13px;color:#8891a0;margin-top:3px;}
+  .role-tag{
+    font-size:11px;font-weight:700;color:#8891a0;
+    border:1px solid var(--line-dark);padding:4px 10px;border-radius:99px;
+    white-space:nowrap;
+  }
+
+  /* Metrics mockup card */
+  .metrics-card{
+    background:var(--ink-soft);border:1px solid var(--line-dark);
+    border-radius:18px;padding:26px;
+  }
+  .metrics-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:22px;}
+  .metrics-head h4{font-family:'Fraunces',serif;font-size:16px;color:var(--paper);font-weight:600;}
+  .metrics-head span{font-size:12px;color:#6b7482;}
+  .bars{display:flex;align-items:flex-end;gap:9px;height:110px;margin-bottom:18px;}
+  .bars .bar{
+    flex:1;background:linear-gradient(180deg,#ff5c7c,#ff385c);
+    border-radius:6px 6px 3px 3px;
+    opacity:0;animation:bar-grow .7s cubic-bezier(.2,.7,.3,1) forwards;
+  }
+  @keyframes bar-grow{from{transform:scaleY(0);opacity:0;}to{transform:scaleY(1);opacity:1;}}
+  .bars .bar{transform-origin:bottom;}
+  .metric-stats{display:flex;gap:0;border-top:1px solid var(--line-dark);padding-top:18px;}
+  .metric-stat{flex:1;}
+  .metric-stat .v{font-family:'Fraunces',serif;font-size:22px;color:var(--paper);font-weight:600;}
+  .metric-stat .l{font-size:11.5px;color:#8891a0;margin-top:2px;}
+
+  /* ---------- CTA SPLIT ---------- */
+  .cta-section{padding:88px 0;background:var(--paper);}
+  .cta-split{display:grid;grid-template-columns:1fr 1fr;gap:24px;}
+  @media (max-width:760px){.cta-split{grid-template-columns:1fr;}}
+  .cta-card{
+    border-radius:22px;padding:38px 34px;
+    display:flex;flex-direction:column;gap:16px;
+  }
+  .cta-card.a{background:var(--paper-2);border:1px solid var(--sand);}
+  .cta-card.b{background:var(--ink);color:var(--paper);}
+  .cta-card h3{font-family:'Fraunces',serif;font-size:24px;font-weight:600;max-width:20ch;}
+  .cta-card p{font-size:15px;line-height:1.55;}
+  .cta-card.a p{color:var(--slate);}
+  .cta-card.b p{color:#b9bfca;}
+  .cta-card .btn-primary{align-self:flex-start;margin-top:6px;}
+  .cta-card .btn-light{
+    align-self:flex-start;margin-top:6px;
+    background:#fff;color:var(--ink);
+    padding:14px 24px;border-radius:12px;font-size:15px;font-weight:600;
+  }
+
+  /* ---------- FOOTER ---------- */
+  footer{padding:44px 0;border-top:1px solid var(--line);}
+  .footer-inner{
+    display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap;
+    font-size:13.5px;color:var(--slate-light);
+  }
+  .footer-links{display:flex;gap:24px;}
+
+  @media (prefers-reduced-motion: reduce){
+    .prop-card,.float-chip,.bars .bar{animation:none !important;opacity:1 !important;transform:none !important;}
+  }
+  :focus-visible{outline:2px solid var(--coral-deep);outline-offset:3px;}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <div class="logo">zhiv<span>a</span>go</div>
+    <div class="nav-links nav-mobile-hide">
+      <a href="#marketplace">Para inquilinos</a>
+      <a href="#crm">Para imobiliárias</a>
+      <a href="#cta" class="nav-cta">Entrar</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <div class="badge">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2l2.4 7.2H22l-6 4.6 2.3 7.2-6.3-4.5-6.3 4.5 2.3-7.2-6-4.6h7.6z"/></svg>
+        <span>Marketplace de imóveis + CRM imobiliário</span>
+      </div>
+      <h1 class="hero-title">Da busca pelo imóvel certo à gestão da imobiliária inteira.</h1>
+      <p class="hero-sub">Zhivago reúne um marketplace de aluguel e venda com um CRM completo para equipes imobiliárias — leads, propostas e reservas, tudo no mesmo lugar.</p>
+      <div class="hero-actions">
+        <a href="#" class="btn-primary">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+          Explorar imóveis
+        </a>
+        <a href="#crm" class="btn-secondary">
+          Ver o CRM para imobiliárias
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </a>
+      </div>
+    </div>
+
+    <div class="hero-visual">
+      <div class="prop-card">
+        <div class="prop-photo">
+          <div class="prop-fav">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="#fff" stroke="none"><path d="M12 21s-6.7-4.35-9.3-8.1C1 10.1 1.6 6.6 4.6 5.1 7 3.9 9.6 4.7 12 7.4c2.4-2.7 5-3.5 7.4-2.3 3 1.5 3.6 5 1.9 7.8C18.7 16.65 12 21 12 21z"/></svg>
+          </div>
+        </div>
+        <div class="prop-body">
+          <div class="prop-loc">Belo Horizonte, MG</div>
+          <div class="prop-name">Apartamento Savassi</div>
+          <div class="prop-meta">
+            <span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10.5L12 4l9 6.5V20a1 1 0 01-1 1h-5v-6H9v6H4a1 1 0 01-1-1z"/></svg> 2 quartos</span>
+            <span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="18" height="4"/><path d="M5 7V5a2 2 0 012-2h10a2 2 0 012 2v2M5 11v8M19 11v8"/></svg> 1 vaga</span>
+          </div>
+          <div class="prop-foot">
+            <div class="prop-price">R$ 2.450 <small>/ mês</small></div>
+            <div class="prop-status">Disponível</div>
+          </div>
+        </div>
+      </div>
+      <div class="float-chip chip-msg"><span class="dot"></span> Nova mensagem do interessado</div>
+      <div class="float-chip chip-verify">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+        Anúncio moderado
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ============ MARKETPLACE ============ -->
+<section class="section" id="marketplace">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="section-kicker">Para quem procura ou anuncia</div>
+      <h2 class="section-title">Alugar, comprar ou anunciar, sem sair da conversa</h2>
+      <p class="section-sub">Diária, mensal ou venda direta — filtre até achar o imóvel certo, ou publique o seu em poucos passos.</p>
+    </div>
+
+    <div class="feat-grid">
+      <div class="feat-cell">
+        <div class="feat-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></div>
+        <div class="feat-title">Buscar e filtrar</div>
+        <div class="feat-text">Filtre por cidade, preço, tipo e características até achar o imóvel ideal, pra alugar por diária, por mês, ou comprar.</div>
+      </div>
+      <div class="feat-cell">
+        <div class="feat-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9.5L12 3l9 6.5"/><path d="M5 10v10a1 1 0 001 1h4v-6h4v6h4a1 1 0 001-1V10"/></svg></div>
+        <div class="feat-title">Anuncie seu espaço</div>
+        <div class="feat-text">Publique em poucos passos, salve como rascunho enquanto ajusta os detalhes e acompanhe tudo pelo dashboard.</div>
+      </div>
+      <div class="feat-cell">
+        <div class="feat-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l2.6 7.9H22l-6.5 4.8 2.5 7.8L12 17.7l-6 4.8 2.5-7.8L2 9.9h7.4z"/></svg></div>
+        <div class="feat-title">Anúncios moderados</div>
+        <div class="feat-text">Todo anúncio passa por revisão antes de ficar público, pra manter o marketplace confiável pra quem procura e pra quem anuncia.</div>
+      </div>
+      <div class="feat-cell">
+        <div class="feat-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.4 8.4 0 01-8.9 8.4 8.6 8.6 0 01-3.5-.8L3 20l1-5a8.3 8.3 0 01-1-4A8.4 8.4 0 0111.6 3a8.5 8.5 0 019.4 8.5z"/></svg></div>
+        <div class="feat-title">Negocie pelo chat</div>
+        <div class="feat-text">Converse com o proprietário ou a imobiliária, receba pedidos de reserva e propostas sem sair da conversa.</div>
+      </div>
+      <div class="feat-cell">
+        <div class="feat-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-6.7-4.35-9.3-8.1C1 10.1 1.6 6.6 4.6 5.1 7 3.9 9.6 4.7 12 7.4c2.4-2.7 5-3.5 7.4-2.3 3 1.5 3.6 5 1.9 7.8C18.7 16.65 12 21 12 21z"/></svg></div>
+        <div class="feat-title">Favoritos</div>
+        <div class="feat-text">Salve os imóveis que você gosta e volte a eles quando quiser, sem perder o histórico de busca.</div>
+      </div>
+      <div class="feat-cell">
+        <div class="feat-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg></div>
+        <div class="feat-title">Reservas</div>
+        <div class="feat-text">Acompanhe o status de cada reserva — pendente, confirmada ou cancelada — em um só painel.</div>
+      </div>
+    </div>
+
+    <div class="process">
+      <div class="process-title">Como funciona o anúncio</div>
+      <div class="process-row">
+        <div class="process-step">
+          <div class="process-num">1</div>
+          <h4>Cadastre o imóvel</h4>
+          <p>Nome, fotos, preço, tipo e características do espaço.</p>
+        </div>
+        <div class="process-step">
+          <div class="process-num">2</div>
+          <h4>Aguarde a moderação</h4>
+          <p>A equipe Zhivago revisa antes da publicação.</p>
+        </div>
+        <div class="process-step">
+          <div class="process-num">3</div>
+          <h4>Publique e receba interessados</h4>
+          <p>O imóvel aparece na busca e as conversas chegam no inbox.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ TRANSITION ============ -->
+<div class="transition">
+  <div class="wrap">
+    <h2>Por trás de cada anúncio, uma imobiliária gerenciando tudo isso.</h2>
+    <p>Organizações cadastram corretores, distribuem leads e acompanham cada negociação até o fechamento — sem depender de planilha.</p>
+  </div>
+</div>
+
+<!-- ============ CRM ============ -->
+<section class="dark" id="crm">
+  <div class="section">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="section-kicker">Para imobiliárias</div>
+        <h2 class="section-title" style="color:var(--paper)">O CRM da sua imobiliária, dentro do Zhivago</h2>
+        <p class="section-sub">Cada conversa iniciada num anúncio da organização vira um lead, e percorre o funil até o fechamento.</p>
+      </div>
+
+      <div class="kanban">
+        <div class="kcol">
+          <div class="kcol-title">Novo <span class="n">3</span></div>
+          <div class="kcard"><div class="kcard-name">Marina Costa</div><span class="sla neutral"><span class="d"></span>Sem corretor</span></div>
+          <div class="kcard"><div class="kcard-name">Diego Alves</div><span class="sla ok"><span class="d"></span>No prazo</span></div>
+        </div>
+        <div class="kcol">
+          <div class="kcol-title">Contatado <span class="n">2</span></div>
+          <div class="kcard"><div class="kcard-name">Renata Lima</div><span class="sla ok"><span class="d"></span>No prazo</span></div>
+        </div>
+        <div class="kcol">
+          <div class="kcol-title">Qualificado <span class="n">2</span></div>
+          <div class="kcard"><div class="kcard-name">João Pereira</div><span class="sla warn"><span class="d"></span>Em risco</span></div>
+        </div>
+        <div class="kcol">
+          <div class="kcol-title">Visita agendada <span class="n">1</span></div>
+          <div class="kcard"><div class="kcard-name">Fábio Nunes</div><span class="sla ok"><span class="d"></span>No prazo</span></div>
+        </div>
+        <div class="kcol">
+          <div class="kcol-title">Proposta <span class="n">1</span></div>
+          <div class="kcard"><div class="kcard-name">Aline Souza</div><span class="sla bad"><span class="d"></span>Atrasado</span></div>
+        </div>
+        <div class="kcol">
+          <div class="kcol-title">Negociação <span class="n">1</span></div>
+          <div class="kcard"><div class="kcard-name">Carlos Reis</div><span class="sla ok"><span class="d"></span>No prazo</span></div>
+        </div>
+      </div>
+      <div class="kanban-legend">
+        <span><span class="d" style="background:#2f9e6a"></span>No prazo</span>
+        <span><span class="d" style="background:#d98a1f"></span>Em risco</span>
+        <span><span class="d" style="background:#e5484d"></span>Atrasado</span>
+        <span><span class="d" style="background:#7c8794"></span>Sem corretor</span>
+      </div>
+
+      <div class="crm-feat-grid">
+        <div class="crm-feat-cell">
+          <div class="feat-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M9 18h6a3 3 0 003-3v-1M15 6H9a3 3 0 00-3 3v1"/></svg></div>
+          <div class="feat-title">Distribuição de leads</div>
+          <div class="feat-text">Manual ou round-robin — a organização escolhe como cada novo lead é atribuído à equipe.</div>
+        </div>
+        <div class="crm-feat-cell">
+          <div class="feat-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v5l3 2"/><circle cx="12" cy="12" r="9"/></svg></div>
+          <div class="feat-title">Histórico de interações</div>
+          <div class="feat-text">Ligação, WhatsApp, e-mail, nota ou visita: cada contato fica registrado na linha do tempo do lead.</div>
+        </div>
+        <div class="crm-feat-cell">
+          <div class="feat-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg></div>
+          <div class="feat-title">Métricas por corretor</div>
+          <div class="feat-text">Taxa de conversão, tempo médio de resposta e leads ganhos, por pessoa e por período.</div>
+        </div>
+      </div>
+
+      <div class="team-block">
+        <div>
+          <h3 style="font-size:24px;color:var(--paper);margin-bottom:8px;">Equipe com papéis definidos</h3>
+          <p style="color:#9aa2ae;font-size:15px;line-height:1.6;margin-bottom:0;">Convide corretores e controle o nível de acesso de cada um, do dono da conta ao assistente operacional.</p>
+          <div class="role-list" style="margin-top:24px;">
+            <div class="role-row">
+              <div><div class="role-name">Proprietário</div><div class="role-desc">Controle total da organização</div></div>
+              <div class="role-tag">OWNER</div>
+            </div>
+            <div class="role-row">
+              <div><div class="role-name">Administrador</div><div class="role-desc">Gerencia equipe, anúncios e configurações</div></div>
+              <div class="role-tag">ADMIN</div>
+            </div>
+            <div class="role-row">
+              <div><div class="role-name">Gerente</div><div class="role-desc">Acompanha leads e métricas da equipe</div></div>
+              <div class="role-tag">MANAGER</div>
+            </div>
+            <div class="role-row">
+              <div><div class="role-name">Corretor</div><div class="role-desc">Atende leads atribuídos e agenda visitas</div></div>
+              <div class="role-tag">BROKER</div>
+            </div>
+            <div class="role-row">
+              <div><div class="role-name">Assistente</div><div class="role-desc">Apoio operacional, acesso restrito</div></div>
+              <div class="role-tag">ASSISTANT</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="metrics-card">
+          <div class="metrics-head">
+            <h4>Leads por mês</h4>
+            <span>Painel de métricas</span>
+          </div>
+          <div class="bars">
+            <div class="bar" style="height:38%;animation-delay:.05s"></div>
+            <div class="bar" style="height:52%;animation-delay:.1s"></div>
+            <div class="bar" style="height:46%;animation-delay:.15s"></div>
+            <div class="bar" style="height:68%;animation-delay:.2s"></div>
+            <div class="bar" style="height:60%;animation-delay:.25s"></div>
+            <div class="bar" style="height:82%;animation-delay:.3s"></div>
+            <div class="bar" style="height:100%;animation-delay:.35s"></div>
+          </div>
+          <div class="metric-stats">
+            <div class="metric-stat"><div class="v">32%</div><div class="l">Taxa de conversão</div></div>
+            <div class="metric-stat"><div class="v">2,4h</div><div class="l">Resposta média</div></div>
+            <div class="metric-stat"><div class="v">91%</div><div class="l">SLA cumprido</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CTA ============ -->
+<section class="cta-section" id="cta">
+  <div class="wrap">
+    <div class="cta-split">
+      <div class="cta-card a">
+        <h3>Quer alugar, comprar ou anunciar um imóvel?</h3>
+        <p>Crie sua conta gratuita e explore os imóveis disponíveis agora.</p>
+        <a href="#" class="btn-primary">Cadastre-se</a>
+      </div>
+      <div class="cta-card b">
+        <h3>Sua imobiliária quer organizar os leads?</h3>
+        <p>Cadastre sua organização, convide a equipe e comece a distribuir leads hoje mesmo.</p>
+        <a href="#" class="btn-light">Criar organização</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap footer-inner">
+    <div class="logo" style="font-size:17px;">zhiv<span>a</span>go</div>
+    <div class="footer-links">
+      <a href="#marketplace">Imóveis</a>
+      <a href="#crm">Imobiliárias</a>
+      <a href="#">Entrar</a>
+    </div>
+    <div>© 2026 Zhivago</div>
+  </div>
+</footer>
+
+</body>
+</html>

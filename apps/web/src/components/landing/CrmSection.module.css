@@ -1,0 +1,134 @@
+.dark {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.section {
+  padding: 56px 0 88px;
+}
+
+.titleOnDark {
+  color: var(--paper);
+}
+
+/* ── grid de features do CRM ── */
+
+.crmFeatGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--line-dark);
+  border: 1px solid var(--line-dark);
+  border-radius: 20px;
+  overflow: hidden;
+  margin-bottom: 64px;
+}
+
+@media (max-width: 880px) {
+  .crmFeatGrid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .crmFeatGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.crmFeatCell {
+  background: var(--ink);
+  padding: 30px 26px;
+}
+
+.featIcon {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: var(--ink-soft);
+  border: 1px solid var(--line-dark);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ff8fa3;
+  margin-bottom: 18px;
+}
+
+.featTitle {
+  font-family: var(--font-landing-serif), Georgia, serif;
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--paper);
+}
+
+.featText {
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: #9aa2ae;
+}
+
+/* ── equipe + métricas ── */
+
+.teamBlock {
+  display: grid;
+  grid-template-columns: 1fr 1.1fr;
+  gap: 56px;
+  align-items: center;
+}
+
+@media (max-width: 880px) {
+  .teamBlock {
+    grid-template-columns: 1fr;
+  }
+}
+
+.teamTitle {
+  font-size: 24px;
+  color: var(--paper);
+  margin: 0 0 8px;
+}
+
+.teamText {
+  color: #9aa2ae;
+  font-size: 15px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.roleList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 24px;
+}
+
+.roleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line-dark);
+}
+
+.roleRow:last-child {
+  border-bottom: none;
+}
+
+.roleName {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--paper);
+}
+
+.roleDesc {
+  font-size: 13px;
+  color: #8891a0;
+  margin-top: 3px;
+}
+
+.crmCta {
+  margin-top: 64px;
+  display: flex;
+  justify-content: center;
+}
