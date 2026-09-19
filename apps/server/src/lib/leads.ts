@@ -211,6 +211,41 @@ export async function canManageListingConversation(
 }
 
 /**
+ * Move o Lead do cliente automaticamente pro fim do funil (`WON` numa reserva/proposta aprovada,
+ * `LOST` numa recusada) — o mesmo efeito de arrastar o card manualmente até a última coluna do
+ * Kanban, só que sem precisar fazer isso à mão depois de já ter fechado o negócio pelo chat/
+ * reserva. No-op se o imóvel não é de organização, não existe Lead ainda, ou o Lead já está nesse
+ * status (evita log duplicado quando o mesmo lead recebe mais de uma reserva/proposta). Chamada
+ * por `bookings.controller.ts`/`offers.controller.ts` logo depois de aprovar/recusar de verdade —
+ * sempre dentro de um try/catch lá, aditivo: nunca derruba a aprovação/recusa se isso falhar.
+ */
+export async function closeLeadForDealOutcome(
+  userId: string,
+  listing: { id: string; organizationId: string | null },
+  customerId: string,
+  outcome: 'WON' | 'LOST'
+): Promise<void> {
+  if (!listing.organizationId) return;
+
+  const lead = await prisma.lead.findFirst({
+    where: { listingId: listing.id, organizationId: listing.organizationId, userId: customerId },
+  });
+  if (!lead || lead.status === outcome) return;
+
+  const membership = await resolveLeadAccess(userId, lead);
+  if (!membership) return;
+
+  const previousStatus = lead.status;
+  await prisma.lead.update({ where: { id: lead.id }, data: { status: outcome } });
+  await recordInteraction({
+    leadId: lead.id,
+    memberId: membership.id,
+    type: 'STATUS_CHANGE',
+    content: `${previousStatus} → ${outcome} (automático: ${outcome === 'WON' ? 'reserva/proposta aprovada' : 'reserva/proposta recusada'})`,
+  });
+}
+
+/**
  * Registra um contato com o cliente. Se a atribuição aberta do lead ainda não tem
  * `firstContactAt` (base de SLA, Fase 4), preenche com agora — só na 1ª interação.
  */

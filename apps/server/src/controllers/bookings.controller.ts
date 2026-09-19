@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { sendNotification } from '../services/notification.service.js';
 import { getIO } from '../socket.js';
-import { distributeLead, canManageListingConversation } from '../lib/leads.js';
+import { distributeLead, canManageListingConversation, closeLeadForDealOutcome } from '../lib/leads.js';
 import { canManageOrgListing } from './listings.controller.js';
 
 export async function createBooking(request: FastifyRequest, reply: FastifyReply) {
@@ -196,6 +196,12 @@ export async function approveBookingCore(userId: string, bookingId: string): Pro
     where: { id: bookingId },
     data: { status: 'CONFIRMED' }
   });
+
+  try {
+    await closeLeadForDealOutcome(userId, booking.listing, booking.userId, 'WON');
+  } catch (err) {
+    console.error('Falha ao mover o Lead automaticamente pra WON após aprovar reserva:', err);
+  }
 
   await sendNotification({
     userId: booking.userId,

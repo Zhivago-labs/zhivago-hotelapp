@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { sendNotification } from '../services/notification.service.js';
 import { getIO } from '../socket.js';
-import { canManageListingConversation } from '../lib/leads.js';
+import { canManageListingConversation, closeLeadForDealOutcome } from '../lib/leads.js';
 
 export async function createOffer(request: FastifyRequest, reply: FastifyReply) {
   const { id: userId } = request.user as { id: string };
@@ -156,6 +156,12 @@ export async function approveOfferCore(userId: string, offerId: string): Promise
     where: { id: offer.listingId },
     data: { status: 'SOLD' }
   });
+
+  try {
+    await closeLeadForDealOutcome(userId, offer.listing, offer.buyerId, 'WON');
+  } catch (err) {
+    console.error('Falha ao mover o Lead automaticamente pra WON após aprovar proposta:', err);
+  }
 
   await sendNotification({
     userId: offer.buyerId,
