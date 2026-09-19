@@ -3,7 +3,46 @@ import { prisma } from './lib/prisma.js';
 import jwt from 'jsonwebtoken';
 import { sendNotification } from './services/notification.service.js';
 import { JWT_SECRET } from './lib/env.js';
+import { approveBookingCore, rejectBookingCore } from './controllers/bookings.controller.js';
+import { approveOfferCore, rejectOfferCore } from './controllers/offers.controller.js';
 let ioInstance: SocketIOServer | null = null;
+
+// Comandos de texto no chat — fallback pra aprovar/recusar reserva ou proposta quando o botão de
+// ação não aparece (ex.: front desatualizado em cache) ou não é clicável por algum motivo. Age
+// sobre a solicitação (BOOKING_REQUEST/OFFER_REQUEST) mais recente ainda pendente na conversa —
+// mesma checagem de permissão do botão (`canManageListingConversation`), então digitar o comando
+// sem ser quem pode agir simplesmente falha, igual clicar no botão sem permissão falharia.
+const APPROVE_COMMANDS = new Set(['/aprovar', '/aprovado', '/aceitar', '/aceito']);
+const REJECT_COMMANDS = new Set(['/recusar', '/recusado', '/rejeitar', '/rejeitado']);
+
+async function handleChatCommand(
+  userId: string,
+  conversationId: string,
+  command: 'approve' | 'reject'
+): Promise<{ error?: string; success?: boolean }> {
+  const pending = await prisma.message.findFirst({
+    where: { conversationId, type: { in: ['BOOKING_REQUEST', 'OFFER_REQUEST'] } },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  if (!pending) {
+    return { error: 'Nenhuma solicitação de reserva ou proposta pendente nesta conversa.' };
+  }
+
+  const metadata = pending.metadata ? JSON.parse(pending.metadata) : {};
+  const isBooking = pending.type === 'BOOKING_REQUEST';
+  const id = isBooking ? metadata.bookingId : metadata.offerId;
+
+  const core = isBooking
+    ? (command === 'approve' ? approveBookingCore : rejectBookingCore)
+    : (command === 'approve' ? approveOfferCore : rejectOfferCore);
+
+  const { status, body } = await core(userId, id);
+  if (status >= 300) {
+    return { error: (body as { error?: string })?.error ?? 'Não foi possível concluir a ação.' };
+  }
+  return { success: true };
+}
 
 export function setupSocket(io: SocketIOServer) {
   ioInstance = io;
@@ -67,6 +106,21 @@ export function setupSocket(io: SocketIOServer) {
         // Se o administrador encerrou/bloqueou a conversa, impede novas mensagens
         if ((conversation as any).isClosed) {
           if (callback) callback({ error: 'Conversation is closed by admin' });
+          return;
+        }
+
+        // Comando de texto (fallback do botão aprovar/recusar) — não vira uma mensagem normal,
+        // age direto sobre a solicitação pendente e a confirmação chega via o próprio
+        // approveBookingCore/rejectBookingCore/approveOfferCore/rejectOfferCore (mesma mensagem e
+        // socket emit de quando se clica no botão).
+        const trimmedContent = content.trim().toLowerCase();
+        if (APPROVE_COMMANDS.has(trimmedContent) || REJECT_COMMANDS.has(trimmedContent)) {
+          const result = await handleChatCommand(
+            user.id,
+            conversationId,
+            APPROVE_COMMANDS.has(trimmedContent) ? 'approve' : 'reject'
+          );
+          if (callback) callback(result);
           return;
         }
 

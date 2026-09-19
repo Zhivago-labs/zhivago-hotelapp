@@ -176,68 +176,132 @@ export async function getBookings(request: FastifyRequest, reply: FastifyReply) 
   }
 }
 
+/**
+ * Núcleo de "aprovar reserva" sem depender de FastifyRequest/Reply — reaproveitado pelo endpoint
+ * HTTP (`approveBooking`) e pelo comando de chat `/aprovar` (`socket.ts`, fallback pra quando o
+ * botão não aparece/não é clicável). Mesma checagem de permissão dos dois caminhos.
+ */
+export async function approveBookingCore(userId: string, bookingId: string): Promise<{ status: number; body: unknown }> {
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: { listing: true }
+  });
+
+  if (!booking) return { status: 404, body: { error: 'Reserva não encontrada.' } };
+  if (!(await canManageListingConversation(userId, booking.listing, [booking.userId]))) {
+    return { status: 403, body: { error: 'Sem permissão.' } };
+  }
+
+  const updated = await prisma.booking.update({
+    where: { id: bookingId },
+    data: { status: 'CONFIRMED' }
+  });
+
+  await sendNotification({
+    userId: booking.userId,
+    title: 'Reserva Aprovada! 🎉',
+    message: `Sua reserva para "${booking.listing.name}" foi aprovada pelo anfitrião.`,
+    type: 'BOOKING',
+  });
+
+  const conversation = await prisma.conversation.findFirst({
+    where: {
+      propertyId: booking.listingId,
+      participants: { every: { id: { in: [booking.userId, userId] } } }
+    }
+  });
+
+  if (conversation) {
+    await prisma.message.updateMany({
+      where: { conversationId: conversation.id, type: 'BOOKING_REQUEST', metadata: { contains: bookingId } },
+      data: { type: 'BOOKING_APPROVED' }
+    });
+
+    const message = await prisma.message.create({
+      data: {
+        content: `✅ O anfitrião aprovou sua solicitação de reserva para o período de ${new Date(booking.startDate).toLocaleDateString()} a ${new Date(booking.endDate).toLocaleDateString()}.`,
+        type: 'TEXT',
+        senderId: userId,
+        conversationId: conversation.id
+      },
+      include: { sender: { select: { id: true, name: true, avatar: true } } }
+    });
+    await prisma.conversation.update({ where: { id: conversation.id }, data: { updatedAt: new Date() } });
+
+    try {
+      const io = getIO();
+      io.to(`room_${booking.userId}`).emit('receiveMessage', message);
+      io.to(`room_${userId}`).emit('receiveMessage', message);
+    } catch(e) {}
+  }
+
+  return { status: 200, body: updated };
+}
+
+/** Espelho de `approveBookingCore` pra recusar. */
+export async function rejectBookingCore(userId: string, bookingId: string): Promise<{ status: number; body: unknown }> {
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: { listing: true }
+  });
+
+  if (!booking) return { status: 404, body: { error: 'Reserva não encontrada.' } };
+  if (!(await canManageListingConversation(userId, booking.listing, [booking.userId]))) {
+    return { status: 403, body: { error: 'Sem permissão.' } };
+  }
+
+  const updated = await prisma.booking.update({
+    where: { id: bookingId },
+    data: { status: 'REJECTED' }
+  });
+
+  await sendNotification({
+    userId: booking.userId,
+    title: 'Reserva Recusada',
+    message: `Sua reserva para "${booking.listing.name}" foi recusada pelo anfitrião.`,
+    type: 'SYSTEM',
+  });
+
+  const conversation = await prisma.conversation.findFirst({
+    where: {
+      propertyId: booking.listingId,
+      participants: { every: { id: { in: [booking.userId, userId] } } }
+    }
+  });
+
+  if (conversation) {
+    await prisma.message.updateMany({
+      where: { conversationId: conversation.id, type: 'BOOKING_REQUEST', metadata: { contains: bookingId } },
+      data: { type: 'BOOKING_REJECTED' }
+    });
+
+    const message = await prisma.message.create({
+      data: {
+        content: `❌ O anfitrião recusou a solicitação de reserva.`,
+        type: 'TEXT',
+        senderId: userId,
+        conversationId: conversation.id
+      },
+      include: { sender: { select: { id: true, name: true, avatar: true } } }
+    });
+    await prisma.conversation.update({ where: { id: conversation.id }, data: { updatedAt: new Date() } });
+
+    try {
+      const io = getIO();
+      io.to(`room_${booking.userId}`).emit('receiveMessage', message);
+      io.to(`room_${userId}`).emit('receiveMessage', message);
+    } catch(e) {}
+  }
+
+  return { status: 200, body: updated };
+}
+
 export async function approveBooking(request: FastifyRequest, reply: FastifyReply) {
   const { id } = request.params as { id: string };
   const user = request.user as { id: string };
-
   try {
-    const booking = await prisma.booking.findUnique({
-      where: { id },
-      include: { listing: true }
-    });
-
-    if (!booking) return reply.status(404).send({ error: 'Reserva não encontrada.' });
-    if (!(await canManageListingConversation(user.id, booking.listing, [booking.userId]))) {
-      return reply.status(403).send({ error: 'Sem permissão.' });
-    }
-
-    const updated = await prisma.booking.update({
-      where: { id },
-      data: { status: 'CONFIRMED' }
-    });
-
-    // Notify guest
-    await sendNotification({
-      userId: booking.userId,
-      title: 'Reserva Aprovada! 🎉',
-      message: `Sua reserva para "${booking.listing.name}" foi aprovada pelo anfitrião.`,
-      type: 'BOOKING',
-    });
-
-    // Find conversation to add message
-    const conversation = await prisma.conversation.findFirst({
-      where: {
-        propertyId: booking.listingId,
-        participants: { every: { id: { in: [booking.userId, user.id] } } }
-      }
-    });
-
-    if (conversation) {
-      // Update original request message
-      await prisma.message.updateMany({
-        where: { conversationId: conversation.id, type: 'BOOKING_REQUEST', metadata: { contains: id } },
-        data: { type: 'BOOKING_APPROVED' }
-      });
-
-      const message = await prisma.message.create({
-        data: {
-          content: `✅ O anfitrião aprovou sua solicitação de reserva para o período de ${new Date(booking.startDate).toLocaleDateString()} a ${new Date(booking.endDate).toLocaleDateString()}.`,
-          type: 'TEXT',
-          senderId: user.id,
-          conversationId: conversation.id
-        },
-        include: { sender: { select: { id: true, name: true, avatar: true } } }
-      });
-      await prisma.conversation.update({ where: { id: conversation.id }, data: { updatedAt: new Date() } });
-
-      try {
-        const io = getIO();
-        io.to(`room_${booking.userId}`).emit('receiveMessage', message);
-        io.to(`room_${user.id}`).emit('receiveMessage', message);
-      } catch(e) {}
-    }
-
-    return reply.send(updated);
+    const { status, body } = await approveBookingCore(user.id, id);
+    return reply.status(status).send(body);
   } catch (error) {
     return reply.status(500).send({ error: 'Erro ao aprovar reserva.' });
   }
@@ -246,65 +310,9 @@ export async function approveBooking(request: FastifyRequest, reply: FastifyRepl
 export async function rejectBooking(request: FastifyRequest, reply: FastifyReply) {
   const { id } = request.params as { id: string };
   const user = request.user as { id: string };
-
   try {
-    const booking = await prisma.booking.findUnique({
-      where: { id },
-      include: { listing: true }
-    });
-
-    if (!booking) return reply.status(404).send({ error: 'Reserva não encontrada.' });
-    if (!(await canManageListingConversation(user.id, booking.listing, [booking.userId]))) {
-      return reply.status(403).send({ error: 'Sem permissão.' });
-    }
-
-    const updated = await prisma.booking.update({
-      where: { id },
-      data: { status: 'REJECTED' }
-    });
-
-    // Notify guest
-    await sendNotification({
-      userId: booking.userId,
-      title: 'Reserva Recusada',
-      message: `Sua reserva para "${booking.listing.name}" foi recusada pelo anfitrião.`,
-      type: 'SYSTEM',
-    });
-
-    // Find conversation to add message
-    const conversation = await prisma.conversation.findFirst({
-      where: {
-        propertyId: booking.listingId,
-        participants: { every: { id: { in: [booking.userId, user.id] } } }
-      }
-    });
-
-    if (conversation) {
-      // Update original request message
-      await prisma.message.updateMany({
-        where: { conversationId: conversation.id, type: 'BOOKING_REQUEST', metadata: { contains: id } },
-        data: { type: 'BOOKING_REJECTED' }
-      });
-
-      const message = await prisma.message.create({
-        data: {
-          content: `❌ O anfitrião recusou a solicitação de reserva.`,
-          type: 'TEXT',
-          senderId: user.id,
-          conversationId: conversation.id
-        },
-        include: { sender: { select: { id: true, name: true, avatar: true } } }
-      });
-      await prisma.conversation.update({ where: { id: conversation.id }, data: { updatedAt: new Date() } });
-
-      try {
-        const io = getIO();
-        io.to(`room_${booking.userId}`).emit('receiveMessage', message);
-        io.to(`room_${user.id}`).emit('receiveMessage', message);
-      } catch(e) {}
-    }
-
-    return reply.send(updated);
+    const { status, body } = await rejectBookingCore(user.id, id);
+    return reply.status(status).send(body);
   } catch (error) {
     return reply.status(500).send({ error: 'Erro ao recusar reserva.' });
   }
