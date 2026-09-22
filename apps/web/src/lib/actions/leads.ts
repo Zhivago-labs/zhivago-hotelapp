@@ -130,6 +130,56 @@ export async function updateVisitStatusAction(
   if (leadId) revalidatePath(`/imobiliaria/leads/${leadId}`);
 }
 
+// ─── TAREFAS / PRÓXIMA AÇÃO (seção 112/117 da spec) ──────────────────────────────────────────
+
+export async function addTaskAction(
+  _prevState: LeadFormState,
+  formData: FormData
+): Promise<LeadFormState> {
+  const token = await getToken();
+  const leadId = String(formData.get("leadId") ?? "");
+  const title = String(formData.get("title") ?? "").trim();
+  const dueAt = String(formData.get("dueAt") ?? "").trim();
+  if (!token || !leadId || !title) return { error: "Informe o título da tarefa." };
+
+  const res = await fetch(`${getApiUrl()}/leads/${leadId}/tasks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ title, dueAt: dueAt || undefined }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    return { error: extractErrorMessage(data, "Não foi possível criar a tarefa.") };
+  }
+
+  revalidatePath(`/imobiliaria/leads/${leadId}`);
+  revalidatePath("/imobiliaria");
+}
+
+export async function toggleTaskCompletedAction(
+  _prevState: LeadFormState,
+  formData: FormData
+): Promise<LeadFormState> {
+  const token = await getToken();
+  const taskId = String(formData.get("taskId") ?? "");
+  const leadId = String(formData.get("leadId") ?? "");
+  const completed = formData.get("completed") === "true";
+  if (!token || !taskId) return { error: "Tarefa inválida." };
+
+  const res = await fetch(`${getApiUrl()}/tasks/${taskId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ completed }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    return { error: extractErrorMessage(data, "Não foi possível atualizar a tarefa.") };
+  }
+
+  if (leadId) revalidatePath(`/imobiliaria/leads/${leadId}`);
+  revalidatePath("/imobiliaria");
+}
+
 export async function updateLeadDistributionModeAction(
   _prevState: LeadFormState,
   formData: FormData

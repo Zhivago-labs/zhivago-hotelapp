@@ -7,7 +7,9 @@ import { useChatSocket } from "./ChatSocketProvider";
 import { getPublicApiUrl } from "@/lib/public-api";
 import styles from "./StartChatButton.module.css";
 
-export function StartChatButton({ listingId }: { listingId: string }) {
+// Seção 133/134 da spec: evitar um CTA universal ("Chat" pra tudo) — venda/mensal usam
+// "Tenho interesse", só a diária (que tem reserva própria) mantém um rótulo genérico de chat.
+export function StartChatButton({ listingId, label = "Chat" }: { listingId: string; label?: string }) {
   const router = useRouter();
   const { token, openSidebar } = useChatSocket();
   const [loading, setLoading] = useState(false);
@@ -58,7 +60,7 @@ export function StartChatButton({ listingId }: { listingId: string }) {
         disabled={loading}
       >
         <MessageCircle size={18} />
-        {loading ? "Abrindo…" : "Chat"}
+        {loading ? "Abrindo…" : label}
       </button>
       {error && <p className={styles.error}>{error}</p>}
     </div>

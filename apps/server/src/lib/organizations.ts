@@ -1,5 +1,6 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { randomBytes } from 'node:crypto';
+import type { Prisma } from '@prisma/client';
 import { prisma } from './prisma.js';
 
 export const ORG_ROLES = ['OWNER', 'ADMIN', 'MANAGER', 'BROKER', 'ASSISTANT'] as const;
@@ -17,6 +18,44 @@ export function generateInviteToken(): string {
 
 export function inviteExpiresAt(): Date {
   return new Date(Date.now() + INVITE_EXPIRY_MS);
+}
+
+export type OrgAuditAction =
+  | 'BUILDING_LEAD_OWNER_CHANGED'
+  | 'BUILDING_BACKUP_CHANGED'
+  | 'LISTING_ORG_APPROVED'
+  | 'LISTING_ORG_REJECTED';
+
+/**
+ * Auditoria de ações estruturais do CRM B2B (seção 125 da spec) — responsabilidade de
+ * empreendimento e moderação de imóvel de organização, que nem `AdminActionLog` (plataforma) nem
+ * o histórico de `LeadAssignment` (já é o próprio log de atribuição de Lead) cobrem. Nunca lança:
+ * é sempre um efeito colateral aditivo, igual ao resto do log de auditoria do projeto.
+ */
+export async function logOrgAudit(entry: {
+  organizationId: string;
+  actorMemberId: string;
+  action: OrgAuditAction;
+  entityType: 'BUILDING' | 'LISTING';
+  entityId: string;
+  reason?: string | undefined;
+  metadata?: Prisma.InputJsonValue | undefined;
+}): Promise<void> {
+  try {
+    await prisma.organizationAuditLog.create({
+      data: {
+        organizationId: entry.organizationId,
+        actorMemberId: entry.actorMemberId,
+        action: entry.action,
+        entityType: entry.entityType,
+        entityId: entry.entityId,
+        reason: entry.reason ?? null,
+        ...(entry.metadata !== undefined ? { metadata: entry.metadata } : {}),
+      },
+    });
+  } catch (err) {
+    console.error('Falha ao registrar log de auditoria da organização:', err);
+  }
 }
 
 /**

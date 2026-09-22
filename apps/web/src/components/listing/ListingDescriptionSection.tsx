@@ -23,18 +23,19 @@ export function ListingDescriptionSection({
   const [expanded, setExpanded] = useState(false);
   const [amenitiesModalOpen, setAmenitiesModalOpen] = useState(false);
 
+  // Seção 88/61 da spec: nunca fabricar comodidades que o anunciante não marcou de verdade — se
+  // não houver nenhuma selecionada, a seção de comodidades simplesmente não aparece.
   const selectedIds: string[] = (() => {
-    if (!amenities) return ["cozinha", "wifi", "workspace", "estacionamento", "piscina", "tv", "ar_condicionado", "cameras"];
+    if (!amenities) return [];
     try {
       if (amenities.startsWith("[")) return JSON.parse(amenities);
       return amenities.split(",").map((s) => s.trim()).filter(Boolean);
     } catch {
-      return ["cozinha", "wifi", "workspace", "estacionamento", "piscina", "tv", "ar_condicionado", "cameras"];
+      return [];
     }
   })();
 
-  const activeAmenities = AVAILABLE_AMENITIES.filter((item) => selectedIds.includes(item.id));
-  const displayAmenities = activeAmenities.length > 0 ? activeAmenities : AVAILABLE_AMENITIES.slice(0, 8);
+  const displayAmenities = AVAILABLE_AMENITIES.filter((item) => selectedIds.includes(item.id));
 
   const hasHostDescription = Boolean(description && description.trim().length > 0);
   const fullText = hasHostDescription ? description!.trim() : "";
@@ -73,7 +74,8 @@ export function ListingDescriptionSection({
         )}
       </section>
 
-      {/* Seção O que esse lugar oferece */}
+      {/* Seção O que esse lugar oferece — só aparece se o anunciante marcou alguma comodidade real */}
+      {displayAmenities.length > 0 && (
       <section className={styles.amenitiesSection}>
         <h2 className={styles.sectionTitle}>O que esse lugar oferece</h2>
         <div className={styles.amenitiesGrid}>
@@ -88,6 +90,7 @@ export function ListingDescriptionSection({
           })}
         </div>
 
+        {displayAmenities.length > 8 && (
         <button
           type="button"
           className={styles.allAmenitiesBtn}
@@ -96,7 +99,9 @@ export function ListingDescriptionSection({
           <Sparkles size={16} />
           <span>Mostrar todas as {displayAmenities.length} comodidades</span>
         </button>
+        )}
       </section>
+      )}
 
       {/* Modal de Comodidades */}
       {amenitiesModalOpen && (

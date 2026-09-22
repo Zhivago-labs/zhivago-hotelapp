@@ -19,18 +19,18 @@ export function AmenitiesModal({ amenities, onClose }: Props) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
+  // Seção 88/61 da spec: nunca fabricar comodidades não marcadas de verdade pelo anunciante.
   const selectedIds: string[] = (() => {
-    if (!amenities) return ["cozinha", "wifi", "workspace", "estacionamento", "piscina", "tv", "ar_condicionado", "cameras"];
+    if (!amenities) return [];
     try {
       if (amenities.startsWith("[")) return JSON.parse(amenities);
       return amenities.split(",").map((s) => s.trim()).filter(Boolean);
     } catch {
-      return ["cozinha", "wifi", "workspace", "estacionamento", "piscina", "tv", "ar_condicionado", "cameras"];
+      return [];
     }
   })();
 
-  const activeAmenities = AVAILABLE_AMENITIES.filter((item) => selectedIds.includes(item.id));
-  const listToRender = activeAmenities.length > 0 ? activeAmenities : AVAILABLE_AMENITIES;
+  const listToRender = AVAILABLE_AMENITIES.filter((item) => selectedIds.includes(item.id));
 
   return (
     <div className={styles.overlay} onClick={onClose}>

@@ -1,10 +1,10 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
-import { generateInviteToken, inviteExpiresAt, getMembership, type OrgRole } from '../lib/organizations.js';
+import { generateInviteToken, inviteExpiresAt, getMembership, logOrgAudit, type OrgRole } from '../lib/organizations.js';
 import { sendNotification } from '../services/notification.service.js';
 import { sendOrganizationInviteEmail } from '../lib/mail.js';
-import { SLA_OVERDUE_HOURS, ELIGIBLE_LEAD_ROLES, assignLead } from '../lib/leads.js';
+import { SLA_OVERDUE_HOURS, LEAD_DISTRIBUTION_ROLES, assignLead } from '../lib/leads.js';
 
 // ─── CRIAR ORGANIZAÇÃO (requer auth + conta Imobiliária + ainda não pertencer a uma) ─────────
 
@@ -375,6 +375,7 @@ export async function removeMember(
       brokerUserId: owner!.userId,
       assignedByMemberId: membership.id,
       reason: 'Reatribuído automaticamente: corretor removido da organização.',
+      source: 'MANUAL',
     });
   }
 
@@ -450,9 +451,12 @@ export async function updateLeadDistributionMode(
 // ─── OPT-OUT DE RECEBER LEADS (o próprio membro, ou OWNER/ADMIN em nome de outro) ─────────────
 
 /**
- * Só BROKER/MANAGER têm o que ativar/desativar aqui (são os únicos elegíveis pra distribuição,
- * ver ELIGIBLE_LEAD_ROLES). Nunca deixa zerar: sempre precisa sobrar ao menos um membro ACTIVE
- * com receiveLeads=true na organização, senão nenhum lead novo teria pra quem ir.
+ * BROKER/MANAGER/OWNER são os elegíveis pra distribuição (ver LEAD_DISTRIBUTION_ROLES — seção 12
+ * da spec: ser OWNER não impede de vender). Nunca deixa zerar: sempre precisa sobrar ao menos um
+ * membro ACTIVE com receiveLeads=true na organização, senão nenhum lead novo teria pra quem ir.
+ * Também bloqueia desativar quem é Lead Owner de algum empreendimento sem antes transferir essa
+ * responsabilidade (seção 18 da spec) — senão o empreendimento fica "preso" a alguém que não
+ * recebe mais leads.
  */
 export async function updateMemberReceiveLeads(
   request: FastifyRequest,
@@ -480,7 +484,7 @@ export async function updateMemberReceiveLeads(
     return reply.status(403).send({ error: 'Sem permissão para esta ação.' });
   }
 
-  if (!(ELIGIBLE_LEAD_ROLES as readonly string[]).includes(targetMembership.role)) {
+  if (!(LEAD_DISTRIBUTION_ROLES as readonly string[]).includes(targetMembership.role)) {
     return reply.status(400).send({ error: 'Esse cargo não recebe leads.' });
   }
 
@@ -488,7 +492,7 @@ export async function updateMemberReceiveLeads(
     const otherEligibleCount = await prisma.organizationMember.count({
       where: {
         organizationId: callerMembership.organizationId,
-        role: { in: ELIGIBLE_LEAD_ROLES as unknown as string[] },
+        role: { in: LEAD_DISTRIBUTION_ROLES as unknown as string[] },
         status: 'ACTIVE',
         receiveLeads: true,
         id: { not: targetMembership.id },
@@ -497,6 +501,16 @@ export async function updateMemberReceiveLeads(
     if (otherEligibleCount === 0) {
       return reply.status(400).send({
         error: 'Não é possível desativar: é o único que pode receber leads na organização.',
+      });
+    }
+
+    const ownedBuilding = await prisma.organizationBuilding.findFirst({
+      where: { leadOwnerMemberId: targetMembership.id },
+      select: { id: true, name: true },
+    });
+    if (ownedBuilding) {
+      return reply.status(400).send({
+        error: `Você é responsável pelos leads do empreendimento "${ownedBuilding.name}". Para deixar de receber novos leads, transfira essa responsabilidade para outra pessoa ou reative o recebimento.`,
       });
     }
   }
@@ -527,7 +541,7 @@ export async function getOrganizationMetrics(
   const [funnelGroups, brokers, assignments, sinceDateLeads] = await Promise.all([
     prisma.lead.groupBy({ by: ['status'], where: { organizationId }, _count: { _all: true } }),
     prisma.organizationMember.findMany({
-      where: { organizationId, role: { in: ELIGIBLE_LEAD_ROLES as unknown as string[] } },
+      where: { organizationId, role: { in: LEAD_DISTRIBUTION_ROLES as unknown as string[] } },
       include: { user: { select: { id: true, name: true } } },
     }),
     prisma.leadAssignment.findMany({
@@ -604,6 +618,182 @@ export async function getOrganizationMetrics(
     leadsPerMonth,
     byBroker,
   });
+}
+
+// ─── EMPREENDIMENTOS (seção 8/63/128 da spec) — requer pertencer à organização ────────────────
+
+/** Qualquer membro ativo pode ver a lista, pra escolher um no cadastro de imóvel (seção 63). */
+export async function listOrganizationBuildings(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  const membership = (request as FastifyRequest & { orgMembership: { organizationId: string } }).orgMembership;
+
+  const buildings = await prisma.organizationBuilding.findMany({
+    where: { organizationId: membership.organizationId },
+    include: {
+      leadOwner: { include: { user: { select: { id: true, name: true } } } },
+      backupMember: { include: { user: { select: { id: true, name: true } } } },
+      _count: { select: { listings: true } },
+    },
+    orderBy: { name: 'asc' },
+  });
+
+  return reply.send(buildings);
+}
+
+/**
+ * Criar empreendimento nasce sem Lead Owner/backup (seção 8) — atribuir isso é uma ação
+ * separada e explícita (seção 10/74, ver `assumeBuildingLeadOwnership` em
+ * `listings.controller.ts`), nunca automática no ato de criar.
+ */
+export async function createOrganizationBuilding(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  const membership = (request as FastifyRequest & { orgMembership: { organizationId: string } }).orgMembership;
+
+  const schema = z.object({ name: z.string().trim().min(1), address: z.string().trim().optional() });
+  const parsed = schema.safeParse(request.body);
+  if (!parsed.success) return reply.status(400).send({ error: parsed.error.errors });
+
+  const building = await prisma.organizationBuilding.create({
+    data: {
+      name: parsed.data.name,
+      address: parsed.data.address ?? null,
+      organizationId: membership.organizationId,
+    },
+  });
+
+  return reply.status(201).send(building);
+}
+
+/** Renomear/editar endereço (requer poder criar/editar imóvel: OWNER/ADMIN/BROKER). */
+export async function updateOrganizationBuilding(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  const membership = (request as FastifyRequest & { orgMembership: { organizationId: string } }).orgMembership;
+  const { id } = request.params as { id: string };
+
+  const building = await prisma.organizationBuilding.findUnique({ where: { id } });
+  if (!building || building.organizationId !== membership.organizationId) {
+    return reply.status(404).send({ error: 'Empreendimento não encontrado.' });
+  }
+
+  const schema = z.object({ name: z.string().trim().min(1).optional(), address: z.string().trim().nullable().optional() });
+  const parsed = schema.safeParse(request.body);
+  if (!parsed.success) return reply.status(400).send({ error: parsed.error.errors });
+
+  const updated = await prisma.organizationBuilding.update({
+    where: { id },
+    data: { ...(parsed.data.name !== undefined ? { name: parsed.data.name } : {}), ...(parsed.data.address !== undefined ? { address: parsed.data.address } : {}) },
+  });
+
+  return reply.send(updated);
+}
+
+async function isEligibleForBuildingRole(memberId: string, organizationId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const member = await prisma.organizationMember.findUnique({ where: { id: memberId } });
+  if (!member || member.organizationId !== organizationId) return { ok: false, error: 'Membro não encontrado nesta organização.' };
+  if (member.status !== 'ACTIVE') return { ok: false, error: 'Esse membro está inativo.' };
+  if (!(LEAD_DISTRIBUTION_ROLES as readonly string[]).includes(member.role)) {
+    return { ok: false, error: 'Escolha um proprietário, gerente ou corretor.' };
+  }
+  if (!member.receiveLeads) return { ok: false, error: 'Esse membro optou por não receber leads no momento.' };
+  return { ok: true };
+}
+
+/**
+ * Atribuição/transferência EXPLÍCITA de Lead Owner (seção 74/75/128 da spec) — diferente do
+ * checkbox "Assumir todos os Leads deste empreendimento" no cadastro de imóvel
+ * (`assumeBuildingLeadOwnership` em `listings.controller.ts`), que se recusa a sobrescrever um
+ * dono já existente. Aqui é uma ação administrativa autorizada (só OWNER/ADMIN, "apenas
+ * OWNER/MANAGER com permissão pode transferir" da seção 75) e PODE substituir quem já era o dono.
+ */
+export async function setBuildingLeadOwner(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  const membership = (request as FastifyRequest & { orgMembership: { id: string; organizationId: string } }).orgMembership;
+  const { id } = request.params as { id: string };
+
+  const building = await prisma.organizationBuilding.findUnique({ where: { id } });
+  if (!building || building.organizationId !== membership.organizationId) {
+    return reply.status(404).send({ error: 'Empreendimento não encontrado.' });
+  }
+
+  const schema = z.object({ memberId: z.string().nullable() });
+  const parsed = schema.safeParse(request.body);
+  if (!parsed.success) return reply.status(400).send({ error: parsed.error.errors });
+
+  if (parsed.data.memberId) {
+    const eligible = await isEligibleForBuildingRole(parsed.data.memberId, membership.organizationId);
+    if (!eligible.ok) return reply.status(400).send({ error: eligible.error });
+  }
+
+  const updated = await prisma.organizationBuilding.update({
+    where: { id },
+    data: { leadOwnerMemberId: parsed.data.memberId },
+  });
+
+  await logOrgAudit({
+    organizationId: membership.organizationId,
+    actorMemberId: membership.id,
+    action: 'BUILDING_LEAD_OWNER_CHANGED',
+    entityType: 'BUILDING',
+    entityId: id,
+    metadata: { from: building.leadOwnerMemberId, to: parsed.data.memberId },
+  });
+
+  return reply.send(updated);
+}
+
+/** Backup do empreendimento (seção 17 da spec) — mesma elegibilidade do Lead Owner. */
+export async function setBuildingBackup(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  const membership = (request as FastifyRequest & { orgMembership: { id: string; organizationId: string } }).orgMembership;
+  const { id } = request.params as { id: string };
+
+  const building = await prisma.organizationBuilding.findUnique({ where: { id } });
+  if (!building || building.organizationId !== membership.organizationId) {
+    return reply.status(404).send({ error: 'Empreendimento não encontrado.' });
+  }
+
+  const schema = z.object({ memberId: z.string().nullable() });
+  const parsed = schema.safeParse(request.body);
+  if (!parsed.success) return reply.status(400).send({ error: parsed.error.errors });
+
+  if (parsed.data.memberId) {
+    const eligible = await isEligibleForBuildingRole(parsed.data.memberId, membership.organizationId);
+    if (!eligible.ok) return reply.status(400).send({ error: eligible.error });
+  }
+
+  const updated = await prisma.organizationBuilding.update({
+    where: { id },
+    data: { backupMemberId: parsed.data.memberId },
+  });
+
+  await logOrgAudit({
+    organizationId: membership.organizationId,
+    actorMemberId: membership.id,
+    action: 'BUILDING_BACKUP_CHANGED',
+    entityType: 'BUILDING',
+    entityId: id,
+    metadata: { from: building.backupMemberId, to: parsed.data.memberId },
+  });
+
+  return reply.send(updated);
+}
+
+// ─── LOG DE AUDITORIA DA ORGANIZAÇÃO (seção 125 da spec, requer OWNER/ADMIN) ──────────────────
+
+const AUDIT_LOG_PAGE_SIZE = 30;
+
+export async function getOrganizationAuditLog(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  const membership = (request as FastifyRequest & { orgMembership: { organizationId: string } }).orgMembership;
+  const { page: pageParam } = request.query as { page?: string };
+  const page = Math.max(1, Number(pageParam) || 1);
+
+  const [items, total] = await Promise.all([
+    prisma.organizationAuditLog.findMany({
+      where: { organizationId: membership.organizationId },
+      include: { actor: { include: { user: { select: { id: true, name: true } } } } },
+      orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * AUDIT_LOG_PAGE_SIZE,
+      take: AUDIT_LOG_PAGE_SIZE,
+    }),
+    prisma.organizationAuditLog.count({ where: { organizationId: membership.organizationId } }),
+  ]);
+
+  return reply.send({ items, total, page, limit: AUDIT_LOG_PAGE_SIZE });
 }
 
 export type { OrgRole };

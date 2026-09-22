@@ -8,9 +8,13 @@ import {
   getMyAssignedListings,
   getMyPendingInvites,
   getOrganizationInvites,
+  getOrganizationBuildings,
+  getOrganizationAuditLog,
 } from "@/lib/organizations-api";
 import { TeamSection } from "@/components/dashboard/TeamSection";
 import { PendingInviteCard } from "@/components/dashboard/PendingInviteCard";
+import { BuildingsSection } from "@/components/dashboard/BuildingsSection";
+import { AuditLogSection } from "@/components/dashboard/AuditLogSection";
 import styles from "./page.module.css";
 
 export const metadata: Metadata = { title: "Equipe" };
@@ -69,11 +73,17 @@ export default async function EquipePage() {
   const canManageTeam = MANAGE_ROLES.includes(membership.role);
   const hasOrgWideView = ORG_WIDE_VIEW_ROLES.includes(membership.role);
 
-  const [organizationListings, assignedListings, pendingInvites] = await Promise.all([
+  const [organizationListings, assignedListings, pendingInvites, buildings, auditLog] = await Promise.all([
     hasOrgWideView ? getOrganizationListings(token) : Promise.resolve([]),
     !hasOrgWideView ? getMyAssignedListings(token) : Promise.resolve([]),
     canManageTeam ? getOrganizationInvites(token) : Promise.resolve([]),
+    getOrganizationBuildings(token),
+    canManageTeam ? getOrganizationAuditLog(token) : Promise.resolve(null),
   ]);
+
+  const eligibleMembers = membership.organization.members.filter(
+    (m) => m.status === "ACTIVE" && (m.role === "OWNER" || m.role === "MANAGER" || m.role === "BROKER")
+  );
 
   return (
     <main className={styles.main}>
@@ -95,6 +105,10 @@ export default async function EquipePage() {
         assignedListings={assignedListings}
         pendingInvites={pendingInvites}
       />
+
+      <BuildingsSection buildings={buildings} eligibleMembers={eligibleMembers} canManage={canManageTeam} />
+
+      {auditLog && <AuditLogSection entries={auditLog.items} />}
     </main>
   );
 }

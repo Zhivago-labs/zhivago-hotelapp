@@ -10,6 +10,17 @@ export async function getListings(): Promise<Listing[]> {
   return res.json();
 }
 
+/**
+ * Imóveis semelhantes calculados no backend (seção 94/95 da spec) — prioriza mesmo empreendimento,
+ * bairro, cidade e faixa de preço, e nunca sugere modalidade comercial incompatível. Substitui o
+ * antigo cálculo client-side que trazia a listagem inteira e filtrava só por category/type/preço.
+ */
+export async function getSimilarListings(id: string): Promise<Listing[]> {
+  const res = await fetch(`${getApiUrl()}/listings/${id}/similar`, { cache: "no-store" });
+  if (!res.ok) return [];
+  return res.json();
+}
+
 export interface AgencyProfileUser {
   id: string;
   name: string;
@@ -47,8 +58,17 @@ export async function getAgencyProfile(id: string): Promise<AgencyProfile | null
   return res.json();
 }
 
-export async function getListing(id: string): Promise<Listing | null> {
-  const res = await fetch(`${getApiUrl()}/listings/${id}`, { cache: "no-store" });
+/**
+ * `token` é opcional (visitante anônimo vendo um anúncio público não tem um) — mas sem ele o
+ * backend nunca reconhece o dono, então rascunho/pendente sempre 404 mesmo pro próprio dono
+ * (`getListingById` só libera status não-público pra quem autentica como dono/admin). A tela de
+ * edição SEMPRE precisa passar o token; a página pública de detalhe pode continuar sem.
+ */
+export async function getListing(id: string, token?: string): Promise<Listing | null> {
+  const res = await fetch(`${getApiUrl()}/listings/${id}`, {
+    cache: "no-store",
+    ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
+  });
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`Falha ao buscar imóvel (${res.status})`);
   return res.json();

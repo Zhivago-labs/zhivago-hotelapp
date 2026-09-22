@@ -1,10 +1,32 @@
-import type { Lead, Organization } from '@prisma/client';
+import { Prisma, type Lead, type Organization, type OrganizationMember } from '@prisma/client';
 import { prisma } from './prisma.js';
 import { getMembership } from './organizations.js';
 
-// Papéis elegíveis para receber leads (distribuição aleatória e atribuição manual) — Corretor e
-// Gerente. OWNER/ADMIN/ASSISTANT gerenciam o CRM mas não entram no sorteio.
-export const ELIGIBLE_LEAD_ROLES = ['BROKER', 'MANAGER'] as const;
+// Papéis elegíveis para receber leads (distribuição automática e atribuição manual) — Corretor,
+// Gerente e também o OWNER (seções 12/13 da spec: ser dono da organização não impede de vender).
+// ADMIN/ASSISTANT gerenciam o CRM mas não entram na distribuição por padrão.
+export const LEAD_DISTRIBUTION_ROLES = ['OWNER', 'MANAGER', 'BROKER'] as const;
+
+// Origem de uma atribuição — seção 32 da spec. Guardado em LeadAssignment.source pra métricas/auditoria.
+export type LeadAssignmentSource =
+  | 'BUILDING_OWNER'
+  | 'LISTING_AGENT'
+  | 'ROUND_ROBIN'
+  | 'MANUAL'
+  | 'SELF_ASSIGNED'
+  | 'TRANSFER'
+  | 'BACKUP';
+
+function isEligibleForLeads(
+  member: { role: string; status: string; receiveLeads: boolean } | null | undefined
+): member is { role: string; status: string; receiveLeads: boolean } {
+  return (
+    !!member &&
+    member.status === 'ACTIVE' &&
+    member.receiveLeads &&
+    (LEAD_DISTRIBUTION_ROLES as readonly string[]).includes(member.role)
+  );
+}
 
 export function getCurrentAssignment(leadId: string) {
   return prisma.leadAssignment.findFirst({
@@ -30,12 +52,14 @@ export async function assignLead({
   brokerUserId,
   assignedByMemberId,
   reason,
+  source,
 }: {
   lead: { id: string; userId: string; listingId: string };
   brokerMemberId: string;
   brokerUserId: string;
   assignedByMemberId: string | null;
   reason?: string | undefined;
+  source?: LeadAssignmentSource | undefined;
 }) {
   const current = await getCurrentAssignment(lead.id);
 
@@ -50,7 +74,7 @@ export async function assignLead({
   }
   ops.push(
     prisma.leadAssignment.create({
-      data: { leadId: lead.id, brokerId: brokerMemberId, assignedBy: assignedByMemberId },
+      data: { leadId: lead.id, brokerId: brokerMemberId, assignedBy: assignedByMemberId, source: source ?? null },
     })
   );
   const results = await prisma.$transaction(ops);
@@ -109,44 +133,194 @@ async function syncConversationParticipant({
 }
 
 /**
- * Regra de distribuição de um lead novo:
- * 1) Se o imóvel foi cadastrado por um CORRETOR (Listing.agentId aponta pra um membro com role
- *    BROKER), o lead é sempre dele — nunca entra no sorteio, mesmo em modo MANUAL. É "o lead dele".
- * 2) Caso contrário (imóvel de ADMIN/OWNER/MANAGER/pessoa física), segue o modo da organização:
- *    MANUAL não atribui nada (alguém com OWNER/ADMIN/MANAGER atribui depois pelo painel);
- *    ROUND_ROBIN sorteia aleatoriamente entre membros elegíveis (BROKER/MANAGER, ACTIVE, que não
- *    optaram por não receber leads — `receiveLeads`).
+ * Round Robin real (seção 19/20 da spec) — não é mais `Math.random()`. `Organization.leadRoundRobinCursor`
+ * guarda o id do último membro que recebeu um lead; o próximo é o seguinte na lista ordenada de
+ * elegíveis (ordem estável por `createdAt`, com `id` como desempate).
+ *
+ * Concorrência: dois leads podem chegar ao mesmo tempo. `SELECT ... FOR UPDATE` trava a linha da
+ * Organization dentro da transação — a segunda chamada só lê o cursor depois que a primeira já o
+ * atualizou e commitou, então nunca escolhem o mesmo próximo membro (seção 20).
  */
-export async function distributeLead(lead: Lead, organization: Organization): Promise<void> {
-  const listing = await prisma.listing.findUnique({ where: { id: lead.listingId }, select: { agentId: true } });
+export async function pickRoundRobinMember(organizationId: string): Promise<OrganizationMember | null> {
+  return prisma.$transaction(async (tx) => {
+    const locked = await tx.$queryRaw<{ id: string; leadRoundRobinCursor: string | null }[]>`
+      SELECT "id", "leadRoundRobinCursor" FROM "Organization" WHERE "id" = ${organizationId} FOR UPDATE
+    `;
+    if (!locked[0]) return null;
 
-  if (listing?.agentId) {
-    const agentMembership = await prisma.organizationMember.findUnique({ where: { userId: listing.agentId } });
-    if (agentMembership && agentMembership.organizationId === organization.id && agentMembership.role === 'BROKER') {
-      await assignLead({
-        lead,
-        brokerMemberId: agentMembership.id,
-        brokerUserId: agentMembership.userId,
-        assignedByMemberId: null,
-      });
-      return;
+    const eligible = await tx.organizationMember.findMany({
+      where: {
+        organizationId,
+        role: { in: LEAD_DISTRIBUTION_ROLES as unknown as string[] },
+        status: 'ACTIVE',
+        receiveLeads: true,
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    });
+    if (eligible.length === 0) return null;
+
+    const cursorIdx = locked[0].leadRoundRobinCursor
+      ? eligible.findIndex((m) => m.id === locked[0]!.leadRoundRobinCursor)
+      : -1;
+    const chosen = eligible[(cursorIdx + 1) % eligible.length]!;
+
+    await tx.organization.update({ where: { id: organizationId }, data: { leadRoundRobinCursor: chosen.id } });
+    return chosen;
+  });
+}
+
+/**
+ * Hierarquia de distribuição de um lead novo (seção 15 da spec):
+ * 1. Lead Owner do empreendimento do imóvel (`OrganizationBuilding.leadOwnerMemberId`).
+ * 2. Backup do empreendimento, se o Lead Owner não estiver elegível (seção 16/17).
+ * 3. Responsável comercial do imóvel (`Listing.agentId`).
+ * 4. Distribuição da organização (Round Robin, só se `leadDistributionMode === 'ROUND_ROBIN'`).
+ * 5. Sem destino automático — fica `Unassigned`, alguém com OWNER/ADMIN/MANAGER atribui manualmente.
+ *
+ * Em todos os passos, "elegível" significa `status = ACTIVE`, `role` em `LEAD_DISTRIBUTION_ROLES`
+ * e `receiveLeads = true` (seção 15, nota final) — nunca ignorado, nem para o Lead Owner.
+ */
+export async function resolveLeadAssignee(
+  listing: { id: string; agentId: string | null; buildingId: string | null },
+  organization: Organization
+): Promise<{ memberId: string; userId: string; source: LeadAssignmentSource } | null> {
+  if (listing.buildingId) {
+    const building = await prisma.organizationBuilding.findUnique({
+      where: { id: listing.buildingId },
+      include: { leadOwner: true, backupMember: true },
+    });
+    if (building) {
+      if (isEligibleForLeads(building.leadOwner)) {
+        return { memberId: building.leadOwner!.id, userId: building.leadOwner!.userId, source: 'BUILDING_OWNER' };
+      }
+      if (isEligibleForLeads(building.backupMember)) {
+        return { memberId: building.backupMember!.id, userId: building.backupMember!.userId, source: 'BACKUP' };
+      }
     }
   }
 
-  if (organization.leadDistributionMode !== 'ROUND_ROBIN') return;
+  if (listing.agentId) {
+    const agentMembership = await prisma.organizationMember.findUnique({ where: { userId: listing.agentId } });
+    if (agentMembership && agentMembership.organizationId === organization.id && isEligibleForLeads(agentMembership)) {
+      return { memberId: agentMembership.id, userId: agentMembership.userId, source: 'LISTING_AGENT' };
+    }
+  }
 
-  const eligible = await prisma.organizationMember.findMany({
-    where: {
-      organizationId: organization.id,
-      role: { in: ELIGIBLE_LEAD_ROLES as unknown as string[] },
-      status: 'ACTIVE',
-      receiveLeads: true,
-    },
+  if (organization.leadDistributionMode === 'ROUND_ROBIN') {
+    const chosen = await pickRoundRobinMember(organization.id);
+    if (chosen) return { memberId: chosen.id, userId: chosen.userId, source: 'ROUND_ROBIN' };
+  }
+
+  return null;
+}
+
+/**
+ * Aplica a hierarquia de `resolveLeadAssignee` a um Lead recém-criado. No-op (Lead fica
+ * Unassigned) se nada elegível for encontrado — nunca lança erro, distribuição automática é
+ * sempre best-effort (o painel do CRM permite atribuição manual depois).
+ */
+export async function distributeLead(lead: Lead, organization: Organization): Promise<void> {
+  const listing = await prisma.listing.findUnique({
+    where: { id: lead.listingId },
+    select: { id: true, agentId: true, buildingId: true },
   });
-  if (eligible.length === 0) return;
+  if (!listing) return;
 
-  const chosen = eligible[Math.floor(Math.random() * eligible.length)]!;
-  await assignLead({ lead, brokerMemberId: chosen.id, brokerUserId: chosen.userId, assignedByMemberId: null });
+  const assignee = await resolveLeadAssignee(listing, organization);
+  if (!assignee) return;
+
+  await assignLead({
+    lead,
+    brokerMemberId: assignee.memberId,
+    brokerUserId: assignee.userId,
+    assignedByMemberId: null,
+    source: assignee.source,
+  });
+}
+
+/**
+ * Ponto único de criação de Lead (seção 22/23 da spec) — chat, booking, offer e qualquer fluxo
+ * futuro devem passar por aqui, nunca criar `prisma.lead.create` diretamente. Garante "1 cliente +
+ * 1 imóvel = 1 Lead" (seção 21): se já existir, reaproveita; se duas requests concorrentes
+ * tentarem criar ao mesmo tempo, a constraint única do banco rejeita a segunda e ela recupera o
+ * Lead que a primeira acabou de criar (seção 163 — teste de duplicidade).
+ */
+export async function ensureLead({
+  userId,
+  listingId,
+  organizationId,
+  source = 'CHAT',
+}: {
+  userId: string;
+  listingId: string;
+  organizationId: string;
+  source?: string;
+}): Promise<Lead> {
+  const existing = await prisma.lead.findUnique({ where: { userId_listingId: { userId, listingId } } });
+  if (existing) return existing;
+
+  try {
+    const lead = await prisma.lead.create({ data: { userId, listingId, organizationId, source } });
+    const organization = await prisma.organization.findUnique({ where: { id: organizationId } });
+    if (organization) await distributeLead(lead, organization);
+    return lead;
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+      const raceWinner = await prisma.lead.findUnique({ where: { userId_listingId: { userId, listingId } } });
+      if (raceWinner) return raceWinner;
+    }
+    throw err;
+  }
+}
+
+export type TransferLeadResult =
+  | { ok: true; assignment: Awaited<ReturnType<typeof assignLead>> }
+  | {
+      ok: false;
+      reason: 'LEAD_NOT_FOUND' | 'MEMBER_NOT_IN_ORG' | 'MEMBER_INACTIVE' | 'MEMBER_INELIGIBLE_ROLE' | 'MEMBER_NOT_RECEIVING_LEADS';
+    };
+
+/**
+ * Serviço central de transferência/atribuição manual de Lead (seção 28 da spec) — substitui
+ * validação duplicada nos handlers. Aplica as mesmas checagens em qualquer chamador: lead existe,
+ * novo membro pertence à organização, está ACTIVE, tem papel elegível e pode receber leads
+ * (`receiveLeads = true`). `source` vira `TRANSFER` se o lead já tinha responsável, ou `MANUAL`
+ * se estava sem ninguém (primeira atribuição pelo painel).
+ */
+export async function transferLead({
+  leadId,
+  toMemberId,
+  changedByMemberId,
+  reason,
+}: {
+  leadId: string;
+  toMemberId: string;
+  changedByMemberId: string;
+  reason?: string | undefined;
+}): Promise<TransferLeadResult> {
+  const lead = await prisma.lead.findUnique({ where: { id: leadId } });
+  if (!lead) return { ok: false, reason: 'LEAD_NOT_FOUND' };
+
+  const member = await prisma.organizationMember.findUnique({ where: { id: toMemberId } });
+  if (!member || member.organizationId !== lead.organizationId) return { ok: false, reason: 'MEMBER_NOT_IN_ORG' };
+  if (member.status !== 'ACTIVE') return { ok: false, reason: 'MEMBER_INACTIVE' };
+  if (!(LEAD_DISTRIBUTION_ROLES as readonly string[]).includes(member.role)) {
+    return { ok: false, reason: 'MEMBER_INELIGIBLE_ROLE' };
+  }
+  if (!member.receiveLeads) return { ok: false, reason: 'MEMBER_NOT_RECEIVING_LEADS' };
+
+  const previousAssignment = await getCurrentAssignment(leadId);
+
+  const assignment = await assignLead({
+    lead,
+    brokerMemberId: member.id,
+    brokerUserId: member.userId,
+    assignedByMemberId: changedByMemberId,
+    reason,
+    source: previousAssignment ? 'TRANSFER' : 'MANUAL',
+  });
+
+  return { ok: true, assignment };
 }
 
 /**

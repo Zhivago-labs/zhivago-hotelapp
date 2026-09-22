@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { sendNotification } from '../services/notification.service.js';
 import { getIO } from '../socket.js';
-import { distributeLead, canManageListingConversation, closeLeadForDealOutcome } from '../lib/leads.js';
+import { ensureLead, getCurrentAssignment, canManageListingConversation, closeLeadForDealOutcome } from '../lib/leads.js';
 import { canManageOrgListing } from './listings.controller.js';
 
 export async function createBooking(request: FastifyRequest, reply: FastifyReply) {
@@ -25,12 +25,43 @@ export async function createBooking(request: FastifyRequest, reply: FastifyReply
 
   const { startDate, endDate } = parsed.data;
 
-  // Verifica se o imóvel existe e se é de aluguel
+  // Verifica se o imóvel existe e se aceita reserva por diária. `category === 'aluguel'` sozinho
+  // deixava aluguel MENSAL cair aqui também (bug crítico, seção 50/109/148/162 da spec) — agora
+  // exige `operationType === 'DAILY_RENT'` explicitamente.
   const listing = await prisma.listing.findUnique({ where: { id: listingId } });
   if (!listing) return reply.status(404).send({ error: 'Imóvel não encontrado.' });
-  if (listing.category !== 'aluguel') return reply.status(400).send({ error: 'Reservas só estão disponíveis para aluguel.' });
+  if (listing.operationType !== 'DAILY_RENT') {
+    return reply.status(400).send({ error: 'Reservas só estão disponíveis para aluguel por diária.' });
+  }
+
+  // Seção 53 da spec: [startDate, endDate) — checkout não conta como noite.
+  const nights = Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86_400_000);
+  if (nights < 1) {
+    return reply.status(400).send({ error: 'O período da reserva precisa ter ao menos 1 noite.' });
+  }
 
   try {
+    // Lead nasce ANTES do Booking (seção 51/109 da spec) — se a criação/distribuição do Lead
+    // falhar, a reserva nunca chega a existir "órfã" de Lead. Só para imóvel de organização (CRM).
+    let leadId: string | null = null;
+    if (listing.organizationId) {
+      const lead = await ensureLead({
+        userId,
+        listingId,
+        organizationId: listing.organizationId,
+        source: 'BOOKING',
+      });
+      leadId = lead.id;
+    }
+
+    // Snapshot comercial travado no momento da reserva (seção 52 da spec): diária × noites + taxa
+    // de limpeza. Mudanças futuras no anúncio (preço, desconto, taxa) nunca alteram retroativamente
+    // uma reserva já feita.
+    const nightlyRateSnapshot = listing.price;
+    const cleaningFeeSnapshot = listing.cleaningFee ?? 0;
+    const subtotal = nightlyRateSnapshot * nights;
+    const total = subtotal + cleaningFeeSnapshot;
+
     // Transação serializable para prevenir race condition de reserva dupla (double-booking).
     // A verificação de sobreposição e a criação ocorrem atomicamente — se duas requisições
     // concorrentes tentarem reservar o mesmo período, uma receberá erro de serialização.
@@ -48,18 +79,35 @@ export async function createBooking(request: FastifyRequest, reply: FastifyReply
       }
 
       return tx.booking.create({
-        // Trava o preço do anúncio no momento da reserva — mudanças futuras no desconto do
-        // anúncio não podem alterar retroativamente o valor de uma reserva já feita.
-        data: { startDate, endDate, userId, listingId, price: listing.price },
+        data: {
+          startDate,
+          endDate,
+          userId,
+          listingId,
+          leadId,
+          price: total,
+          nightlyRateSnapshot,
+          nights,
+          cleaningFeeSnapshot,
+          subtotal,
+          total,
+        },
       });
     }, { isolationLevel: 'Serializable' });
 
     let conversation;
 
-    // Contato da reserva: dono da pessoa física (ownerId) ou corretor responsável no caso de
-    // imóvel de organização (agentId) — mesmo fallback usado em chat.controller.ts, necessário
-    // porque imóvel de imobiliária não tem ownerId preenchido.
-    const contactId = listing.ownerId ?? listing.agentId;
+    // Contato da reserva: dono, na pessoa física; responsável atual do Lead, na organização
+    // (seção 108/146 da spec — não mais `ownerId ?? agentId`, que ficava travado no criador do
+    // imóvel e nunca acompanhava reatribuição do Lead no CRM).
+    let contactId: string | null = listing.ownerId;
+    if (leadId) {
+      const currentAssignment = await getCurrentAssignment(leadId);
+      if (currentAssignment) {
+        const broker = await prisma.organizationMember.findUnique({ where: { id: currentAssignment.brokerId } });
+        contactId = broker?.userId ?? null;
+      }
+    }
 
     if (contactId) {
       await sendNotification({
@@ -85,6 +133,7 @@ export async function createBooking(request: FastifyRequest, reply: FastifyReply
         conversation = await prisma.conversation.create({
           data: {
             propertyId: listingId,
+            leadId,
             participants: {
               connect: [{ id: userId }, { id: contactId }]
             }
@@ -116,33 +165,6 @@ export async function createBooking(request: FastifyRequest, reply: FastifyReply
         where: { id: conversation.id },
         data: { updatedAt: new Date() }
       });
-    }
-
-    // Gatilho do Lead (CRM B2B, mesmo padrão do chat em chat.controller.ts): só para imóveis de
-    // organização, só uma vez por usuário/imóvel — aditivo, nunca derruba a criação da reserva se falhar.
-    if (listing.organizationId) {
-      try {
-        const existingLead = await prisma.lead.findFirst({
-          where: { userId, listingId, organizationId: listing.organizationId },
-        });
-        if (!existingLead) {
-          const organization = await prisma.organization.findUnique({ where: { id: listing.organizationId } });
-          if (organization) {
-            const lead = await prisma.lead.create({
-              data: {
-                userId,
-                listingId,
-                organizationId: listing.organizationId,
-                status: 'NEW',
-                source: 'BOOKING',
-              },
-            });
-            await distributeLead(lead, organization);
-          }
-        }
-      } catch (leadError) {
-        console.error('Falha ao criar/distribuir Lead para a reserva:', leadError);
-      }
     }
 
     return reply.status(201).send({ booking, conversationId: conversation?.id });

@@ -24,10 +24,9 @@ interface Props {
 export function HouseRules({ listing, maxGuests: legacyMaxGuests }: Props) {
   const checkIn = listing?.checkInTime ?? "15:00";
   const checkOut = listing?.checkOutTime ?? "11:00";
-  const maxCapacity =
-    listing?.customMaxGuests ??
-    legacyMaxGuests ??
-    (listing?.bedrooms ? listing.bedrooms * 2 : 2);
+  // Seção 86 da spec: nunca fabricar hóspedes a partir de `bedrooms * 2` — se não houver
+  // `customMaxGuests` real, a linha simplesmente não aparece.
+  const maxCapacity = listing?.customMaxGuests ?? legacyMaxGuests ?? null;
 
   // Parse das regras da casa em JSON
   let rulesObj: {
@@ -84,10 +83,12 @@ export function HouseRules({ listing, maxGuests: legacyMaxGuests }: Props) {
             <span>Checkout antes das {checkOut}</span>
           </p>
 
-          <p className={styles.item}>
-            <Users size={16} className={styles.itemIcon} />
-            <span>Máximo de {maxCapacity} hóspedes</span>
-          </p>
+          {maxCapacity != null && (
+            <p className={styles.item}>
+              <Users size={16} className={styles.itemIcon} />
+              <span>Máximo de {maxCapacity} hóspedes</span>
+            </p>
+          )}
 
           {/* Permissão de Pets */}
           <p className={styles.item}>

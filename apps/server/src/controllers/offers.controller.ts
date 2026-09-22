@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { sendNotification } from '../services/notification.service.js';
 import { getIO } from '../socket.js';
-import { canManageListingConversation, closeLeadForDealOutcome } from '../lib/leads.js';
+import { ensureLead, getCurrentAssignment, canManageListingConversation, closeLeadForDealOutcome } from '../lib/leads.js';
 
 export async function createOffer(request: FastifyRequest, reply: FastifyReply) {
   const { id: userId } = request.user as { id: string };
@@ -21,13 +21,26 @@ export async function createOffer(request: FastifyRequest, reply: FastifyReply) 
 
   const { value, paymentMethod } = parsed.data;
 
-  // Garante que o imóvel de fato existe, está à venda e ainda não foi negociado/vendido
+  // Garante que o imóvel de fato existe, é de venda (operationType, seção 99 da spec — não mais
+  // `category` solto) e ainda não foi negociado/vendido.
   const listing = await prisma.listing.findUnique({ where: { id: listingId } });
   if (!listing) return reply.status(404).send({ error: 'Imóvel não encontrado.' });
-  if (listing.category !== 'venda') return reply.status(400).send({ error: 'Propostas só estão disponíveis para venda.' });
+  if (listing.operationType !== 'SALE') return reply.status(400).send({ error: 'Propostas só estão disponíveis para venda.' });
   if (listing.status === 'SOLD') return reply.status(400).send({ error: 'Este imóvel já foi vendido.' });
 
   try {
+    // Lead nasce ANTES da Offer (seção 110 da spec) — mesmo padrão de chat/booking.
+    let leadId: string | null = null;
+    if (listing.organizationId) {
+      const lead = await ensureLead({
+        userId,
+        listingId,
+        organizationId: listing.organizationId,
+        source: 'OFFER',
+      });
+      leadId = lead.id;
+    }
+
     // Cria a proposta no banco de dados para auditoria futura
     const offer = await prisma.offer.create({
       data: {
@@ -35,18 +48,22 @@ export async function createOffer(request: FastifyRequest, reply: FastifyReply) 
         paymentMethod,
         buyerId: userId,
         listingId,
+        leadId,
       }
     });
 
     let conversation;
 
-    // Dono da pessoa física (ownerId) ou corretor/contato responsável no caso de imóvel de
-    // organização (agentId) — imóvel de imobiliária nunca tem ownerId preenchido, então o check
-    // antigo (`if (listing.ownerId)`) pulava esse bloco inteiro pra qualquer proposta em imóvel
-    // de organização: nenhuma notificação, nenhuma mensagem no chat, proposta ficava invisível
-    // pro comprador e pra quem deveria responder. Mesmo fallback já usado em
-    // chat.controller.ts/bookings.controller.ts.
-    const contactId = listing.ownerId ?? listing.agentId;
+    // Dono, na pessoa física; responsável atual do Lead, na organização (seção 108/146 da spec —
+    // não mais `ownerId ?? agentId`, travado no criador do imóvel e alheio a reatribuições do CRM).
+    let contactId: string | null = listing.ownerId;
+    if (leadId) {
+      const currentAssignment = await getCurrentAssignment(leadId);
+      if (currentAssignment) {
+        const broker = await prisma.organizationMember.findUnique({ where: { id: currentAssignment.brokerId } });
+        contactId = broker?.userId ?? null;
+      }
+    }
 
     if (contactId) {
       // Dispara uma notificação push para o dono/responsável do imóvel avisando que há uma nova proposta
@@ -76,6 +93,7 @@ export async function createOffer(request: FastifyRequest, reply: FastifyReply) 
         conversation = await prisma.conversation.create({
           data: {
             propertyId: listingId,
+            leadId,
             participants: {
               connect: [{ id: userId }, { id: contactId }]
             }
@@ -145,17 +163,18 @@ export async function approveOfferCore(userId: string, offerId: string): Promise
     return { status: 403, body: { error: 'Sem permissão.' } };
   }
 
-  const updated = await prisma.offer.update({
-    where: { id: offerId },
-    data: { status: 'ACCEPTED' }
-  });
-
-  // Quando uma proposta é aceita, o imóvel é marcado como 'SOLD' — impede novas propostas no
-  // mesmo anúncio e bloqueia novas conversações sobre ele.
-  await prisma.listing.update({
-    where: { id: offer.listingId },
-    data: { status: 'SOLD' }
-  });
+  // Aceitar uma proposta e cancelar as demais pendentes do mesmo imóvel (seção 45 da spec) precisa
+  // ser atômico: sem transação, duas propostas concorrentes poderiam ficar ACCEPTED ao mesmo tempo.
+  const [updated] = await prisma.$transaction([
+    prisma.offer.update({ where: { id: offerId }, data: { status: 'ACCEPTED' } }),
+    prisma.offer.updateMany({
+      where: { listingId: offer.listingId, status: 'PENDING', id: { not: offerId } },
+      data: { status: 'CANCELLED' },
+    }),
+    // Quando uma proposta é aceita, o imóvel é marcado como 'SOLD' — impede novas propostas no
+    // mesmo anúncio e bloqueia novas conversações sobre ele.
+    prisma.listing.update({ where: { id: offer.listingId }, data: { status: 'SOLD' } }),
+  ]);
 
   try {
     await closeLeadForDealOutcome(userId, offer.listing, offer.buyerId, 'WON');

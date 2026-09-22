@@ -8,6 +8,8 @@ import { LeadStatusSelect } from "@/components/dashboard/LeadStatusSelect";
 import { AddInteractionForm } from "@/components/dashboard/AddInteractionForm";
 import { ScheduleVisitForm } from "@/components/dashboard/ScheduleVisitForm";
 import { VisitStatusSelect } from "@/components/dashboard/VisitStatusSelect";
+import { AddTaskForm } from "@/components/dashboard/AddTaskForm";
+import { TaskCompleteToggle } from "@/components/dashboard/TaskCompleteToggle";
 import { SlaBadge } from "@/components/dashboard/SlaBadge";
 import styles from "./page.module.css";
 
@@ -110,6 +112,30 @@ export default async function LeadDetailPage({ params }: Params) {
             h
           </p>
         )}
+      </section>
+
+      <section className={styles.section}>
+        <h2 className={styles.sectionTitle}>Tarefas / Próxima ação</h2>
+        {canMutate && <AddTaskForm leadId={lead.id} />}
+
+        <div className={styles.timeline}>
+          {lead.tasks.length === 0 ? (
+            <p className={styles.empty}>Nenhuma tarefa criada ainda.</p>
+          ) : (
+            lead.tasks.map((task) => (
+              <div key={task.id} className={styles.timelineItem}>
+                <span className={styles.timelineType} style={task.completedAt ? { textDecoration: "line-through" } : undefined}>
+                  {task.title}
+                </span>
+                <span className={styles.timelineMeta}>
+                  {task.dueAt ? new Date(task.dueAt).toLocaleString("pt-BR") : "Sem prazo"} ·{" "}
+                  {task.completedAt ? "Concluída" : "Pendente"}
+                </span>
+                {canMutate && <TaskCompleteToggle taskId={task.id} leadId={lead.id} completed={!!task.completedAt} />}
+              </div>
+            ))
+          )}
+        </div>
       </section>
 
       <section className={styles.section}>

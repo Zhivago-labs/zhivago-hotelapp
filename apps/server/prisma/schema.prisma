@@ -46,6 +46,7 @@ model User {
 
   listings         Listing[]      @relation("ListingOwner")
   assignedListings Listing[]      @relation("ListingAgent")
+  createdListings  Listing[]      @relation("ListingCreatedBy")
   reviews       Review[]
   bookings      Booking[]
   conversations Conversation[] @relation("ConversationParticipants")
@@ -80,9 +81,27 @@ model Listing {
   billingCycle String?  // "noite" | "mês"
   location     String
 
+  // Localização estruturada (seção 62 da spec) — `location` acima continua existindo, derivado
+  // destes campos, como compatibilidade para código/telas que ainda leem só a string.
+  cep          String?
+  logradouro   String?
+  numero       String?
+  complemento  String?
+  bairro       String?
+  cidade       String?
+  uf           String?
+
+  // Operação comercial explícita — fonte principal a partir da qual o domínio deve trabalhar
+  // (ver docs/zhivago-especificacao-completa-crm-cadastro-imoveis-pagina-publica.md, seção 3).
+  // category/billingCycle continuam existindo para compatibilidade durante a migração.
+  operationType String @default("DAILY_RENT") // "SALE" | "MONTHLY_RENT" | "DAILY_RENT"
+
   bedrooms     Int      @default(0)
+  suites       Int      @default(0)
   bathrooms    Int      @default(0)
   parking      Int      @default(0)
+  privateArea  Float?
+  totalArea    Float?
   amenities    String?  // JSON stringified array of selected amenity keys/names
 
   // Regras da casa, segurança e cancelamento
@@ -92,6 +111,26 @@ model Listing {
   houseRules         String?  // JSON stringified object
   safetyItems        String?  // JSON stringified object
   cancellationPolicy String?  @default("FLEXIBLE") // "FLEXIBLE" | "MODERATE" | "STRICT"
+  // Taxa de limpeza da diária (seção 5/52 da spec) — só relevante para DAILY_RENT; usada no
+  // snapshot de preço do Booking. `price` já serve como a diária em si (dailyRate).
+  cleaningFee        Float?
+  // Estadia mínima em noites, só DAILY_RENT (seção 5/49 da spec). `customMaxGuests` acima já
+  // cobre o conceito de "hóspedes máximos" (seção 5's `maxGuests`) — não duplicado.
+  minimumNights      Int?
+
+  // Condições de VENDA (seção 5/66 da spec) — só relevantes para operationType = SALE.
+  condoFee           Float? // também usado por MONTHLY_RENT (condomínio mensal, seção 5/67)
+  iptuAnnual         Float?
+  acceptsFinancing   Boolean? @default(false)
+  acceptsExchange    Boolean? @default(false)
+
+  // Condições de ALUGUEL MENSAL (seção 5/67 da spec) — só relevantes para operationType = MONTHLY_RENT.
+  iptuMonthly        Float?
+  availableFrom      DateTime?
+  minimumLeaseMonths Int?
+  guaranteeTypes     String?  // JSON stringified array — "CAUCAO" | "SEGURO_FIANCA" | "FIADOR" etc.
+  isFurnished        Boolean? @default(false)
+  allowPets          Boolean? @default(true) // condição de 1ª classe do mensal; diária mantém seu próprio allowPets dentro de houseRules
 
   // Status de moderação pelo admin / ciclo de vida do dono
   // SEGURANÇA: default alterado de "APPROVED" para "PENDING" — novos anúncios
@@ -109,6 +148,13 @@ model Listing {
   agentId      String?
   agent        User?    @relation("ListingAgent", fields: [agentId], references: [id], onDelete: SetNull)
 
+  // Quem cadastrou o anúncio — distinto de `agentId` (responsável comercial). Ver seção 6/7 da spec.
+  createdById  String?
+  createdBy    User?    @relation("ListingCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  buildingId   String?
+  building     OrganizationBuilding? @relation(fields: [buildingId], references: [id], onDelete: SetNull)
+
   reviews       Review[]
   bookings      Booking[]
   conversations Conversation[]
@@ -123,8 +169,11 @@ model Listing {
   @@index([ownerId])
   @@index([organizationId])
   @@index([agentId])
+  @@index([createdById])
+  @@index([buildingId])
   @@index([category])
   @@index([type])
+  @@index([operationType])
 }
 
 // ─── IMAGENS DO IMÓVEL ───────────────────────────────────────────────────────
@@ -176,16 +225,29 @@ model Booking {
   price           Float?
   discountedPrice Float?
 
+  // Snapshot comercial da diária no momento da reserva (seção 52 da spec) — preenchido pelo
+  // Sprint 6 quando o cálculo de preço for reescrito; nullable aqui só para não quebrar reservas
+  // já existentes nem exigir backfill retroativo.
+  nightlyRateSnapshot Float?
+  nights              Int?
+  cleaningFeeSnapshot Float?
+  subtotal            Float?
+  total               Float?
+
   listingId String
   listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
 
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  leadId String?
+  lead   Lead?   @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
 
   @@index([listingId, status])
   @@index([userId])
+  @@index([leadId])
 }
 
 // ─── CHAT ────────────────────────────────────────────────────────────────────
@@ -195,6 +257,12 @@ model Conversation {
 
   propertyId   String
   property     Listing   @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  // Conversa principal do Lead (seção 25 da spec) — nullable porque imóvel de pessoa física não
+  // gera Lead/CRM. `propertyId` continua existindo para localizar a conversa por compatibilidade
+  // enquanto o novo padrão (localizar por leadId) não é adotado em todos os fluxos.
+  leadId       String?
+  lead         Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
 
   participants User[]    @relation("ConversationParticipants")
   messages     Message[]
@@ -206,6 +274,7 @@ model Conversation {
   updatedAt    DateTime  @updatedAt
 
   @@index([propertyId])
+  @@index([leadId])
 }
 
 model Message {
@@ -282,10 +351,12 @@ model Organization {
   leadDistributionMode String  @default("MANUAL")
   leadRoundRobinCursor String?
 
-  members  OrganizationMember[] @relation("OrganizationMembers")
-  invites  OrganizationInvite[]
-  listings Listing[]
-  leads    Lead[]
+  members   OrganizationMember[] @relation("OrganizationMembers")
+  invites   OrganizationInvite[]
+  listings  Listing[]
+  leads     Lead[]
+  buildings OrganizationBuilding[]
+  auditLogs OrganizationAuditLog[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -310,11 +381,46 @@ model OrganizationMember {
   leadAssignments  LeadAssignment[]
   leadInteractions LeadInteraction[]
   visits           Visit[]
+  leadTasks        LeadTask[]
+  auditLogsAsActor OrganizationAuditLog[]
+
+  // Empreendimentos onde este membro é o responsável exclusivo pelos Leads, ou o backup dele
+  // (seções 8/9/17 da spec). Um membro pode ser dono/backup de vários empreendimentos.
+  buildingsAsLeadOwner OrganizationBuilding[] @relation("BuildingLeadOwner")
+  buildingsAsBackup    OrganizationBuilding[] @relation("BuildingBackup")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([organizationId])
+}
+
+// ─── EMPREENDIMENTO (seção 8 da spec) ────────────────────────────────────────
+// Agrupa Listings de uma mesma organização sob um responsável exclusivo por Leads
+// (leadOwnerMemberId) com fallback opcional (backupMemberId). "0 ou 1 responsável principal"
+// (seção 9) é garantido pela própria coluna nullable — cada empreendimento só guarda um.
+model OrganizationBuilding {
+  id      String @id @default(uuid())
+  name    String
+  address String?
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  leadOwnerMemberId String?
+  leadOwner         OrganizationMember? @relation("BuildingLeadOwner", fields: [leadOwnerMemberId], references: [id], onDelete: SetNull)
+
+  backupMemberId String?
+  backupMember   OrganizationMember? @relation("BuildingBackup", fields: [backupMemberId], references: [id], onDelete: SetNull)
+
+  listings Listing[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([leadOwnerMemberId])
+  @@index([backupMemberId])
 }
 
 // Caminho único de ingresso numa organização: sempre passa por aqui, exista ou não o `User` no
@@ -357,13 +463,20 @@ model Lead {
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id])
 
-  assignments  LeadAssignment[]
-  interactions LeadInteraction[]
-  visits       Visit[]
+  assignments   LeadAssignment[]
+  interactions  LeadInteraction[]
+  visits        Visit[]
+  tasks         LeadTask[]
+  conversations Conversation[]
+  offers        Offer[]
+  bookings      Booking[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // 1 cliente + 1 imóvel = 1 Lead (seção 21 da spec). Interesse repetido deve reaproveitar o Lead
+  // existente, nunca criar um novo.
+  @@unique([userId, listingId])
   @@index([organizationId, status])
   @@index([listingId])
   @@index([userId])
@@ -383,6 +496,10 @@ model LeadAssignment {
 
   assignedBy String? // OrganizationMember que atribuiu manualmente; null = round robin automático
 
+  // Origem da atribuição (seção 32 da spec) — para métricas e auditoria.
+  // "BUILDING_OWNER" | "LISTING_AGENT" | "ROUND_ROBIN" | "MANUAL" | "SELF_ASSIGNED" | "TRANSFER" | "BACKUP"
+  source String?
+
   assignedAt     DateTime  @default(now())
   firstContactAt DateTime? // preenchido na 1ª LeadInteraction — base de SLA, Fase 4
   unassignedAt   DateTime?
@@ -390,6 +507,9 @@ model LeadAssignment {
 
   @@index([leadId])
   @@index([brokerId])
+  // Garantia adicional (banco): no máximo 1 assignment aberto por Lead (seção 31 da spec).
+  // Prisma não expressa índice único parcial (WHERE) no schema — criado via migration manual
+  // (ver prisma/migrations/20260921000000_sprint1_operation_model_and_contracts/migration.sql).
 }
 
 // Log de contato com o cliente (Fase 3). STATUS_CHANGE é reservado ao sistema — nunca escolhível
@@ -429,6 +549,27 @@ model Visit {
   @@index([leadId])
 }
 
+// Próxima ação do Lead (seção 112/117 da spec) — puramente uma tarefa com prazo, sem
+// automação/lembrete proativo (mesmo espírito minimalista do SLA da Fase 4: cálculo/exibição sob
+// demanda). "Próxima ação" no Kanban/detalhe = a tarefa incompleta com o `dueAt` mais próximo.
+model LeadTask {
+  id     String @id @default(uuid())
+  leadId String
+  lead   Lead   @relation(fields: [leadId], references: [id])
+
+  memberId String
+  member   OrganizationMember @relation(fields: [memberId], references: [id])
+
+  title       String
+  dueAt       DateTime?
+  completedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([leadId])
+  @@index([memberId])
+}
+
 // ─── LOG DE AÇÕES DO ADMIN (auditoria) ───────────────────────────────────────
 
 model AdminActionLog {
@@ -451,6 +592,31 @@ model AdminActionLog {
   @@index([createdAt])
 }
 
+// ─── LOG DE AUDITORIA DA ORGANIZAÇÃO (seção 125 da spec) ─────────────────────
+// Cobre ações estruturais do CRM B2B que `AdminActionLog` (plataforma) não vê e que o histórico
+// de `LeadAssignment` (já é o próprio log de atribuição/transferência de Lead) não cobre:
+// responsabilidade de empreendimento e moderação de imóvel de organização.
+model OrganizationAuditLog {
+  id     String @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  actorMemberId String
+  actor         OrganizationMember @relation(fields: [actorMemberId], references: [id])
+
+  action     String  // BUILDING_LEAD_OWNER_CHANGED | BUILDING_BACKUP_CHANGED | LISTING_ORG_APPROVED |
+                      // LISTING_ORG_REJECTED
+  entityType String  // BUILDING | LISTING
+  entityId   String
+  reason     String?
+  metadata   Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([entityType, entityId])
+}
+
 // ─── PROPOSTAS DE COMPRA (Apenas para Venda) ──────────────────────────────────
 
 model Offer {
@@ -465,8 +631,12 @@ model Offer {
   buyerId       String
   buyer         User     @relation(fields: [buyerId], references: [id], onDelete: Cascade)
 
+  leadId String?
+  lead   Lead?   @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
   createdAt     DateTime @default(now())
 
   @@index([listingId])
   @@index([buyerId])
+  @@index([leadId])
 }

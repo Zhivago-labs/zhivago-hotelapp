@@ -1,8 +1,26 @@
 import { getApiUrl } from "@/lib/api";
-import type { Lead, LeadDetail, OrganizationMetrics } from "@zhivago/shared";
+import type { Lead, LeadDetail, OrganizationMetrics, PaginatedLeads } from "@zhivago/shared";
 
-export async function getOrganizationLeads(token: string, status?: string): Promise<Lead[]> {
-  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+// Filtros e paginação server-side (seção 118/119 da spec) — antes trazia a organização inteira e
+// filtrava em memória. O Kanban continua mostrando o funil inteiro de uma vez (não pagina por
+// coluna), então usa um `limit` generoso por padrão; os filtros é que reduzem o conjunto.
+export interface OrganizationLeadsFilters {
+  status?: string;
+  brokerId?: string;
+  buildingId?: string;
+  search?: string;
+  from?: string;
+  to?: string;
+  page?: number;
+  limit?: number;
+}
+
+export async function getOrganizationLeads(token: string, filters: OrganizationLeadsFilters = {}): Promise<PaginatedLeads> {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== "") params.set(key, String(value));
+  }
+  const query = params.toString() ? `?${params.toString()}` : "";
   const res = await fetch(`${getApiUrl()}/leads${query}`, {
     headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",

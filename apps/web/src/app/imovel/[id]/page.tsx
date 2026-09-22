@@ -1,9 +1,8 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import type { Metadata } from "next";
-import type { Listing } from "@zhivago/shared";
 import { ArrowLeft, CalendarRange, MessageCircle } from "lucide-react";
-import { getListing, getListings, formatPrice } from "@/lib/api";
+import { getListing, getSimilarListings, formatPrice } from "@/lib/api";
 import { getSessionUser } from "@/lib/session";
 import { StartChatButton } from "@/components/chat/StartChatButton";
 import { BookingRequestForm } from "@/components/listing/BookingRequestForm";
@@ -15,32 +14,20 @@ import { FavoriteButton } from "@/components/favorites/FavoriteButton";
 import { ListingReviews } from "@/components/listing/ListingReviews";
 import { ListingHighlights } from "@/components/listing/ListingHighlights";
 import { ListingDescriptionSection } from "@/components/listing/ListingDescriptionSection";
+import { CommercialConditionsPanel } from "@/components/listing/CommercialConditionsPanel";
 import { PropertyMap } from "@/components/listing/PropertyMap";
 import { HostCard } from "@/components/listing/HostCard";
 import { HouseRules } from "@/components/listing/HouseRules";
 import { RecordRecentView } from "@/components/listing/RecordRecentView";
 import styles from "./page.module.css";
 
-// Critério determinístico (sem IA/recomendação inventada): mesma categoria de negócio
-// (aluguel/venda têm semântica de preço diferente), pontuando por tipo, nº de quartos
-// e proximidade de preço — os únicos atributos estruturados disponíveis no modelo hoje.
-function getSimilarListings(all: Listing[], current: Listing, limit = 4): Listing[] {
-  return all
-    .filter((item) => item.id !== current.id && item.status === "APPROVED" && item.category === current.category)
-    .map((item) => {
-      let score = 0;
-      if (item.type === current.type) score += 3;
-      if (item.bedrooms === current.bedrooms) score += 2;
-      const priceDiff = Math.abs(item.price - current.price) / (current.price || 1);
-      score += Math.max(0, 2 - priceDiff * 2);
-      return { item, score };
-    })
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit)
-    .map(({ item }) => item);
-}
-
 type Params = { params: Promise<{ id: string }> };
+
+// Seção 133/134 da spec: nunca um CTA universal — cada modalidade fala de um jeito diferente.
+function ctaLabel(operationType: string): string {
+  if (operationType === "DAILY_RENT") return "Solicitar reserva";
+  return "Tenho interesse";
+}
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { id } = await params;
@@ -74,13 +61,9 @@ export default async function ListingPage({ params }: Params) {
 
   if (!listing) notFound();
 
-  let similarListings: Listing[] = [];
-  try {
-    const allListings = await getListings();
-    similarListings = getSimilarListings(allListings, listing);
-  } catch {
-    similarListings = [];
-  }
+  // Calculado no backend agora (seção 94/95 da spec) — prioriza mesmo empreendimento, bairro,
+  // cidade e faixa de preço, nunca sugere modalidade comercial incompatível.
+  const similarListings = await getSimilarListings(listing.id);
 
   const whatsapp = whatsAppLink(listing);
   const user = await getSessionUser();
@@ -108,6 +91,8 @@ export default async function ListingPage({ params }: Params) {
           profileHref: `/imobiliaria/${listing.agent.id}`,
         }
       : null;
+
+  const isOrgListing = !!listing.organizationId;
 
   const hasDiscount = Boolean(
     listing.originalPrice && Number(listing.originalPrice) > listing.price
@@ -142,14 +127,31 @@ export default async function ListingPage({ params }: Params) {
               <h1 className={styles.name}>{listing.name}</h1>
               <p className={styles.subtitleSpecs}>
                 <span>{listing.type === "casa" ? "Casa" : "Apartamento"} em {listing.location}</span>
-                <span className={styles.bulletDot} />
-                <span>{listing.bedrooms * 2 || 4} hóspedes</span>
+                {/* Seção 86/87 da spec: hóspedes só existem de verdade em DAILY_RENT, a partir de
+                    customMaxGuests real — nunca `bedrooms * 2`. "Camas" nunca existiu como dado
+                    real (`bedrooms + 1` era inventado) — removido, não há `bedCount` no modelo. */}
+                {listing.operationType === "DAILY_RENT" && listing.customMaxGuests != null && (
+                  <>
+                    <span className={styles.bulletDot} />
+                    <span>{listing.customMaxGuests} hóspedes</span>
+                  </>
+                )}
                 <span className={styles.bulletDot} />
                 <span>{listing.bedrooms} quartos</span>
-                <span className={styles.bulletDot} />
-                <span>{listing.bedrooms + 1} camas</span>
+                {listing.suites != null && listing.suites > 0 && (
+                  <>
+                    <span className={styles.bulletDot} />
+                    <span>{listing.suites} {listing.suites === 1 ? "suíte" : "suítes"}</span>
+                  </>
+                )}
                 <span className={styles.bulletDot} />
                 <span>{listing.bathrooms} banheiros</span>
+                {listing.totalArea != null && (
+                  <>
+                    <span className={styles.bulletDot} />
+                    <span>{listing.totalArea} m²</span>
+                  </>
+                )}
               </p>
             </div>
             <FavoriteButton listingId={listing.id} size={22} />
@@ -171,7 +173,14 @@ export default async function ListingPage({ params }: Params) {
                 </div>
                 <div className={styles.ownerInfo}>
                   <span style={{ fontWeight: 750, fontSize: "15px" }}>
-                    Anfitrião:{" "}
+                    {/* Seção 89 da spec: "Anfitrião" só faz sentido pra diária de pessoa física —
+                        organização (venda/mensal/imobiliária) usa "Anunciado por"/"Corretor responsável". */}
+                    {isOrgListing
+                      ? "Anunciado por"
+                      : listing.operationType === "DAILY_RENT"
+                        ? "Anfitrião"
+                        : "Anunciado por"}
+                    :{" "}
                     {advertiser.profileHref ? (
                       <Link href={advertiser.profileHref} className={styles.ownerLink}>
                         {advertiser.companyName || advertiser.name}
@@ -180,17 +189,19 @@ export default async function ListingPage({ params }: Params) {
                       advertiser.name
                     )}
                   </span>
-                  <span style={{ fontSize: "13px", color: "var(--muted)", fontWeight: 500 }}>
-                    Hospeda há 2 meses · Responde rápido
-                  </span>
+                  {isOrgListing && listing.agent && (
+                    <span style={{ fontSize: "13px", color: "var(--muted)", fontWeight: 500 }}>
+                      Corretor responsável: {listing.agent.name}
+                    </span>
+                  )}
                   <AgencyBadge verified={advertiser.verified} />
                 </div>
               </div>
             </>
           )}
 
-          {/* Destaques do Anúncio (Airbnb Highlights) */}
-          <ListingHighlights location={listing.location} />
+          {/* Destaques do Anúncio — só o que é dado real (seção 88) */}
+          <ListingHighlights location={listing.location} amenities={listing.amenities} />
 
           {/* Seção Sobre este espaço + Comodidades + Modal */}
           <ListingDescriptionSection
@@ -203,6 +214,9 @@ export default async function ListingPage({ params }: Params) {
             amenities={listing.amenities}
           />
 
+          {/* Condições específicas de VENDA/MENSAL (seção 66/67/83/84) */}
+          <CommercialConditionsPanel listing={listing} />
+
           {/* Avaliações */}
           <ListingReviews listingId={id} category={listing.category} user={user} />
 
@@ -210,10 +224,10 @@ export default async function ListingPage({ params }: Params) {
           <PropertyMap location={listing.location} />
 
           {/* Anfitrião Detalhado */}
-          {advertiser && <HostCard owner={advertiser} />}
+          {advertiser && <HostCard owner={advertiser} isOrganization={isOrgListing} />}
 
-          {/* Regras e Segurança ("O que você deve saber") */}
-          <HouseRules listing={listing} />
+          {/* Regras e Segurança — conceito exclusivo de hospedagem por diária (seção 66/67) */}
+          {listing.operationType === "DAILY_RENT" && <HouseRules listing={listing} />}
         </div>
 
         <aside className={styles.sidebar}>
@@ -235,8 +249,8 @@ export default async function ListingPage({ params }: Params) {
                   <span className={styles.discountBadgeDetail}>{discountPercent}% OFF</span>
                 )}
               </p>
-              {listing.category === "aluguel" && (
-                <p className={styles.priceSuffix}>/ {listing.billingCycle ?? "noite"}</p>
+              {listing.operationType !== "SALE" && (
+                <p className={styles.priceSuffix}>/ {listing.operationType === "MONTHLY_RENT" ? "mês" : "noite"}</p>
               )}
             </div>
 
@@ -246,7 +260,10 @@ export default async function ListingPage({ params }: Params) {
                   Falar no WhatsApp
                 </a>
               )}
-              {listing.category !== "aluguel" && (
+              {/* Venda/mensal: CTA de chat direto (seção 133/134 — "Tenho interesse", nunca um
+                  rótulo genérico universal). Diária: sem chat solto aqui, o próprio formulário de
+                  reserva abaixo já abre o chat ao confirmar as datas. */}
+              {listing.operationType !== "DAILY_RENT" && (
                 !user ? (
                   <Link href={`/login?next=/imovel/${id}`} className={styles.chatButtonLink}>
                     <MessageCircle size={18} />
@@ -258,13 +275,13 @@ export default async function ListingPage({ params }: Params) {
                     Chat (Vendido)
                   </span>
                 ) : (
-                  <StartChatButton listingId={listing.id} />
+                  <StartChatButton listingId={listing.id} label={ctaLabel(listing.operationType)} />
                 )
               )}
-              {!user && listing.category === "aluguel" && (
+              {!user && listing.operationType === "DAILY_RENT" && (
                 <Link href={`/login?next=/imovel/${id}`} className={styles.chatButtonLink}>
                   <MessageCircle size={18} />
-                  Entrar para alugar e conversar
+                  Entrar para reservar e conversar
                 </Link>
               )}
             </div>
@@ -272,7 +289,7 @@ export default async function ListingPage({ params }: Params) {
             {user &&
               user.role !== "ADMIN" &&
               !isOwner &&
-              listing.category === "aluguel" &&
+              listing.operationType === "DAILY_RENT" &&
               listing.status === "APPROVED" && <BookingRequestForm listingId={listing.id} />}
           </div>
         </aside>
@@ -292,8 +309,8 @@ export default async function ListingPage({ params }: Params) {
       <div className={styles.footer}>
         <div>
           <p className={styles.priceValue}>{formatPrice(listing).split(" / ")[0]}</p>
-          {listing.category === "aluguel" && (
-            <p className={styles.priceSuffix}>/ {listing.billingCycle ?? "noite"}</p>
+          {listing.operationType !== "SALE" && (
+            <p className={styles.priceSuffix}>/ {listing.operationType === "MONTHLY_RENT" ? "mês" : "noite"}</p>
           )}
         </div>
         <div className={styles.footerActions}>
@@ -302,11 +319,11 @@ export default async function ListingPage({ params }: Params) {
               WhatsApp
             </a>
           )}
-          {listing.category !== "aluguel" && (
+          {listing.operationType !== "DAILY_RENT" && (
             !user ? (
               <Link href={`/login?next=/imovel/${id}`} className={styles.chatButtonDisabled}>
                 <MessageCircle size={18} />
-                Chat
+                {ctaLabel(listing.operationType)}
               </Link>
             ) : isOwner ? null : listing.status === "SOLD" ? (
               <span className={styles.chatButtonDisabled} title="Este imóvel já foi vendido">
@@ -314,14 +331,14 @@ export default async function ListingPage({ params }: Params) {
                 Chat (Vendido)
               </span>
             ) : (
-              <StartChatButton listingId={listing.id} />
+              <StartChatButton listingId={listing.id} label={ctaLabel(listing.operationType)} />
             )
           )}
-          {listing.category === "aluguel" && (
+          {listing.operationType === "DAILY_RENT" && (
             !user ? (
               <Link href={`/login?next=/imovel/${id}`} className={styles.chatButtonDisabled}>
                 <CalendarRange size={18} />
-                Alugar
+                Solicitar reserva
               </Link>
             ) : isOwner ? null : listing.status === "APPROVED" ? (
               <MobileRentTrigger listingId={listing.id} />

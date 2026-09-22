@@ -3,12 +3,17 @@ import type { Metadata } from "next";
 import { ArrowLeft, Sparkles, Lightbulb, Camera, MapPin, Tag } from "lucide-react";
 import { requireAuth } from "@/lib/session";
 import { NewListingForm } from "@/components/listings/NewListingForm";
+import { getMyOrganization, getOrganizationBuildings } from "@/lib/organizations-api";
 import styles from "../listing-form.module.css";
 
 export const metadata: Metadata = { title: "Anunciar imóvel | Zhivago" };
 
 export default async function NewListingPage() {
-  const { user } = await requireAuth("/anuncios/novo");
+  const { user, token } = await requireAuth("/anuncios/novo");
+
+  // Etapas 3/5 do wizard (empreendimento + atendimento/CRM) só existem pra conta de organização.
+  const myOrg = await getMyOrganization(token);
+  const buildings = myOrg ? await getOrganizationBuildings(token) : [];
 
   if (user.role === "ADMIN") {
     return (
@@ -61,7 +66,10 @@ export default async function NewListingPage() {
 
         {/* Lado Direito: Formulário com Cards Amplos */}
         <div className={styles.contentArea}>
-          <NewListingForm />
+          <NewListingForm
+            myOrg={myOrg}
+            buildings={buildings.map((b) => ({ id: b.id, name: b.name, address: b.address }))}
+          />
         </div>
       </div>
     </main>

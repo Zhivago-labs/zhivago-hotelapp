@@ -27,14 +27,17 @@ export async function createListingAction(
   const price = String(formData.get("price") ?? "");
   const images = formData.getAll("images").filter((file): file is File => file instanceof File && file.size > 0);
   const category = String(formData.get("category") ?? "aluguel");
+  const operationType = String(formData.get("operationType") ?? "");
   // O backend só aceita "DRAFT" ou "PENDING" — todo anúncio novo entra em moderação
   // e só fica público quando um admin aprova (nunca "APPROVED" direto na criação).
   const status = formData.get("intent") === "draft" ? "DRAFT" : "PENDING";
 
-  // Não existe campo de endereço estruturado no backend (só `location: string`) — compõe rua,
-  // número e bairro (preenchidos via ViaCEP ou à mão) junto de cidade+UF num único texto.
+  // O backend agora também aceita localização estruturada (seção 62 da spec), mas `location`
+  // (string única) continua obrigatório por compatibilidade — composto do mesmo jeito de sempre.
+  const cep = String(formData.get("cep") ?? "").trim();
   const logradouro = String(formData.get("logradouro") ?? "").trim();
   const numero = String(formData.get("numero") ?? "").trim();
+  const complemento = String(formData.get("complemento") ?? "").trim();
   const bairro = String(formData.get("bairro") ?? "").trim();
   const cidade = String(formData.get("cidade") ?? "").trim();
   const uf = String(formData.get("uf") ?? "").trim();
@@ -65,10 +68,23 @@ export async function createListingAction(
   if (category === "aluguel") {
     payload.set("billingCycle", String(formData.get("billingCycle") ?? "noite"));
   }
+  if (operationType) payload.set("operationType", operationType);
   payload.set("location", location);
+  if (cep) payload.set("cep", cep);
+  if (logradouro) payload.set("logradouro", logradouro);
+  if (numero) payload.set("numero", numero);
+  if (complemento) payload.set("complemento", complemento);
+  if (bairro) payload.set("bairro", bairro);
+  if (cidade) payload.set("cidade", cidade);
+  if (uf) payload.set("uf", uf);
   payload.set("bedrooms", String(formData.get("bedrooms") ?? "0"));
+  payload.set("suites", String(formData.get("suites") ?? "0"));
   payload.set("bathrooms", String(formData.get("bathrooms") ?? "0"));
   payload.set("parking", String(formData.get("parking") ?? "0"));
+  const privateArea = String(formData.get("privateArea") ?? "");
+  const totalArea = String(formData.get("totalArea") ?? "");
+  if (privateArea) payload.set("privateArea", privateArea);
+  if (totalArea) payload.set("totalArea", totalArea);
   const amenitiesStr = String(formData.get("amenities") ?? "");
   if (amenitiesStr) payload.set("amenities", amenitiesStr);
 
@@ -78,6 +94,8 @@ export async function createListingAction(
   const houseRules = String(formData.get("houseRules") ?? "");
   const safetyItems = String(formData.get("safetyItems") ?? "");
   const cancellationPolicy = String(formData.get("cancellationPolicy") ?? "FLEXIBLE");
+  const minimumNights = String(formData.get("minimumNights") ?? "");
+  const cleaningFee = String(formData.get("cleaningFee") ?? "");
 
   payload.set("checkInTime", checkInTime);
   payload.set("checkOutTime", checkOutTime);
@@ -85,6 +103,41 @@ export async function createListingAction(
   if (houseRules) payload.set("houseRules", houseRules);
   if (safetyItems) payload.set("safetyItems", safetyItems);
   payload.set("cancellationPolicy", cancellationPolicy);
+  if (minimumNights) payload.set("minimumNights", minimumNights);
+  if (cleaningFee) payload.set("cleaningFee", cleaningFee);
+
+  // Condições de VENDA (seção 66 da spec)
+  const condoFee = String(formData.get("condoFee") ?? "");
+  const iptuAnnual = String(formData.get("iptuAnnual") ?? "");
+  if (condoFee) payload.set("condoFee", condoFee);
+  if (iptuAnnual) payload.set("iptuAnnual", iptuAnnual);
+  if (operationType === "SALE") {
+    payload.set("acceptsFinancing", String(formData.get("acceptsFinancing") === "true"));
+    payload.set("acceptsExchange", String(formData.get("acceptsExchange") === "true"));
+  }
+
+  // Condições de ALUGUEL MENSAL (seção 67 da spec)
+  if (operationType === "MONTHLY_RENT") {
+    const iptuMonthly = String(formData.get("iptuMonthly") ?? "");
+    const availableFrom = String(formData.get("availableFrom") ?? "");
+    const minimumLeaseMonths = String(formData.get("minimumLeaseMonths") ?? "");
+    const guaranteeTypes = String(formData.get("guaranteeTypes") ?? "");
+    if (iptuMonthly) payload.set("iptuMonthly", iptuMonthly);
+    if (availableFrom) payload.set("availableFrom", availableFrom);
+    if (minimumLeaseMonths) payload.set("minimumLeaseMonths", minimumLeaseMonths);
+    if (guaranteeTypes) payload.set("guaranteeTypes", guaranteeTypes);
+    payload.set("isFurnished", String(formData.get("isFurnished") === "true"));
+    payload.set("allowPets", String(formData.get("allowPets") === "true"));
+  }
+
+  // Atendimento/CRM (seção 72 da spec) — só relevante pra imóvel de organização.
+  const buildingId = String(formData.get("buildingId") ?? "").trim();
+  const assignedAgentId = String(formData.get("assignedAgentId") ?? "").trim();
+  if (buildingId) {
+    payload.set("buildingId", buildingId);
+    payload.set("assumeBuildingLeads", String(formData.get("assumeBuildingLeads") === "true"));
+  }
+  if (assignedAgentId) payload.set("assignedAgentId", assignedAgentId);
 
   payload.set("status", status);
   for (const image of images) {
@@ -120,16 +173,29 @@ export async function updateListingAction(
 
   const name = String(formData.get("name") ?? "").trim();
   const price = String(formData.get("price") ?? "");
-  const location = String(formData.get("location") ?? "").trim();
   const category = String(formData.get("category") ?? "aluguel");
+  const operationType = String(formData.get("operationType") ?? "");
+
+  // Mesma composição de `location` a partir de partes estruturadas usada na criação (seção 62 da
+  // spec) — mantém os dois formulários consistentes.
+  const cep = String(formData.get("cep") ?? "").trim();
+  const logradouro = String(formData.get("logradouro") ?? "").trim();
+  const numero = String(formData.get("numero") ?? "").trim();
+  const complemento = String(formData.get("complemento") ?? "").trim();
+  const bairro = String(formData.get("bairro") ?? "").trim();
+  const cidade = String(formData.get("cidade") ?? "").trim();
+  const uf = String(formData.get("uf") ?? "").trim();
+  const streetLine = [logradouro, numero].filter(Boolean).join(", ");
+  const location = cidade && uf ? [streetLine, bairro, `${cidade}, ${uf}`].filter(Boolean).join(" - ") : "";
 
   if (!name || !price || !location) {
-    return { error: "Preencha título, preço e localização." };
+    return { error: "Preencha título, preço e localização (CEP/cidade/UF)." };
   }
 
-  // O backend usa z.string().optional() (não .nullable()) — enviar `null` falha a validação.
-  // Uma string vazia é aceita (e limpa o campo); um campo não aplicável (ex.: billingCycle
-  // em venda) deve ser omitido, nunca `null`.
+  // O backend usa z.string().optional() (não .nullable()) pros campos de texto simples — enviar
+  // `null` falha a validação. Uma string vazia é aceita (e limpa o campo); um campo não aplicável
+  // (ex.: billingCycle em venda) deve ser omitido, nunca `null`. Campos numéricos/data aceitam
+  // `null` de propósito (pra permitir limpar ao trocar de modalidade), então usam esse padrão.
   const body: Record<string, unknown> = {
     name,
     description: String(formData.get("description") ?? "").trim(),
@@ -137,12 +203,72 @@ export async function updateListingAction(
     type: String(formData.get("type") ?? "casa"),
     category,
     location,
+    cep,
+    logradouro,
+    numero,
+    complemento,
+    bairro,
+    cidade,
+    uf,
     bedrooms: Number(formData.get("bedrooms") ?? 0),
+    suites: Number(formData.get("suites") ?? 0),
     bathrooms: Number(formData.get("bathrooms") ?? 0),
     parking: Number(formData.get("parking") ?? 0),
     amenities: String(formData.get("amenities") ?? ""),
   };
   if (category === "aluguel") body.billingCycle = String(formData.get("billingCycle") ?? "noite");
+  if (operationType) body.operationType = operationType;
+
+  const privateArea = formData.get("privateArea");
+  const totalArea = formData.get("totalArea");
+  body.privateArea = privateArea ? Number(privateArea) : null;
+  body.totalArea = totalArea ? Number(totalArea) : null;
+
+  if (operationType === "DAILY_RENT") {
+    body.checkInTime = String(formData.get("checkInTime") ?? "15:00");
+    body.checkOutTime = String(formData.get("checkOutTime") ?? "11:00");
+    const customMaxGuests = formData.get("customMaxGuests");
+    body.customMaxGuests = customMaxGuests ? Number(customMaxGuests) : null;
+    body.houseRules = String(formData.get("houseRules") ?? "");
+    body.safetyItems = String(formData.get("safetyItems") ?? "");
+    body.cancellationPolicy = String(formData.get("cancellationPolicy") ?? "FLEXIBLE");
+    const minimumNights = formData.get("minimumNights");
+    body.minimumNights = minimumNights ? Number(minimumNights) : null;
+    const cleaningFee = formData.get("cleaningFee");
+    body.cleaningFee = cleaningFee ? Number(cleaningFee) : null;
+  }
+
+  if (operationType === "SALE" || operationType === "MONTHLY_RENT") {
+    const condoFee = formData.get("condoFee");
+    body.condoFee = condoFee ? Number(condoFee) : null;
+  }
+  if (operationType === "SALE") {
+    const iptuAnnual = formData.get("iptuAnnual");
+    body.iptuAnnual = iptuAnnual ? Number(iptuAnnual) : null;
+    body.acceptsFinancing = formData.get("acceptsFinancing") === "true";
+    body.acceptsExchange = formData.get("acceptsExchange") === "true";
+  }
+  if (operationType === "MONTHLY_RENT") {
+    const iptuMonthly = formData.get("iptuMonthly");
+    body.iptuMonthly = iptuMonthly ? Number(iptuMonthly) : null;
+    const availableFrom = String(formData.get("availableFrom") ?? "").trim();
+    body.availableFrom = availableFrom || null;
+    const minimumLeaseMonths = formData.get("minimumLeaseMonths");
+    body.minimumLeaseMonths = minimumLeaseMonths ? Number(minimumLeaseMonths) : null;
+    body.guaranteeTypes = String(formData.get("guaranteeTypes") ?? "");
+    body.isFurnished = formData.get("isFurnished") === "true";
+    body.allowPets = formData.get("allowPets") === "true";
+  }
+
+  // Atendimento/CRM (seção 72 da spec) — só enviado se o formulário exibiu essa etapa (imóvel de organização).
+  const buildingId = String(formData.get("buildingId") ?? "").trim();
+  const assignedAgentId = String(formData.get("assignedAgentId") ?? "").trim();
+  const hasOrgCrmStep = formData.get("hasOrgCrmStep") === "true";
+  if (hasOrgCrmStep) {
+    body.buildingId = buildingId || null;
+    if (buildingId) body.assumeBuildingLeads = formData.get("assumeBuildingLeads") === "true";
+    if (assignedAgentId) body.assignedAgentId = assignedAgentId;
+  }
 
   try {
     const res = await fetch(`${getApiUrl()}/listings/${id}`, {

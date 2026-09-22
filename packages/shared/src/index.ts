@@ -9,6 +9,9 @@ export type ListingType = 'casa' | 'apartamento';
 export type ListingCategory = 'aluguel' | 'venda';
 export type BillingCycle = 'noite' | 'mês';
 export type ListingStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'REMOVED' | 'SOLD';
+// Operação comercial explícita (seção 3 da spec de refatoração) — fonte principal a partir da
+// qual o domínio deve trabalhar. category/billingCycle continuam por compatibilidade.
+export type ListingOperationType = 'SALE' | 'MONTHLY_RENT' | 'DAILY_RENT';
 
 export type BookingStatus = 'PENDING' | 'CONFIRMED' | 'CANCELLED' | 'REJECTED';
 
@@ -65,6 +68,22 @@ export interface Organization {
   createdAt: string;
   updatedAt: string;
   members: OrganizationMember[];
+}
+
+// Empreendimento (seção 8 da spec de refatoração do cadastro) — agrupa Listings de uma mesma
+// organização sob um responsável exclusivo por Leads (leadOwner), com um backup opcional.
+export interface OrganizationBuilding {
+  id: string;
+  name: string;
+  address: string | null;
+  organizationId: string;
+  leadOwnerMemberId: string | null;
+  backupMemberId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  leadOwner: OrganizationMember | null;
+  backupMember: OrganizationMember | null;
+  _count: { listings: number };
 }
 
 export interface OrganizationInvite {
@@ -128,6 +147,19 @@ export interface LeadAssignment {
 // firstContactAt. UNASSIGNED = sem atribuição; ON_TIME cobre "recém atribuído" e "já contatado".
 export type SlaStatus = 'UNASSIGNED' | 'ON_TIME' | 'AT_RISK' | 'OVERDUE';
 
+// Tarefa/próxima ação (seção 112/117 da spec) — puramente uma checklist com prazo, sem
+// lembrete/automação proativa.
+export interface LeadTask {
+  id: string;
+  leadId: string;
+  memberId: string;
+  title: string;
+  dueAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  member?: OrganizationMember;
+}
+
 export interface Lead {
   id: string;
   status: LeadStatus;
@@ -141,7 +173,17 @@ export interface Lead {
   listing: { id: string; name: string; images: { url: string }[] };
   // Só a atribuição aberta (unassignedAt null) — histórico completo fica no backend, não exposto aqui.
   assignments: LeadAssignment[];
+  // Só a tarefa incompleta mais próxima do prazo ("próxima ação") — histórico completo só no detalhe.
+  tasks: LeadTask[];
   slaStatus: SlaStatus;
+}
+
+// `GET /leads` (org-wide) agora pagina e filtra no servidor (seção 118/119 da spec).
+export interface PaginatedLeads {
+  items: Lead[];
+  total: number;
+  page: number;
+  limit: number;
 }
 
 // CRM B2B — Fase 3: log de contato (LeadInteraction) e agendamento estruturado (Visit).
@@ -171,10 +213,40 @@ export interface Visit {
 
 // Página de detalhe do lead (`GET /leads/:id`) — histórico completo, diferente da listagem (Kanban)
 // que só traz a atribuição aberta.
-export interface LeadDetail extends Omit<Lead, 'assignments'> {
+export interface LeadDetail extends Omit<Lead, 'assignments' | 'tasks'> {
   assignmentHistory: LeadAssignment[];
   interactions: LeadInteraction[];
   visits: Visit[];
+  tasks: LeadTask[];
+}
+
+// Log de auditoria da organização (seção 125 da spec) — responsabilidade de empreendimento e
+// moderação de imóvel; transferência/atribuição de Lead já é auditada pelo próprio histórico de
+// `LeadAssignment` (assignedBy/reason/source), não duplicado aqui.
+export type OrgAuditAction =
+  | 'BUILDING_LEAD_OWNER_CHANGED'
+  | 'BUILDING_BACKUP_CHANGED'
+  | 'LISTING_ORG_APPROVED'
+  | 'LISTING_ORG_REJECTED';
+
+export interface OrganizationAuditLogEntry {
+  id: string;
+  organizationId: string;
+  actorMemberId: string;
+  action: OrgAuditAction;
+  entityType: 'BUILDING' | 'LISTING';
+  entityId: string;
+  reason: string | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+  actor: OrganizationMember;
+}
+
+export interface PaginatedAuditLog {
+  items: OrganizationAuditLogEntry[];
+  total: number;
+  page: number;
+  limit: number;
 }
 
 // CRM B2B — Fase 4: métricas agregadas da organização (`GET /organizations/metrics`).
@@ -207,18 +279,43 @@ export interface Listing {
   type: ListingType;
   category: ListingCategory;
   billingCycle: BillingCycle | null;
+  operationType: ListingOperationType;
   images: ListingImage[];
   location: string;
+  // Localização estruturada (seção 62 da spec de refatoração do cadastro).
+  cep?: string | null;
+  logradouro?: string | null;
+  numero?: string | null;
+  complemento?: string | null;
+  bairro?: string | null;
+  cidade?: string | null;
+  uf?: string | null;
   bedrooms: number;
+  suites?: number;
   bathrooms: number;
   parking: number;
+  privateArea?: number | null;
+  totalArea?: number | null;
   amenities?: string | null;
   checkInTime?: string | null;
   checkOutTime?: string | null;
   customMaxGuests?: number | null;
+  minimumNights?: number | null;
+  cleaningFee?: number | null;
   houseRules?: string | null;
   safetyItems?: string | null;
   cancellationPolicy?: string | null;
+  // Condições de VENDA/ALUGUEL MENSAL (seções 66/67 da spec de refatoração do cadastro).
+  condoFee?: number | null;
+  iptuAnnual?: number | null;
+  acceptsFinancing?: boolean | null;
+  acceptsExchange?: boolean | null;
+  iptuMonthly?: number | null;
+  availableFrom?: string | null;
+  minimumLeaseMonths?: number | null;
+  guaranteeTypes?: string | null;
+  isFurnished?: boolean | null;
+  allowPets?: boolean | null;
   status: ListingStatus;
   viewCount: number;
   ownerId: string | null;
@@ -226,6 +323,8 @@ export interface Listing {
   // B2B (Organization) — paralelo a ownerId, nunca ambos preenchidos.
   organizationId?: string | null;
   agentId?: string | null;
+  createdById?: string | null;
+  buildingId?: string | null;
   organization?: { id: string; name: string; logo: string | null; verified: boolean } | null;
   agent?: { id: string; name: string; avatar: string | null } | null;
   createdAt: string;

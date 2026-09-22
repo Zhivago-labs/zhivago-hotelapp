@@ -1,7 +1,7 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { z } from 'zod';
-import { distributeLead, canManageListingConversation } from '../lib/leads.js';
+import { ensureLead, getCurrentAssignment, canManageListingConversation } from '../lib/leads.js';
 import { CHAT_COMMANDS } from '../socket.js';
 
 const LEAD_STATUSES_WITHOUT_NEGOTIATE_COMMAND = new Set(['NEGOTIATION', 'WON', 'LOST']);
@@ -16,7 +16,7 @@ const COMMAND_BY_TRIGGER = Object.fromEntries(CHAT_COMMANDS.map((c) => [c.trigge
  */
 async function computeAvailableCommands(
   canManage: boolean,
-  conversation: { id: string; property: { id: string; organizationId: string | null }; participants: { id: string }[] }
+  conversation: { id: string; leadId: string | null }
 ): Promise<(typeof CHAT_COMMANDS)[number][]> {
   if (!canManage) return [];
 
@@ -30,15 +30,10 @@ async function computeAvailableCommands(
     commands.push(COMMAND_BY_TRIGGER['/aprovar']!, COMMAND_BY_TRIGGER['/recusar']!);
   }
 
-  if (conversation.property.organizationId) {
-    const lead = await prisma.lead.findFirst({
-      where: {
-        listingId: conversation.property.id,
-        organizationId: conversation.property.organizationId,
-        userId: { in: conversation.participants.map((p) => p.id) },
-      },
-      select: { status: true },
-    });
+  // Fonte de verdade única (seção 27 da spec): o Lead da conversa é `conversation.leadId`, não
+  // mais um heurístico por listingId+participantes.
+  if (conversation.leadId) {
+    const lead = await prisma.lead.findUnique({ where: { id: conversation.leadId }, select: { status: true } });
     if (lead && !LEAD_STATUSES_WITHOUT_NEGOTIATE_COMMAND.has(lead.status)) {
       commands.push(COMMAND_BY_TRIGGER['/negociar']!);
     }
@@ -249,17 +244,7 @@ export async function createOrGetConversation(request: FastifyRequest, reply: Fa
       return reply.status(404).send({ message: 'Listing not found' });
     }
 
-    // Imóvel de pessoa física: contato é o dono (ownerId). Imóvel de organização (CRM B2B, ver
-    // docs/crm-b2b-organizacoes-leads.md): contato é o agentId (mesmo campo que já rege permissão
-    // de editar/duplicar o imóvel) — reatribuir o Lead depois não troca quem já está na conversa,
-    // simplificação deliberada registrada no doc.
-    const contactId = listing.ownerId ?? listing.agentId;
-
-    if (!contactId) {
-      return reply.status(400).send({ message: 'Listing has no owner to contact' });
-    }
-
-    if (contactId === userId) {
+    if (listing.ownerId === userId || listing.agentId === userId) {
       return reply.status(400).send({ message: 'Cannot start conversation with yourself' });
     }
 
@@ -283,7 +268,48 @@ export async function createOrGetConversation(request: FastifyRequest, reply: Fa
       return reply.status(400).send({ message: 'Este imóvel já foi vendido e não aceita novas negociações.' });
     }
 
-    // Create new
+    // Imóvel de organização: autoridade é o Lead + responsável atual (seção 24/108 da spec) — não
+    // mais `ownerId ?? agentId`. Lead nasce ANTES da conversa (`ensureLead`, transacionalmente
+    // consistente por si só) e a conversa referencia `leadId` desde a criação; o 2º participante é
+    // quem estiver atualmente atribuído, se já houver alguém (pode nascer sem ninguém, e
+    // `assignLead`/`syncConversationParticipant` adicionam o corretor depois, quando atribuído).
+    if (listing.organizationId) {
+      const organization = await prisma.organization.findUnique({ where: { id: listing.organizationId } });
+      if (!organization) {
+        return reply.status(400).send({ message: 'Listing has no owner to contact' });
+      }
+
+      const lead = await ensureLead({
+        userId,
+        listingId,
+        organizationId: listing.organizationId,
+        source: 'CHAT',
+      });
+
+      const currentAssignment = await getCurrentAssignment(lead.id);
+      const participantIds = [userId];
+      if (currentAssignment) {
+        const broker = await prisma.organizationMember.findUnique({ where: { id: currentAssignment.brokerId } });
+        if (broker && broker.userId !== userId) participantIds.push(broker.userId);
+      }
+
+      const newConversation = await prisma.conversation.create({
+        data: {
+          propertyId: listingId,
+          leadId: lead.id,
+          participants: { connect: participantIds.map((id) => ({ id })) },
+        },
+      });
+
+      return reply.status(201).send(newConversation);
+    }
+
+    // Pessoa física: sem CRM/Lead — contato continua sendo o dono do imóvel.
+    const contactId = listing.ownerId;
+    if (!contactId) {
+      return reply.status(400).send({ message: 'Listing has no owner to contact' });
+    }
+
     const newConversation = await prisma.conversation.create({
       data: {
         propertyId: listingId,
@@ -292,28 +318,6 @@ export async function createOrGetConversation(request: FastifyRequest, reply: Fa
         }
       }
     });
-
-    // Gatilho do Lead (CRM B2B, Fase 2): só para imóveis de organização, só na 1ª conversa —
-    // aditivo, nunca derruba a criação da conversa se falhar.
-    if (listing.organizationId) {
-      try {
-        const organization = await prisma.organization.findUnique({ where: { id: listing.organizationId } });
-        if (organization) {
-          const lead = await prisma.lead.create({
-            data: {
-              userId,
-              listingId,
-              organizationId: listing.organizationId,
-              status: 'NEW',
-              source: 'CHAT',
-            },
-          });
-          await distributeLead(lead, organization);
-        }
-      } catch (leadError) {
-        console.error('Falha ao criar/distribuir Lead para a conversa:', leadError);
-      }
-    }
 
     return reply.status(201).send(newConversation);
   } catch (error) {

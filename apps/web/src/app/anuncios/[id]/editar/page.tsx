@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, Sparkles, Lightbulb, Camera, MapPin, Tag } from "lucide-react";
 import { requireAuth } from "@/lib/session";
 import { getListing } from "@/lib/api";
+import { getMyOrganization, getOrganizationBuildings } from "@/lib/organizations-api";
 import { EditListingForm } from "@/components/listings/EditListingForm";
 import styles from "../../listing-form.module.css";
 
@@ -13,10 +14,24 @@ type Params = { params: Promise<{ id: string }> };
 
 export default async function EditListingPage({ params }: Params) {
   const { id } = await params;
-  const { user } = await requireAuth(`/anuncios/${id}/editar`);
+  const { user, token } = await requireAuth(`/anuncios/${id}/editar`);
 
-  const listing = await getListing(id);
-  if (!listing || listing.owner?.id !== user.id) notFound();
+  const listing = await getListing(id, token);
+  if (!listing) notFound();
+
+  const myOrg = await getMyOrganization(token);
+
+  // Mesma regra de `canManageOrgListing` no backend: dono (pessoa física), ou OWNER/ADMIN de
+  // qualquer imóvel da própria organização, ou o BROKER responsável por este imóvel específico.
+  // Antes só checava `owner?.id === user.id`, o que 404'ava SEMPRE pra imóvel de organização
+  // (ownerId nunca é preenchido nesse caso) — ninguém conseguia editar um anúncio de imobiliária
+  // por aqui.
+  const isOwner = listing.owner?.id === user.id;
+  const isOrgManager = !!listing.organizationId && !!myOrg && (myOrg.role === "OWNER" || myOrg.role === "ADMIN");
+  const isAssignedBroker = !!listing.organizationId && listing.agentId === user.id;
+  if (!isOwner && !isOrgManager && !isAssignedBroker) notFound();
+
+  const buildings = myOrg ? await getOrganizationBuildings(token) : [];
 
   return (
     <main className={styles.main}>
@@ -57,7 +72,11 @@ export default async function EditListingPage({ params }: Params) {
 
         {/* Lado Direito: Formulário de Edição */}
         <div className={styles.contentArea}>
-          <EditListingForm listing={listing} />
+          <EditListingForm
+            listing={listing}
+            myOrg={myOrg}
+            buildings={buildings.map((b) => ({ id: b.id, name: b.name, address: b.address }))}
+          />
         </div>
       </div>
     </main>

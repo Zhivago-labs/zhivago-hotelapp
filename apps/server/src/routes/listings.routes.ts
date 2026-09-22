@@ -8,6 +8,7 @@ import {
   deleteListing,
   duplicateListing,
   getListingById,
+  getSimilarListings,
   importListings,
   reassignListingAgent,
   approveOrgListing,
@@ -20,6 +21,9 @@ export async function listingsRoutes(app: FastifyInstance): Promise<void> {
 
   // GET /listings/:id — detalhe do imóvel (público)
   app.get('/listings/:id', getListingById);
+
+  // GET /listings/:id/similar — imóveis semelhantes (público, seção 94/95 da spec)
+  app.get('/listings/:id/similar', getSimilarListings);
 
   // POST /listings — cria imóvel (requer auth)
   app.post('/listings', { preHandler: [authenticate] }, createListing);

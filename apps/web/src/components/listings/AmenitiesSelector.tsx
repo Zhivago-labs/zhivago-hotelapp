@@ -47,15 +47,16 @@ interface Props {
 }
 
 export function AmenitiesSelector({ initialValue, value, onChange }: Props) {
+  // Seção 61 da spec: nunca pré-selecionar comodidades que o anunciante não marcou de verdade.
   const [internalSelected, setInternalSelected] = useState<string[]>(() => {
-    if (!initialValue) return ["cozinha", "wifi", "workspace", "estacionamento", "piscina", "tv", "ar_condicionado", "cameras"];
+    if (!initialValue) return [];
     try {
       if (initialValue.startsWith("[")) {
         return JSON.parse(initialValue);
       }
       return initialValue.split(",").map((s) => s.trim()).filter(Boolean);
     } catch {
-      return ["cozinha", "wifi", "workspace", "estacionamento", "piscina", "tv", "ar_condicionado", "cameras"];
+      return [];
     }
   });
 

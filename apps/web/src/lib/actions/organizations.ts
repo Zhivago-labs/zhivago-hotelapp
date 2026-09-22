@@ -198,6 +198,102 @@ export async function updateReceiveLeadsAction(
   return undefined;
 }
 
+// ─── EMPREENDIMENTOS (seção 8/63 da spec de cadastro) ────────────────────────────────────────
+
+export type CreateBuildingState =
+  | { error: string }
+  | { building: { id: string; name: string; address: string | null } }
+  | undefined;
+
+/**
+ * Usada pelo mini-formulário "+ Novo empreendimento" dentro do wizard de cadastro (seção 63) —
+ * ao contrário das outras actions deste arquivo, retorna o registro criado (não só erro/undefined)
+ * pra o wizard poder adicioná-lo à lista local sem recarregar a página.
+ */
+export async function createOrganizationBuildingAction(
+  _prevState: CreateBuildingState,
+  formData: FormData
+): Promise<CreateBuildingState> {
+  const token = await getToken();
+  if (!token) return { error: "Sessão expirada. Faça login novamente." };
+
+  const name = String(formData.get("name") ?? "").trim();
+  const address = String(formData.get("address") ?? "").trim();
+  if (!name) return { error: "Informe o nome do empreendimento." };
+
+  try {
+    const res = await fetch(`${getApiUrl()}/organizations/buildings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ name, address: address || undefined }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { error: extractErrorMessage(data, "Não foi possível criar o empreendimento.") };
+    }
+    // Aditivo: revalida a lista de empreendimentos do /equipe também, caso essa mesma action seja
+    // usada por lá (o wizard de cadastro atualiza sua própria lista local, sem depender disto).
+    revalidatePath("/equipe");
+    return { building: { id: data.id, name: data.name, address: data.address ?? null } };
+  } catch {
+    return { error: "Não foi possível conectar ao servidor. Tente novamente." };
+  }
+}
+
+/** Renomear/editar endereço do empreendimento. */
+export async function updateBuildingAction(
+  _prevState: OrgFormState,
+  formData: FormData
+): Promise<OrgFormState> {
+  const token = await getToken();
+  const id = String(formData.get("id") ?? "");
+  const name = String(formData.get("name") ?? "").trim();
+  const address = String(formData.get("address") ?? "").trim();
+  if (!token || !id || !name) return { error: "Informe o nome do empreendimento." };
+
+  const res = await fetch(`${getApiUrl()}/organizations/buildings/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ name, address: address || null }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    return { error: extractErrorMessage(data, "Não foi possível atualizar o empreendimento.") };
+  }
+
+  revalidatePath("/equipe");
+}
+
+/**
+ * Atribuir/transferir Lead Owner ou definir o backup do empreendimento (seção 74/75/17 da spec) —
+ * `field` decide qual dos dois PATCH endpoints chamar; `memberId` vazio limpa o campo (remove o
+ * responsável/backup atual).
+ */
+export async function setBuildingRoleAction(
+  _prevState: OrgFormState,
+  formData: FormData
+): Promise<OrgFormState> {
+  const token = await getToken();
+  const id = String(formData.get("id") ?? "");
+  const field = String(formData.get("field") ?? "");
+  const memberId = String(formData.get("memberId") ?? "").trim();
+  if (!token || !id || (field !== "lead-owner" && field !== "backup")) {
+    return { error: "Requisição inválida." };
+  }
+
+  const res = await fetch(`${getApiUrl()}/organizations/buildings/${id}/${field}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ memberId: memberId || null }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    return { error: extractErrorMessage(data, "Não foi possível atualizar o empreendimento.") };
+  }
+
+  revalidatePath("/equipe");
+}
+
 export async function reassignListingAgentAction(
   _prevState: OrgFormState,
   formData: FormData

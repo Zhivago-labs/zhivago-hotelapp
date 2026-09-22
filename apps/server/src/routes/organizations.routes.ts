@@ -16,6 +16,12 @@ import {
   updateLeadDistributionMode,
   getOrganizationMetrics,
   updateMemberReceiveLeads,
+  listOrganizationBuildings,
+  createOrganizationBuilding,
+  updateOrganizationBuilding,
+  setBuildingLeadOwner,
+  setBuildingBackup,
+  getOrganizationAuditLog,
 } from '../controllers/organizations.controller.js';
 
 export async function organizationsRoutes(app: FastifyInstance): Promise<void> {
@@ -96,5 +102,50 @@ export async function organizationsRoutes(app: FastifyInstance): Promise<void> {
     '/organizations/members/:userId/receive-leads',
     { preHandler: [authenticate] },
     updateMemberReceiveLeads
+  );
+
+  // GET /organizations/buildings — empreendimentos da organização (qualquer membro ativo, pra
+  // escolher um no cadastro de imóvel)
+  app.get(
+    '/organizations/buildings',
+    { preHandler: [authenticate, requireOrgRole('OWNER', 'ADMIN', 'MANAGER', 'BROKER', 'ASSISTANT')] },
+    listOrganizationBuildings
+  );
+
+  // POST /organizations/buildings — criar empreendimento (requer poder criar/editar imóvel:
+  // OWNER/ADMIN/BROKER — MANAGER não cria/edita imóvel, mesma regra de `canManageOrgListing`)
+  app.post(
+    '/organizations/buildings',
+    { preHandler: [authenticate, requireOrgRole('OWNER', 'ADMIN', 'BROKER')] },
+    createOrganizationBuilding
+  );
+
+  // PATCH /organizations/buildings/:id — renomear/editar endereço (mesma regra de criar)
+  app.patch(
+    '/organizations/buildings/:id',
+    { preHandler: [authenticate, requireOrgRole('OWNER', 'ADMIN', 'BROKER')] },
+    updateOrganizationBuilding
+  );
+
+  // PATCH /organizations/buildings/:id/lead-owner — atribuir/transferir Lead Owner (seção 75:
+  // só quem gerencia a organização pode transferir, mesmo se já houver um dono)
+  app.patch(
+    '/organizations/buildings/:id/lead-owner',
+    { preHandler: [authenticate, requireOrgRole('OWNER', 'ADMIN')] },
+    setBuildingLeadOwner
+  );
+
+  // PATCH /organizations/buildings/:id/backup — definir backup do empreendimento (seção 17)
+  app.patch(
+    '/organizations/buildings/:id/backup',
+    { preHandler: [authenticate, requireOrgRole('OWNER', 'ADMIN')] },
+    setBuildingBackup
+  );
+
+  // GET /organizations/audit-log — log de auditoria da organização (seção 125, requer OWNER/ADMIN)
+  app.get(
+    '/organizations/audit-log',
+    { preHandler: [authenticate, requireOrgRole('OWNER', 'ADMIN')] },
+    getOrganizationAuditLog
   );
 }

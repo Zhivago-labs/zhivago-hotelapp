@@ -25,6 +25,7 @@ async function main() {
       brokerMemberId: agentMembership.id,
       brokerUserId: agentMembership.userId,
       assignedByMemberId: null,
+      source: 'LISTING_AGENT',
     });
     fixed += 1;
     console.log(`Lead ${lead.id} atribuído ao corretor ${agentMembership.id} (dono do imóvel ${lead.listingId}).`);

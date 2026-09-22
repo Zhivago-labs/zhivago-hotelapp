@@ -10,6 +10,8 @@ import {
   addInteractionHandler,
   scheduleVisitHandler,
   updateVisitStatusHandler,
+  addTaskHandler,
+  updateTaskHandler,
 } from '../controllers/leads.controller.js';
 
 export async function leadsRoutes(app: FastifyInstance): Promise<void> {
@@ -44,4 +46,10 @@ export async function leadsRoutes(app: FastifyInstance): Promise<void> {
 
   // PATCH /visits/:id/status — atualizar status de uma visita — mesma regra, aplicada ao lead da visita
   app.patch('/visits/:id/status', { preHandler: [authenticate] }, updateVisitStatusHandler);
+
+  // POST /leads/:id/tasks — criar tarefa/próxima ação (seção 112) — mesma regra de acesso do lead
+  app.post('/leads/:id/tasks', { preHandler: [authenticate] }, addTaskHandler);
+
+  // PATCH /tasks/:id — completar/reagendar/editar tarefa — mesma regra, aplicada ao lead da tarefa
+  app.patch('/tasks/:id', { preHandler: [authenticate] }, updateTaskHandler);
 }

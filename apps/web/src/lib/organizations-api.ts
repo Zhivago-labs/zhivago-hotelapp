@@ -1,5 +1,5 @@
 import { getApiUrl } from "@/lib/api";
-import type { Organization, OrganizationMemberRole, OrganizationInvite } from "@zhivago/shared";
+import type { Organization, OrganizationMemberRole, OrganizationInvite, OrganizationBuilding, PaginatedAuditLog } from "@zhivago/shared";
 import type { OwnedListing } from "@/lib/listings-api";
 
 export interface MyOrganization {
@@ -54,5 +54,25 @@ export async function getMyPendingInvites(token: string): Promise<OrganizationIn
     cache: "no-store",
   });
   if (!res.ok) throw new Error(`Falha ao buscar convites pendentes (${res.status})`);
+  return res.json();
+}
+
+// Empreendimentos (seção 8/63 da spec de cadastro) — pra popular o seletor do wizard.
+export async function getOrganizationBuildings(token: string): Promise<OrganizationBuilding[]> {
+  const res = await fetch(`${getApiUrl()}/organizations/buildings`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Falha ao buscar empreendimentos (${res.status})`);
+  return res.json();
+}
+
+// Log de auditoria da organização (seção 125 da spec) — OWNER/ADMIN apenas.
+export async function getOrganizationAuditLog(token: string, page = 1): Promise<PaginatedAuditLog> {
+  const res = await fetch(`${getApiUrl()}/organizations/audit-log?page=${page}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Falha ao buscar log de auditoria (${res.status})`);
   return res.json();
 }

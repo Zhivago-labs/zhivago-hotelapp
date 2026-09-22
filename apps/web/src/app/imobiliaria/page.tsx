@@ -1,12 +1,12 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { requireAuth } from "@/lib/session";
-import { getMyOrganization } from "@/lib/organizations-api";
+import { getMyOrganization, getOrganizationBuildings } from "@/lib/organizations-api";
 import { getOrganizationLeads, getMyLeads, getOrganizationMetrics } from "@/lib/leads-api";
 import { LeadStatusSelect } from "@/components/dashboard/LeadStatusSelect";
 import { SlaBadge } from "@/components/dashboard/SlaBadge";
 import { LineChart } from "@/components/dashboard/LineChart";
-import type { LeadStatus } from "@zhivago/shared";
+import type { Lead, LeadStatus } from "@zhivago/shared";
 import styles from "./page.module.css";
 
 export const metadata: Metadata = { title: "Pipeline de Leads" };
@@ -35,10 +35,18 @@ function formatHours(hours: number | null): string {
   return `${hours.toFixed(1)} h`;
 }
 
-type Props = { searchParams: Promise<{ view?: string }> };
+function formatNextAction(task: Lead["tasks"][number]): string {
+  if (!task.dueAt) return task.title;
+  const due = new Date(task.dueAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+  return `${task.title} · ${due}`;
+}
+
+type Props = {
+  searchParams: Promise<{ view?: string; brokerId?: string; buildingId?: string; search?: string }>;
+};
 
 export default async function ImobiliariaPipelinePage({ searchParams }: Props) {
-  const { view: viewParam } = await searchParams;
+  const { view: viewParam, brokerId, buildingId, search } = await searchParams;
   const { token } = await requireAuth("/imobiliaria");
 
   const membership = await getMyOrganization(token);
@@ -83,7 +91,12 @@ export default async function ImobiliariaPipelinePage({ searchParams }: Props) {
       {view === "metricas" ? (
         <MetricsView token={token} />
       ) : (
-        <PipelineView token={token} hasOrgWideView={hasOrgWideView} canManage={canManage} />
+        <PipelineView
+          token={token}
+          hasOrgWideView={hasOrgWideView}
+          canManage={canManage}
+          filters={{ brokerId, buildingId, search }}
+        />
       )}
     </main>
   );
@@ -93,12 +106,27 @@ async function PipelineView({
   token,
   hasOrgWideView,
   canManage,
+  filters,
 }: {
   token: string;
   hasOrgWideView: boolean;
   canManage: boolean;
+  filters: { brokerId?: string; buildingId?: string; search?: string };
 }) {
-  const leads = hasOrgWideView ? await getOrganizationLeads(token) : await getMyLeads(token);
+  // Filtros server-side (seção 118/119 da spec) — antes trazia a organização inteira e o front
+  // filtrava em memória. `limit` alto de propósito: o Kanban mostra o funil inteiro de uma vez,
+  // só os filtros reduzem o conjunto (paginar por coluna não faz sentido nesse layout).
+  const [leadsResult, myOrg, buildings] = await Promise.all([
+    hasOrgWideView
+      ? getOrganizationLeads(token, { ...filters, limit: 300 })
+      : getMyLeads(token).then((items) => ({ items, total: items.length, page: 1, limit: items.length })),
+    getMyOrganization(token),
+    hasOrgWideView ? getOrganizationBuildings(token) : Promise.resolve([]),
+  ]);
+  const leads = leadsResult.items;
+  const brokers = hasOrgWideView
+    ? (myOrg?.organization.members ?? []).filter((m) => m.status === "ACTIVE" && m.role !== "ASSISTANT")
+    : [];
 
   return (
     <>
@@ -107,6 +135,43 @@ async function PipelineView({
           ? "Todos os leads da organização, agrupados por etapa do funil."
           : "Seus leads atualmente atribuídos, agrupados por etapa do funil."}
       </p>
+
+      {hasOrgWideView && (
+        <form className={styles.filterBar}>
+          <input type="hidden" name="view" value="pipeline" />
+          <select name="brokerId" defaultValue={filters.brokerId ?? ""} className={styles.filterInput}>
+            <option value="">Todos os corretores</option>
+            {brokers.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.user?.name ?? "Membro"}
+              </option>
+            ))}
+          </select>
+          <select name="buildingId" defaultValue={filters.buildingId ?? ""} className={styles.filterInput}>
+            <option value="">Todos os empreendimentos</option>
+            {buildings.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+          <input
+            type="text"
+            name="search"
+            placeholder="Buscar cliente…"
+            defaultValue={filters.search ?? ""}
+            className={styles.filterInput}
+          />
+          <button type="submit" className={styles.filterButton}>
+            Filtrar
+          </button>
+          {(filters.brokerId || filters.buildingId || filters.search) && (
+            <Link href="/imobiliaria?view=pipeline" className={styles.filterButton}>
+              Limpar
+            </Link>
+          )}
+        </form>
+      )}
 
       <div className={styles.board}>
         {COLUMNS.map((column) => {
@@ -135,6 +200,9 @@ async function PipelineView({
                           <span className={styles.cardBroker}>
                             {currentAssignment?.broker?.user?.name ?? "Não atribuído"}
                           </span>
+                        )}
+                        {lead.tasks[0] && (
+                          <span className={styles.cardNextAction}>{formatNextAction(lead.tasks[0])}</span>
                         )}
                         {canManage || !hasOrgWideView ? (
                           <LeadStatusSelect leadId={lead.id} currentStatus={lead.status} />
