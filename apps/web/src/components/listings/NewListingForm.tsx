@@ -328,6 +328,7 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
       {/* Título, descrição, endereço e comodidades precisam sobreviver à troca de etapa —
           seus campos visíveis só existem no DOM enquanto a etapa correspondente está ativa. */}
       <input type="hidden" name="name" value={name} />
+      <input type="hidden" name="price" value={price} />
       <input type="hidden" name="description" value={description} />
       <input type="hidden" name="cep" value={cep} />
       <input type="hidden" name="logradouro" value={logradouro} />
@@ -921,7 +922,6 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
               <span className={styles.airbnbPriceSymbol}>R$</span>
               <input
                 id="price"
-                name="price"
                 type="number"
                 min="0"
                 step="0.01"
