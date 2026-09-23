@@ -1,0 +1,107 @@
+.main {
+  min-height: 100vh;
+  background: #f8fafc;
+  padding: 2rem 1.5rem 4rem;
+}
+
+.container {
+  max-width: 800px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #64748b;
+  text-decoration: none;
+  transition: color 0.15s ease;
+  width: fit-content;
+}
+
+.backLink:hover {
+  color: #ff385c;
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.title {
+  font-size: 1.85rem;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0;
+}
+
+.updatedAt {
+  font-size: 0.85rem;
+  color: #64748b;
+  margin: 0;
+}
+
+.card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
+  padding: 2rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.03);
+}
+
+.card :global(h2) {
+  font-size: 1.15rem;
+  font-weight: 750;
+  color: #0f172a;
+  margin: 2rem 0 0.75rem;
+}
+
+.card :global(h2:first-child) {
+  margin-top: 0;
+}
+
+.card :global(p) {
+  font-size: 0.94rem;
+  line-height: 1.65;
+  color: #334155;
+  margin: 0 0 0.85rem;
+}
+
+.card :global(ul) {
+  margin: 0 0 0.85rem;
+  padding-left: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.card :global(li) {
+  font-size: 0.94rem;
+  line-height: 1.6;
+  color: #334155;
+}
+
+.card :global(a) {
+  color: #ff385c;
+  text-decoration: underline;
+}
+
+.card :global(strong) {
+  color: #0f172a;
+}
+
+@media (max-width: 560px) {
+  .card {
+    padding: 1.5rem;
+  }
+
+  .title {
+    font-size: 1.5rem;
+  }
+}

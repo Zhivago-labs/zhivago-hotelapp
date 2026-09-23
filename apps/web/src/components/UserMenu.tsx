@@ -4,7 +4,6 @@ import React, { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { LayoutDashboard, Building2, Settings, LogOut, User, ChevronDown, Shield, CalendarRange, MessageCircle } from "lucide-react";
 import { logoutAction } from "@/lib/actions/auth";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import { PushNotificationOptIn } from "@/components/PushNotificationOptIn";
 import { useChatSocket } from "@/components/chat/ChatSocketProvider";
 import styles from "./UserMenu.module.css";
@@ -139,7 +138,6 @@ export function UserMenu({ user }: UserMenuProps) {
               <span>Configurações</span>
             </Link>
 
-            <ThemeToggle variant="menuItem" />
             <PushNotificationOptIn variant="menuItem" />
           </div>
 

@@ -1,18 +1,16 @@
 import React from 'react';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useColorScheme } from '@/components/useColorScheme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/contexts/AuthContext';
 import { useChat } from '@/contexts/ChatContext';
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { unreadCount } = useChat();
   const tint = '#ff385c';
-  const inactive = colorScheme === 'dark' ? '#888' : '#999';
+  const inactive = '#999';
 
   return (
     <Tabs

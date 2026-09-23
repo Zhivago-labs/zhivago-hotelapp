@@ -31,7 +31,7 @@
 }
 
 .logoImage {
-  height: 54px;
+  height: 44px;
   width: auto;
   object-fit: contain;
   display: block;
@@ -64,7 +64,7 @@
   }
 
   .logoImage {
-    height: 42px;
+    height: 34px;
   }
 
   .navDesktop {

@@ -23,8 +23,8 @@ export function RegisterForm({ next }: { next?: string }) {
           <Image
             src="/images/system/Gemini_Generated_Image_(1).png"
             alt="Zhivago Logo"
-            width={170}
-            height={50}
+            width={129}
+            height={38}
             className={styles.brandLogo}
             priority
           />
@@ -173,7 +173,9 @@ export function RegisterForm({ next }: { next?: string }) {
       </div>
 
       <p className={styles.legalDisclaimer}>
-        Ao selecionar <strong>Concordar e continuar</strong>, você aceita os Termos de Serviço e Política de Privacidade.
+        Ao selecionar <strong>Concordar e continuar</strong>, você aceita os{" "}
+        <a href="/termos" target="_blank" rel="noopener noreferrer">Termos de Uso</a> e a{" "}
+        <a href="/privacidade" target="_blank" rel="noopener noreferrer">Política de Privacidade</a>.
       </p>
 
       {state?.error && <p className={styles.error}>{state.error}</p>}

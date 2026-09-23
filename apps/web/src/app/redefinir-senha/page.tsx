@@ -30,8 +30,8 @@ export default async function ResetPasswordPage({ searchParams }: Props) {
                 <Image
                   src="/images/system/Gemini_Generated_Image_(1).png"
                   alt="Zhivago Logo"
-                  width={170}
-                  height={50}
+                  width={129}
+                  height={38}
                   className={styles.brandLogo}
                   priority
                 />

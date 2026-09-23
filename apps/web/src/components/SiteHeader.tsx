@@ -17,8 +17,8 @@ export async function SiteHeader() {
           <Image
             src="/images/system/logo.png"
             alt="Logo"
-            width={180}
-            height={54}
+            width={146}
+            height={44}
             className={styles.logoImage}
             priority
           />

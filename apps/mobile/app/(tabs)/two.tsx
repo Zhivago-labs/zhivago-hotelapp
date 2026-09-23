@@ -104,10 +104,30 @@ export default function ProfileScreen() {
         title="Informações Pessoais" 
         onPress={() => router.push('/informacoes-pessoais')}
       />
-      <MenuOption 
-        icon="shield-checkmark-outline" 
-        title="Login e Segurança" 
+      <MenuOption
+        icon="shield-checkmark-outline"
+        title="Login e Segurança"
         onPress={() => router.push('/seguranca')}
+      />
+
+      <View style={styles.divider} />
+
+      {/* Seção: Suporte */}
+      <Text style={styles.sectionTitle}>Suporte</Text>
+      <MenuOption
+        icon="help-circle-outline"
+        title="Ajuda"
+        onPress={() => router.push('/ajuda')}
+      />
+      <MenuOption
+        icon="document-text-outline"
+        title="Termos de Uso"
+        onPress={() => router.push('/termos')}
+      />
+      <MenuOption
+        icon="lock-closed-outline"
+        title="Privacidade"
+        onPress={() => router.push('/privacidade')}
       />
 
       {/* Admin only */}
