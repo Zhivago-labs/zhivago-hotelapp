@@ -6,9 +6,8 @@ import { getSessionUser } from "@/lib/session";
 import { LandingNav } from "@/components/landing/LandingNav";
 import { LandingHero } from "@/components/landing/LandingHero";
 import { PropertyDiscoverySection } from "@/components/landing/PropertyDiscoverySection";
-import { ModalitiesSection } from "@/components/landing/ModalitiesSection";
-import { HowItWorksSection } from "@/components/landing/HowItWorksSection";
-import { MarketplaceSection } from "@/components/landing/MarketplaceSection";
+import { ExperienceSection } from "@/components/landing/ExperienceSection";
+import { TestimonialsSection } from "@/components/landing/TestimonialsSection";
 import { TransitionBand } from "@/components/landing/TransitionBand";
 import { CrmSection } from "@/components/landing/CrmSection";
 import { ListYourPropertySection } from "@/components/landing/ListYourPropertySection";
@@ -17,8 +16,7 @@ import { CtaSection } from "@/components/landing/CtaSection";
 import { LandingFooter } from "@/components/landing/LandingFooter";
 import styles from "./page.module.css";
 
-// Tipografia exclusiva da landing page (Fraunces nos títulos, Inter no corpo) — carregada só
-// aqui via next/font, sem afetar a fonte (Geist) usada no resto do app.
+// Tipografia exclusiva da landing page (Fraunces nos títulos, Inter no corpo)
 const fraunces = Fraunces({
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
@@ -31,8 +29,7 @@ const inter = Inter({
   variable: "--font-landing-sans",
 });
 
-// Mesmo critério de "relevância" usado no ListingsExplorer (/imoveis): sem motor de busca,
-// visualizações reais com o mais recente como desempate — não é aleatório nem inventado.
+// Critério de relevância: contagem de visualizações com desempate por mais recente
 function byRelevance(a: Listing, b: Listing): number {
   if (b.viewCount !== a.viewCount) return b.viewCount - a.viewCount;
   return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
@@ -53,7 +50,6 @@ export default async function LandingPage() {
   const user = await getSessionUser();
 
   if (user) {
-    // Contas de imobiliária são "back-office": gerenciam o próprio inventário
     const isAgencyAccount = user.accountType === "AGENCY" && user.role !== "ADMIN";
     redirect(isAgencyAccount ? "/dashboard" : "/imoveis");
   }
@@ -69,7 +65,6 @@ export default async function LandingPage() {
   const withPhoto = listings.filter((listing) => listing.images.length > 0);
   const sorted = [...withPhoto].sort(byRelevance);
   const featuredListing = sorted[0] ?? null;
-  // Segunda foto (quando existe) pra não repetir a mesma imagem do hero na seção editorial.
   const editorialListing = sorted[1] ?? featuredListing;
   const discoveryListings = sorted.slice(0, 9);
   const locations = topLocations(listings, 6);
@@ -80,9 +75,8 @@ export default async function LandingPage() {
       <main>
         <LandingHero featuredListing={featuredListing} locations={locations} />
         <PropertyDiscoverySection listings={discoveryListings} loadError={loadError} />
-        <ModalitiesSection />
-        <HowItWorksSection />
-        <MarketplaceSection featuredImage={editorialListing?.images[0]?.url ?? null} />
+        <ExperienceSection featuredImage={editorialListing?.images[0]?.url ?? null} />
+        <TestimonialsSection />
         <TransitionBand />
         <CrmSection />
         <ListYourPropertySection />

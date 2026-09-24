@@ -43,7 +43,7 @@
 
 .headerTitle {
   font-size: 20px;
-  font-weight: 850;
+  font-weight: 700;
   margin: 0 0 4px;
   letter-spacing: -0.02em;
   display: flex;
@@ -105,7 +105,7 @@
 
 .listingPrice {
   font-size: 15px;
-  font-weight: 850;
+  font-weight: 700;
   color: var(--accent);
 }
 
@@ -215,7 +215,7 @@
 
 .previewNewPrice {
   font-size: 18px;
-  font-weight: 850;
+  font-weight: 700;
   color: var(--accent);
 }
 
@@ -245,7 +245,7 @@
   border-radius: 12px;
   padding: 14px;
   font-size: 14px;
-  font-weight: 750;
+  font-weight: 600;
   cursor: pointer;
   transition: var(--transition);
 }
@@ -262,7 +262,7 @@
   border-radius: 12px;
   padding: 14px;
   font-size: 14.5px;
-  font-weight: 850;
+  font-weight: 700;
   cursor: pointer;
   transition: var(--transition);
   box-shadow: 0 4px 12px rgba(255, 56, 92, 0.25);

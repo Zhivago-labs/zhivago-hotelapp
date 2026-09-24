@@ -57,7 +57,7 @@
 
 .card :global(h2) {
   font-size: 1.15rem;
-  font-weight: 750;
+  font-weight: 600;
   color: #0f172a;
   margin: 2rem 0 0.75rem;
 }

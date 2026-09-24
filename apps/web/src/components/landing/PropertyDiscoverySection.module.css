@@ -1,13 +1,14 @@
 .section {
-  padding: 88px 0 96px;
+  padding: 56px 0 64px;
+  border-bottom: 1px solid var(--line);
 }
 
 .head {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 24px;
-  margin-bottom: 36px;
+  gap: 20px;
+  margin-bottom: 28px;
 }
 
 .head > div {
@@ -25,57 +26,66 @@
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  font-size: 14.5px;
+  gap: 6px;
+  font-size: 13.5px;
   font-weight: 600;
-  color: var(--ink);
-  padding-bottom: 4px;
-  border-bottom: 1.5px solid var(--ink);
+  color: var(--coral-deep);
+}
+
+.viewAll:hover {
+  text-decoration: underline;
 }
 
 .filters {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 32px;
+  gap: 8px;
+  margin-bottom: 24px;
 }
 
 .filterChip {
-  background: #fff;
-  border: 1.5px solid var(--line);
-  color: var(--slate);
-  padding: 9px 18px;
-  border-radius: 99px;
-  font-size: 14px;
-  font-weight: 600;
+  background: #ffffff;
+  border: 1px solid #d4c8b3;
+  color: var(--ink);
+  padding: 6px 14px;
+  border-radius: var(--radius-sm, 6px);
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
-  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+  transition: all 0.15s ease;
 }
 
 .filterChip:hover {
   border-color: var(--ink);
-  color: var(--ink);
 }
 
 .filterChipActive,
 .filterChipActive:hover {
   background: var(--ink);
   border-color: var(--ink);
-  color: var(--paper);
+  color: #ffffff;
+  font-weight: 600;
 }
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
-  gap: 24px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 20px;
 }
 
 .stateMessage {
-  font-size: 15px;
+  font-size: 14px;
   color: var(--slate);
-  padding: 32px;
+  padding: 24px;
   text-align: center;
-  background: var(--paper-2);
-  border: 1px solid var(--sand);
-  border-radius: 16px;
+  background: #ffffff;
+  border: 1px dashed #d4c8b3;
+  border-radius: var(--radius-sm, 6px);
+}
+
+.emptyStateContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
 }

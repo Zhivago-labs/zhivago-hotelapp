@@ -14,7 +14,7 @@
 
 .title {
   font-size: 14px;
-  font-weight: 750;
+  font-weight: 600;
   color: var(--muted);
   margin: 0 0 20px;
   text-transform: uppercase;
@@ -87,7 +87,7 @@
 
 .tooltip span {
   font-size: 10px;
-  font-weight: 550;
+  font-weight: 500;
   opacity: 0.8;
   text-transform: uppercase;
 }

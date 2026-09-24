@@ -1,134 +1,110 @@
 .dark {
-  background: var(--ink);
+  background: #0f1217;
   color: var(--paper);
+  border-bottom: 1px solid #272e3b;
 }
 
 .section {
-  padding: 56px 0 88px;
+  padding: 64px 0 80px;
 }
 
 .titleOnDark {
-  color: var(--paper);
+  color: #ffffff;
 }
 
-/* ── grid de features do CRM ── */
-
+/* ── Grid de Features ── */
 .crmFeatGrid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 1px;
-  background: var(--line-dark);
-  border: 1px solid var(--line-dark);
-  border-radius: 20px;
-  overflow: hidden;
-  margin-bottom: 64px;
+  gap: 16px;
+  margin-top: 40px;
+  margin-bottom: 48px;
 }
 
-@media (max-width: 880px) {
-  .crmFeatGrid {
-    grid-template-columns: 1fr 1fr;
-  }
-}
-
-@media (max-width: 560px) {
+@media (max-width: 860px) {
   .crmFeatGrid {
     grid-template-columns: 1fr;
   }
 }
 
 .crmFeatCell {
-  background: var(--ink);
-  padding: 30px 26px;
+  background: #141820;
+  border: 1px solid #272e3b;
+  border-radius: var(--radius-md, 8px);
+  padding: 24px;
 }
 
 .featIcon {
-  width: 38px;
-  height: 38px;
-  border-radius: 10px;
-  background: var(--ink-soft);
-  border: 1px solid var(--line-dark);
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-xs, 4px);
+  background: rgba(255, 56, 92, 0.12);
   display: flex;
   align-items: center;
   justify-content: center;
   color: #ff8fa3;
-  margin-bottom: 18px;
+  margin-bottom: 14px;
 }
 
 .featTitle {
   font-family: var(--font-landing-serif), Georgia, serif;
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 600;
-  margin-bottom: 8px;
-  color: var(--paper);
+  margin-bottom: 6px;
+  color: #ffffff;
 }
 
 .featText {
-  font-size: 14.5px;
+  font-size: 13.5px;
   line-height: 1.55;
-  color: #9aa2ae;
-}
-
-/* ── equipe + métricas ── */
-
-.teamBlock {
-  display: grid;
-  grid-template-columns: 1fr 1.1fr;
-  gap: 56px;
-  align-items: center;
-}
-
-@media (max-width: 880px) {
-  .teamBlock {
-    grid-template-columns: 1fr;
-  }
-}
-
-.teamTitle {
-  font-size: 24px;
-  color: var(--paper);
-  margin: 0 0 8px;
-}
-
-.teamText {
-  color: #9aa2ae;
-  font-size: 15px;
-  line-height: 1.6;
+  color: #94a3b8;
   margin: 0;
 }
 
-.roleList {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-top: 24px;
+/* ── CTA Final dentro do CRM ── */
+.crmCta {
+  margin-top: 36px;
 }
 
-.roleRow {
+.crmCtaBox {
+  background: #141820;
+  border: 1px solid #272e3b;
+  border-radius: var(--radius-md, 8px);
+  padding: 32px 36px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 0;
-  border-bottom: 1px solid var(--line-dark);
+  gap: 32px;
 }
 
-.roleRow:last-child {
-  border-bottom: none;
+@media (max-width: 840px) {
+  .crmCtaBox {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 24px;
+    gap: 20px;
+  }
 }
 
-.roleName {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--paper);
+.crmCtaText h3 {
+  font-family: var(--font-landing-serif), Georgia, serif;
+  font-size: 20px;
+  color: #ffffff;
+  margin: 0 0 6px;
+  line-height: 1.3;
 }
 
-.roleDesc {
-  font-size: 13px;
-  color: #8891a0;
-  margin-top: 3px;
+.crmCtaText p {
+  color: #94a3b8;
+  font-size: 14px;
+  margin: 0;
+  line-height: 1.5;
 }
 
-.crmCta {
-  margin-top: 64px;
+.crmCtaBtns {
   display: flex;
-  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
 }

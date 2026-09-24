@@ -3,10 +3,10 @@
   top: 0;
   z-index: 100;
   background: var(--header-bg);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-xs);
   transition: var(--transition);
 }
 
@@ -16,22 +16,21 @@
   justify-content: space-between;
   max-width: 100%;
   width: 100%;
-  padding: 10px 48px;
+  padding: 10px 32px;
 }
 
 .logo {
   display: flex;
   align-items: center;
-  transition: var(--transition);
+  transition: opacity 0.15s ease;
 }
 
 .logo:hover {
-  transform: translateY(-0.5px);
-  opacity: 0.95;
+  opacity: 0.85;
 }
 
 .logoImage {
-  height: 44px;
+  height: 38px;
   width: auto;
   object-fit: contain;
   display: block;
@@ -40,7 +39,7 @@
 .navDesktop {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 10px;
 }
 
 .mobileMenuToggle {
@@ -50,7 +49,7 @@
   color: var(--foreground);
   cursor: pointer;
   padding: 8px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-xs, 4px);
   transition: var(--transition);
 }
 
@@ -64,7 +63,7 @@
   }
 
   .logoImage {
-    height: 34px;
+    height: 32px;
   }
 
   .navDesktop {
@@ -78,32 +77,32 @@
   }
 }
 
-/* ─── DRAWER / OVERLAY MOBILE ─── */
+/* ─── DRAWER MOBILE ─── */
 .mobileOverlay {
   position: fixed;
   top: 0;
   left: 0;
   width: 100vw;
   height: 100vh;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(15, 23, 42, 0.4);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
   z-index: 1100;
   display: flex;
   justify-content: flex-end;
-  animation: fadeIn 0.2s ease-out;
+  animation: fadeIn 0.15s ease-out;
 }
 
 .mobileDrawer {
   width: 85%;
-  max-width: 320px;
+  max-width: 300px;
   height: 100%;
   background: var(--card-bg, #ffffff);
   display: flex;
   flex-direction: column;
   padding: 20px;
-  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.2);
-  animation: slideLeft 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: -4px 0 20px rgba(0, 0, 0, 0.15);
+  animation: slideLeft 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   overflow-y: auto;
 }
 
@@ -120,14 +119,14 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-bottom: 16px;
+  padding-bottom: 14px;
   border-bottom: 1px solid var(--border);
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 .mobileTitle {
-  font-size: 16px;
-  font-weight: 800;
+  font-size: 15px;
+  font-weight: 700;
   color: var(--foreground);
 }
 
@@ -140,7 +139,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-xs, 4px);
 }
 
 .mobileCloseBtn:hover {
@@ -151,30 +150,28 @@
 .mobileNavLinks {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .mobileNavLink {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
-  font-size: 15px;
-  font-weight: 600;
+  gap: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-weight: 500;
   color: var(--foreground);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm, 6px);
   transition: var(--transition);
   background: transparent;
   border: none;
   width: 100%;
   text-align: left;
   cursor: pointer;
-  font-family: inherit;
 }
 
 .mobileNavLink:hover {
   background: var(--hover-bg);
-  color: var(--accent);
 }
 
 .mobileNavPrimary {
@@ -182,27 +179,26 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 12px;
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--accent);
-  background: rgba(255, 56, 92, 0.08);
-  border: 1px solid rgba(255, 56, 92, 0.2);
-  border-radius: var(--radius-md);
+  padding: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #ffffff;
+  background: var(--foreground);
+  border-radius: var(--radius-sm, 6px);
   text-align: center;
-  margin-top: 4px;
+  margin-top: 6px;
 }
 
 .mobileSignUpBtn {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 12px;
-  font-size: 15px;
-  font-weight: 700;
+  padding: 10px;
+  font-size: 14px;
+  font-weight: 600;
   color: #ffffff;
   background: var(--accent);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm, 6px);
   text-align: center;
 }
 
@@ -217,22 +213,22 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px 12px;
+  padding: 8px 10px;
   background: var(--hover-bg);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm, 6px);
   margin-bottom: 6px;
 }
 
 .mobileUserIdentity {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   min-width: 0;
 }
 
 .mobileAvatar {
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   border-radius: var(--radius-full);
   overflow: hidden;
   background: var(--background);
@@ -250,8 +246,8 @@
 }
 
 .mobileUserName {
-  font-size: 14px;
-  font-weight: 700;
+  font-size: 13.5px;
+  font-weight: 600;
   color: var(--foreground);
 }
 
@@ -263,42 +259,42 @@
 .mobileLogoutBtn {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
-  font-size: 15px;
-  font-weight: 600;
-  color: #ef4444;
+  gap: 10px;
+  padding: 10px 12px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: #e11d48;
   background: transparent;
   border: none;
   width: 100%;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm, 6px);
   cursor: pointer;
-  font-family: inherit;
 }
 
 .mobileLogoutBtn:hover {
-  background: rgba(239, 68, 68, 0.08);
+  background: #fff1f2;
 }
 
 .mobileBadge {
   margin-left: auto;
   background: var(--accent);
   color: #ffffff;
-  font-size: 11px;
-  font-weight: 800;
-  padding: 2px 7px;
-  border-radius: 9999px;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: var(--radius-xs, 4px);
 }
 
+/* ─── LINKS DE NAVEGAÇÃO DESKTOP ─── */
 .navLink {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 13.5px;
+  font-weight: 500;
   color: var(--muted);
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 14px;
-  border-radius: var(--radius-full);
+  padding: 7px 12px;
+  border-radius: var(--radius-sm, 6px);
   transition: var(--transition);
 }
 
@@ -308,69 +304,66 @@
 }
 
 .navPrimary {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--accent);
-  background: rgba(255, 56, 92, 0.06);
-  padding: 8px 18px;
-  border-radius: var(--radius-full);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--foreground);
+  background: var(--surface-subtle);
+  padding: 7px 14px;
+  border-radius: var(--radius-sm, 6px);
   display: flex;
   align-items: center;
   gap: 6px;
   transition: var(--transition);
-  border: 1px solid rgba(255, 56, 92, 0.1);
+  border: 1px solid var(--border);
 }
 
 .navPrimary:hover {
-  background: rgba(255, 56, 92, 0.12);
-  border-color: rgba(255, 56, 92, 0.2);
-  transform: translateY(-1px);
+  background: var(--hover-bg);
+  border-color: var(--border-hover);
 }
 
 .signUpButton {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--accent-contrast);
-  background: var(--accent);
-  padding: 8px 18px;
-  border-radius: var(--radius-full);
-  transition: var(--transition);
-  box-shadow: 0 4px 12px rgba(255, 56, 92, 0.15);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #ffffff;
+  background: var(--foreground);
+  padding: 7px 14px;
+  border-radius: var(--radius-sm, 6px);
+  transition: background 0.15s ease;
 }
 
 .signUpButton:hover {
-  background: var(--accent-hover);
-  box-shadow: 0 6px 16px rgba(255, 56, 92, 0.25);
-  transform: translateY(-1px);
+  background: #1e293b;
 }
 
 .divider {
   width: 1px;
   height: 16px;
   background: var(--border);
+  margin: 0 4px;
 }
 
 .userMenu {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   padding-left: 8px;
   border-left: 1px solid var(--border);
 }
 
 .greeting {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 500;
   color: var(--foreground);
 }
 
 .avatarWrap {
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   border-radius: var(--radius-full);
   overflow: hidden;
   border: 1px solid var(--border);
-  background: #f0f0f0;
+  background: var(--surface-subtle);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -384,7 +377,7 @@
 }
 
 .avatarPlaceholder {
-  color: #888;
+  color: var(--muted);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -401,7 +394,7 @@
   color: var(--muted);
   cursor: pointer;
   padding: 6px;
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-xs, 4px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -409,6 +402,6 @@
 }
 
 .logoutButton:hover {
-  color: #ef4444;
-  background: rgba(239, 68, 68, 0.08);
+  color: #e11d48;
+  background: #fff1f2;
 }

@@ -54,7 +54,7 @@
 
 .propertyName {
   font-size: 14px;
-  font-weight: 750;
+  font-weight: 600;
   color: var(--foreground);
   margin: 0 0 2px;
   overflow: hidden;

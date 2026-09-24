@@ -9,7 +9,7 @@
 
 .title {
   font-size: 30px;
-  font-weight: 850;
+  font-weight: 700;
   letter-spacing: -0.04em;
   color: var(--foreground);
   margin: 0;
@@ -89,7 +89,7 @@
 
 .statValue {
   font-size: 26px;
-  font-weight: 850;
+  font-weight: 700;
   color: var(--accent);
   margin: 0;
   letter-spacing: -0.02em;
@@ -302,7 +302,7 @@
 
 .kpiValue {
   font-size: 26px;
-  font-weight: 850;
+  font-weight: 700;
   letter-spacing: -0.03em;
   line-height: 1.1;
 }
@@ -437,7 +437,7 @@
 
 .emptyTitle {
   font-size: 18px;
-  font-weight: 750;
+  font-weight: 600;
   color: var(--foreground);
   margin: 0 0 6px;
 }

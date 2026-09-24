@@ -58,7 +58,7 @@
 
 .listingTitle {
   font-size: 1.1rem;
-  font-weight: 750;
+  font-weight: 600;
   color: var(--foreground);
   text-decoration: none;
   transition: color 0.15s ease;
