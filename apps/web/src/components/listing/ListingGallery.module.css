@@ -1,104 +1,205 @@
-.wrap {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.imageWrap {
+/* ── CONTAINER DA GALERIA DO IMÓVEL (PADRÃO AIRBNB) ── */
+.galleryWrapper {
   position: relative;
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  background: #f1f5f9;
-  box-shadow: var(--shadow-sm);
-}
-
-.image {
   width: 100%;
-  max-height: 480px;
-  min-height: 280px;
-  object-fit: cover;
-  display: block;
 }
 
-.arrow {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
+.emptyGallery {
+  width: 100%;
+  height: 320px;
+  background: #f1f5f9;
+  border-radius: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: var(--radius-full);
-  border: none;
-  background: rgba(255, 255, 255, 0.9);
-  color: var(--foreground);
-  cursor: pointer;
-  box-shadow: var(--shadow-md);
-  transition: var(--transition);
+  color: var(--muted);
+  font-size: 14px;
 }
 
-.arrow:hover {
-  background: #ffffff;
-  transform: translateY(-50%) scale(1.05);
-}
-
-.arrowLeft {
-  left: 16px;
-}
-
-.arrowRight {
-  right: 16px;
-}
-
-.counter {
-  position: absolute;
-  bottom: 16px;
-  right: 16px;
-  background: rgba(15, 23, 42, 0.75);
-  backdrop-filter: blur(4px);
-  color: var(--accent-contrast);
-  font-size: 12px;
-  font-weight: 700;
-  padding: 4px 12px;
-  border-radius: var(--radius-full);
-}
-
-.thumbStrip {
+/* ── DESKTOP: MOSAICO DE FOTOS AIRBNB (5 FOTOS) ── */
+.desktopMosaic {
   display: flex;
-  gap: 10px;
-  overflow-x: auto;
-  padding-bottom: 4px;
-  scrollbar-width: thin;
-}
-
-.thumbButton {
-  flex: 0 0 auto;
-  width: 72px;
-  height: 54px;
-  border-radius: var(--radius-sm);
+  gap: 8px;
+  height: 440px;
+  border-radius: 14px;
   overflow: hidden;
-  border: 2px solid transparent;
-  padding: 0;
+  position: relative;
+  background: #f1f5f9;
+}
+
+.mosaicItem {
+  position: relative;
   cursor: pointer;
-  background: none;
-  transition: var(--transition);
+  overflow: hidden;
+  background: #e2e8f0;
 }
 
-.thumbButtonActive {
-  border-color: var(--accent);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-sm);
-}
-
-.thumbImage {
+.mosaicImg {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
-  transition: var(--transition);
+  transition: transform 0.3s ease;
 }
 
-.thumbButton:hover .thumbImage {
-  opacity: 0.9;
+.mosaicHoverOverlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0);
+  transition: background 0.2s ease;
+  pointer-events: none;
+}
+
+.mosaicItem:hover .mosaicHoverOverlay {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.mosaicItem:hover .mosaicImg {
+  transform: scale(1.015);
+}
+
+/* Foto principal (esquerda) ocupa 50% */
+.mosaicMain {
+  flex: 1 1 50%;
+  height: 100%;
+}
+
+.mosaicOnlyOne {
+  flex: 1 1 100%;
+}
+
+/* Lado direito (até 4 fotos) */
+.mosaicSideGrid {
+  flex: 1 1 50%;
+  display: grid;
+  gap: 8px;
+  height: 100%;
+}
+
+/* Quando tem 4 fotos laterais (grade 2x2 perfeita) */
+.mosaicSideCount4 {
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+}
+
+/* Quando tem 3 fotos laterais */
+.mosaicSideCount3 {
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+}
+.mosaicSideCount3 .mosaicItem:first-child {
+  grid-row: span 2;
+}
+
+/* Quando tem 2 fotos laterais */
+.mosaicSideCount2 {
+  grid-template-columns: 1fr;
+  grid-template-rows: repeat(2, 1fr);
+}
+
+/* Quando tem 1 foto lateral */
+.mosaicSideCount1 {
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+}
+
+/* Botão Ícone Airbnb: "Mostrar todas as fotos" */
+.airbnbShowAllBtn {
+  position: absolute;
+  bottom: 18px;
+  right: 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #ffffff;
+  color: #222222;
+  border: 1px solid #222222;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+  transition: transform 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+  z-index: 5;
+}
+
+.airbnbShowAllBtn:hover {
+  background: #f7f7f7;
+  transform: scale(1.02);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+}
+
+.airbnbShowAllBtn:active {
+  transform: scale(0.98);
+}
+
+/* ── MOBILE: CARROSSEL CLEAN AIRBNB ── */
+.mobileCarousel {
+  display: none;
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #f1f5f9;
+  cursor: pointer;
+}
+
+.mobileImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.mobileArrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
+  border: none;
+  color: #222222;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  z-index: 4;
+}
+
+.mobileArrowLeft {
+  left: 12px;
+}
+
+.mobileArrowRight {
+  right: 12px;
+}
+
+.mobileBadge {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  background: rgba(15, 23, 42, 0.78);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  backdrop-filter: blur(4px);
+  z-index: 4;
+}
+
+/* ── RESPONSIVIDADE ── */
+@media (max-width: 768px) {
+  .desktopMosaic {
+    display: none;
+  }
+
+  .mobileCarousel {
+    display: block;
+  }
 }

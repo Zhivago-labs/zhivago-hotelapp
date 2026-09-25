@@ -52,20 +52,95 @@
   transform: scale(1.02);
 }
 
+/* Setas de navegação do card (estilo Airbnb, aparecem no hover) */
+.cardArrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  color: #222222;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+  opacity: 0;
+  transition: opacity 0.2s ease, transform 0.15s ease, background 0.15s ease;
+  z-index: 4;
+}
+
+.card:hover .cardArrow {
+  opacity: 1;
+}
+
+.cardArrow:hover {
+  background: #ffffff;
+  transform: translateY(-50%) scale(1.08);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.25);
+}
+
+.cardArrowLeft {
+  left: 8px;
+}
+
+.cardArrowRight {
+  right: 8px;
+}
+
+/* Indicadores de pontinhos (dots pagination) */
+.dotsPagination {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.6);
+  transition: all 0.2s ease;
+}
+
+.dotActive {
+  background: #ffffff;
+  width: 7px;
+  height: 7px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
 .imageOverlayBadge {
   position: absolute;
   bottom: 8px;
   right: 8px;
-  background: rgba(15, 23, 42, 0.8);
+  background: rgba(15, 23, 42, 0.85);
   color: #ffffff;
   font-size: 11px;
   font-weight: 600;
   padding: 4px 8px;
-  border-radius: var(--radius-xs, 4px);
+  border-radius: 9999px;
+  border: none;
   display: flex;
   align-items: center;
   gap: 4px;
+  cursor: pointer;
   z-index: 3;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.imageOverlayBadge:hover {
+  background: rgba(15, 23, 42, 1);
+  transform: scale(1.04);
 }
 
 .soldBadge {
@@ -155,13 +230,32 @@
   gap: 4px;
 }
 
-.footer {
+.priceRow {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
+  gap: 8px;
   margin-top: 10px;
   padding-top: 10px;
   border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.oldPrice {
+  font-size: 13px;
+  color: var(--muted);
+  text-decoration: line-through;
+  font-weight: 500;
+}
+
+.discountTag {
+  font-size: 11px;
+  font-weight: 700;
+  color: #16a34a;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  padding: 2px 6px;
+  border-radius: var(--radius-xs, 4px);
+  margin-left: auto;
 }
 
 .price {

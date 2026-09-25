@@ -110,3 +110,27 @@ button, input, select, textarea {
     animation: none !important;
   }
 }
+
+/* Desabilitar/ocultar badge e drawer do Netlify para liberar elementos subjacentes */
+#nl-badge,
+.nl-badge,
+#nl-card,
+.nl-card,
+[aria-controls="nl-card"],
+[aria-label*="Netlify"],
+iframe[src*="netlify"] {
+  display: none !important;
+  pointer-events: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+}
+
+/* Ocultar botão flutuante de mensagens durante visualização de fotos */
+body[data-photo-viewer-open="true"] [class*="fabButton"],
+body[data-photo-viewer-open="true"] button[title*="Chat Zhivago"],
+body[data-photo-viewer-open="true"] button[aria-label="Abrir Mensagens"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}

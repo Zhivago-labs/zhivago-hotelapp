@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Link from "next/link";
-import { BedDouble, Droplet, Car, Maximize2, X, ChevronLeft, ChevronRight, ArrowRight, BadgeCheck } from "lucide-react";
+import { BedDouble, Droplet, Car, Maximize2, BadgeCheck, ChevronLeft, ChevronRight } from "lucide-react";
 import type { Listing } from "@zhivago/shared";
 import { formatPrice } from "@/lib/api";
 import { FavoriteButton } from "@/components/favorites/FavoriteButton";
 import { ModerateListingTrigger } from "@/components/admin/ModerateListingModal";
+import { PropertyPhotoViewer } from "@/components/listing/PropertyPhotoViewer";
 import styles from "./ListingCard.module.css";
 
 const TYPE_LABELS: Record<Listing["type"], string> = {
@@ -29,23 +30,22 @@ export function ListingCard({ listing, isAdmin = false }: { listing: Listing; is
   const [modalOpen, setModalOpen] = useState(false);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
 
-  // Fecha com tecla ESC e navega com setas
-  useEffect(() => {
-    if (!modalOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setModalOpen(false);
-      if (e.key === "ArrowLeft") setActiveImageIndex((prev) => (prev > 0 ? prev - 1 : prev));
-      if (e.key === "ArrowRight") setActiveImageIndex((prev) => (prev < images.length - 1 ? prev + 1 : prev));
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [modalOpen, images.length]);
+  const prevPhoto = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setActiveImageIndex((prev) => (prev - 1 + images.length) % images.length);
+  };
 
-  const handleImageClick = (e: React.MouseEvent) => {
+  const nextPhoto = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setActiveImageIndex((prev) => (prev + 1) % images.length);
+  };
+
+  const handleOpenPhotos = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     if (images.length > 0) {
-      setActiveImageIndex(0);
       setModalOpen(true);
     }
   };
@@ -63,13 +63,16 @@ export function ListingCard({ listing, isAdmin = false }: { listing: Listing; is
     (listing.owner?.accountType === "AGENCY" && listing.owner?.verified) || listing.organization?.verified
   );
 
+  const currentImage = images[activeImageIndex] ?? images[0];
+  const hasMultiple = images.length > 1;
+
   return (
     <>
       <div className={styles.card}>
-        <div className={styles.imageWrap} onClick={handleImageClick} title="Clique para ampliar as fotos">
+        <div className={styles.imageWrap} onClick={handleOpenPhotos} title="Clique para abrir as fotos">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={images[0]?.url || "/placeholder.jpg"}
+            src={currentImage?.url || "/placeholder.jpg"}
             alt={listing.name}
             className={styles.image}
             loading="lazy"
@@ -86,10 +89,47 @@ export function ListingCard({ listing, isAdmin = false }: { listing: Listing; is
             <span className={styles.discountBadge}>{discountPercent}% OFF</span>
           ) : null}
 
-          <div className={styles.imageOverlayBadge}>
-            <Maximize2 size={13} />
-            <span>Ver fotos {images.length > 1 ? `(${images.length})` : ""}</span>
-          </div>
+          {/* Setas de navegação inline no card (estilo clássico Airbnb) */}
+          {hasMultiple && (
+            <>
+              <button
+                type="button"
+                className={`${styles.cardArrow} ${styles.cardArrowLeft}`}
+                onClick={prevPhoto}
+                aria-label="Foto anterior"
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <button
+                type="button"
+                className={`${styles.cardArrow} ${styles.cardArrowRight}`}
+                onClick={nextPhoto}
+                aria-label="Próxima foto"
+              >
+                <ChevronRight size={16} />
+              </button>
+
+              {/* Indicadores de pontinhos (dots pagination) */}
+              <div className={styles.dotsPagination}>
+                {images.slice(0, 5).map((_, i) => (
+                  <span
+                    key={i}
+                    className={`${styles.dot} ${i === activeImageIndex % 5 ? styles.dotActive : ""}`}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+
+          <button
+            type="button"
+            className={styles.imageOverlayBadge}
+            onClick={handleOpenPhotos}
+            aria-label="Ver todas as fotos"
+          >
+            <Maximize2 size={12} />
+            <span>{hasMultiple ? `${activeImageIndex + 1}/${images.length}` : "Ver foto"}</span>
+          </button>
 
           <div className={styles.favoriteWrap} onClick={(e) => e.stopPropagation()}>
             <FavoriteButton listingId={listing.id} />
@@ -140,74 +180,17 @@ export function ListingCard({ listing, isAdmin = false }: { listing: Listing; is
         </Link>
       </div>
 
-      {/* ── MODAL LIGHTBOX DE FOTOS DO IMÓVEL ── */}
-      {modalOpen && images.length > 0 && (
-        <div className={styles.lightboxOverlay} onClick={() => setModalOpen(false)}>
-          <div className={styles.lightboxContent} onClick={(e) => e.stopPropagation()}>
-            {/* Header */}
-            <div className={styles.lightboxHeader}>
-              <div className={styles.lightboxHeaderInfo}>
-                <h4 className={styles.lightboxTitle}>{listing.name}</h4>
-                <span className={styles.lightboxCounter}>
-                  Foto {activeImageIndex + 1} de {images.length}
-                </span>
-              </div>
-              <button
-                type="button"
-                className={styles.lightboxCloseBtn}
-                onClick={() => setModalOpen(false)}
-                title="Fechar (Esc)"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            {/* Imagem Ampliada */}
-            <div className={styles.lightboxImageWrap}>
-              {activeImageIndex > 0 && (
-                <button
-                  type="button"
-                  className={`${styles.navBtn} ${styles.prevBtn}`}
-                  onClick={() => setActiveImageIndex(activeImageIndex - 1)}
-                  title="Foto anterior (Seta esquerda)"
-                >
-                  <ChevronLeft size={24} />
-                </button>
-              )}
-
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={images[activeImageIndex]?.url}
-                alt={`${listing.name} - Foto ${activeImageIndex + 1}`}
-                className={styles.lightboxImage}
-              />
-
-              {activeImageIndex < images.length - 1 && (
-                <button
-                  type="button"
-                  className={`${styles.navBtn} ${styles.nextBtn}`}
-                  onClick={() => setActiveImageIndex(activeImageIndex + 1)}
-                  title="Próxima foto (Seta direita)"
-                >
-                  <ChevronRight size={24} />
-                </button>
-              )}
-            </div>
-
-            {/* Footer do Modal com atalho para a página do imóvel */}
-            <div className={styles.lightboxFooter}>
-              <div className={styles.lightboxFooterInfo}>
-                <span className={styles.lightboxLocation}>{listing.location}</span>
-                <span className={styles.lightboxPrice}>{formatPrice(listing)}</span>
-              </div>
-              <Link href={`/imovel/${listing.id}`} className={styles.lightboxDetailLink}>
-                <span>Ver detalhes do imóvel</span>
-                <ArrowRight size={16} />
-              </Link>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* ── VISUALIZADOR CINEMATOGRÁFICO DE FOTOS EM TELA CHEIA ── */}
+      <PropertyPhotoViewer
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        images={images}
+        initialIndex={activeImageIndex}
+        title={listing.name}
+        location={listing.location}
+        priceLabel={formatPrice(listing)}
+        listingId={listing.id}
+      />
     </>
   );
 }

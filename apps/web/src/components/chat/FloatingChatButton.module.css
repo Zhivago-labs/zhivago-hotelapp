@@ -83,3 +83,10 @@
     display: none;
   }
 }
+
+:global(body[data-photo-viewer-open="true"]) .fabButton {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}

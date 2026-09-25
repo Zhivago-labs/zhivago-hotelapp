@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, LayoutGrid } from "lucide-react";
+import { PropertyPhotoViewer } from "./PropertyPhotoViewer";
 import styles from "./ListingGallery.module.css";
 
 interface GalleryImage {
@@ -18,62 +19,143 @@ export function ListingGallery({
   alt: string;
   children?: React.ReactNode;
 }) {
-  const [index, setIndex] = useState(0);
-  const hasMultiple = images.length > 1;
-  const current = images[index] ?? images[0];
+  const [mobileIndex, setMobileIndex] = useState(0);
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [viewerInitialIndex, setViewerInitialIndex] = useState(0);
 
-  const goTo = (next: number) => setIndex((next + images.length) % images.length);
+  const hasImages = images && images.length > 0;
+  const total = images.length;
+
+  const openViewer = (indexToOpen: number) => {
+    setViewerInitialIndex(indexToOpen);
+    setViewerOpen(true);
+  };
+
+  const nextMobile = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setMobileIndex((prev) => (prev + 1) % total);
+  };
+
+  const prevMobile = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setMobileIndex((prev) => (prev - 1 + total) % total);
+  };
+
+  if (!hasImages) {
+    return (
+      <div className={styles.emptyGallery}>
+        <div className={styles.emptyPlaceholder}>Sem fotos disponíveis</div>
+      </div>
+    );
+  }
+
+  // Fotos para o mosaico (até 5 fotos no desktop)
+  const mainPhoto = images[0];
+  const sidePhotos = images.slice(1, 5);
+  const hasSidePhotos = sidePhotos.length > 0;
 
   return (
-    <div className={styles.wrap}>
-      <div className={styles.imageWrap}>
-        {children}
-        {current && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={current.url} alt={alt} className={styles.image} />
-        )}
+    <>
+      <div className={styles.galleryWrapper}>
+        {/* ── VERSÃO DESKTOP: MOSAICO CLÁSSICO AIRBNB ── */}
+        <div className={styles.desktopMosaic}>
+          {children}
 
-        {hasMultiple && (
-          <>
-            <button
-              type="button"
-              className={`${styles.arrow} ${styles.arrowLeft}`}
-              onClick={() => goTo(index - 1)}
-              aria-label="Foto anterior"
-            >
-              <ChevronLeft size={20} />
-            </button>
-            <button
-              type="button"
-              className={`${styles.arrow} ${styles.arrowRight}`}
-              onClick={() => goTo(index + 1)}
-              aria-label="Próxima foto"
-            >
-              <ChevronRight size={20} />
-            </button>
-            <span className={styles.counter}>
-              {index + 1} / {images.length}
-            </span>
-          </>
-        )}
+          {/* Foto Principal (Esquerda) */}
+          <div
+            className={`${styles.mosaicItem} ${styles.mosaicMain} ${!hasSidePhotos ? styles.mosaicOnlyOne : ""}`}
+            onClick={() => openViewer(0)}
+            role="button"
+            tabIndex={0}
+            aria-label="Abrir foto principal"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={mainPhoto.url} alt={`${alt} - Foto principal`} className={styles.mosaicImg} />
+            <div className={styles.mosaicHoverOverlay} />
+          </div>
+
+          {/* Fotos Laterais (Direita, até 4 fotos) */}
+          {hasSidePhotos && (
+            <div className={`${styles.mosaicSideGrid} ${styles[`mosaicSideCount${sidePhotos.length}`]}`}>
+              {sidePhotos.map((photo, i) => {
+                const photoIndex = i + 1;
+                return (
+                  <div
+                    key={photo.id ?? photo.url}
+                    className={styles.mosaicItem}
+                    onClick={() => openViewer(photoIndex)}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Abrir foto ${photoIndex + 1}`}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={photo.url} alt={`${alt} - Foto ${photoIndex + 1}`} className={styles.mosaicImg} />
+                    <div className={styles.mosaicHoverOverlay} />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Botão Icônico Airbnb: "Mostrar todas as fotos" */}
+          <button
+            type="button"
+            className={styles.airbnbShowAllBtn}
+            onClick={() => openViewer(0)}
+            aria-label="Mostrar todas as fotos do imóvel"
+          >
+            <LayoutGrid size={15} />
+            <span>Mostrar todas as fotos {total > 1 ? `(${total})` : ""}</span>
+          </button>
+        </div>
+
+        {/* ── VERSÃO MOBILE: CARROSSEL CLEAN AIRBNB ── */}
+        <div className={styles.mobileCarousel} onClick={() => openViewer(mobileIndex)}>
+          {children}
+
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={images[mobileIndex]?.url ?? mainPhoto.url}
+            alt={`${alt} - Foto ${mobileIndex + 1}`}
+            className={styles.mobileImg}
+          />
+
+          {total > 1 && (
+            <>
+              <button
+                type="button"
+                className={`${styles.mobileArrow} ${styles.mobileArrowLeft}`}
+                onClick={prevMobile}
+                aria-label="Foto anterior"
+              >
+                <ChevronLeft size={20} />
+              </button>
+
+              <button
+                type="button"
+                className={`${styles.mobileArrow} ${styles.mobileArrowRight}`}
+                onClick={nextMobile}
+                aria-label="Próxima foto"
+              >
+                <ChevronRight size={20} />
+              </button>
+
+              <span className={styles.mobileBadge}>
+                {mobileIndex + 1} / {total}
+              </span>
+            </>
+          )}
+        </div>
       </div>
 
-      {hasMultiple && (
-        <div className={styles.thumbStrip}>
-          {images.map((img, i) => (
-            <button
-              key={img.id}
-              type="button"
-              className={`${styles.thumbButton} ${i === index ? styles.thumbButtonActive : ""}`}
-              onClick={() => setIndex(i)}
-              aria-label={`Ver foto ${i + 1}`}
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={img.url} alt="" className={styles.thumbImage} />
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+      {/* ── VISUALIZADOR AIRBNB FULLSCREEN EM MODOS CARROSSEL & GRADE ── */}
+      <PropertyPhotoViewer
+        isOpen={viewerOpen}
+        onClose={() => setViewerOpen(false)}
+        images={images}
+        initialIndex={viewerInitialIndex}
+        title={alt}
+      />
+    </>
   );
 }
