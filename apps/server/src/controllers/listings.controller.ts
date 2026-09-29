@@ -457,26 +457,30 @@ export async function createListing(
 
 // ─── MEUS IMÓVEIS (requer auth) ───────────────────────────────────────────────
 
+/**
+ * Quais anúncios são "meus" — usado por "Meus Imóveis" e pelas estatísticas do painel
+ * (`getMyStats`), pra os dois nunca divergirem. Imóvel de organização (B2B) não tem ownerId
+ * preenchido (fica null, ver createListing) — quem gerencia a organização (OWNER/ADMIN) precisa
+ * ver todo o portfólio dela; MANAGER/BROKER só o que foi atribuído a si (MANAGER não cria/edita
+ * imóvel, então essa lista tende a vir vazia pra ele — a visão dele é `getOrganizationListings`).
+ * Pessoa física (sem membership) continua vendo pelo ownerId, como antes.
+ */
+export async function myListingsWhere(userId: string) {
+  const membership = await prisma.organizationMember.findUnique({ where: { userId } });
+  if (!membership) return { ownerId: userId };
+  return membership.role === 'OWNER' || membership.role === 'ADMIN'
+    ? { organizationId: membership.organizationId }
+    : { agentId: userId };
+}
+
 export async function getMyListings(
   request: FastifyRequest,
   reply: FastifyReply
 ): Promise<void> {
   const { id: userId } = request.user as { id: string };
 
-  // Imóvel de organização (B2B) não tem ownerId preenchido (fica null, ver createListing) — quem
-  // gerencia a organização (OWNER/ADMIN) precisa ver todo o portfólio dela; MANAGER/BROKER só o
-  // que foi atribuído a si (MANAGER não cria/edita imóvel, então essa lista tende a vir vazia
-  // pra ele — a visão dele é `getOrganizationListings`, não esta). Pessoa física (sem
-  // membership) continua vendo pelo ownerId, como antes.
-  const membership = await prisma.organizationMember.findUnique({ where: { userId } });
-  const where = membership
-    ? membership.role === 'OWNER' || membership.role === 'ADMIN'
-      ? { organizationId: membership.organizationId }
-      : { agentId: userId }
-    : { ownerId: userId };
-
   const listings = await prisma.listing.findMany({
-    where,
+    where: await myListingsWhere(userId),
     orderBy: { createdAt: 'desc' },
     include: {
       images: { orderBy: { order: 'asc' } },

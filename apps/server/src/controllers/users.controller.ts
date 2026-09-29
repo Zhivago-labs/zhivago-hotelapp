@@ -2,6 +2,7 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { z } from 'zod';
 import { effectiveBookingPrice } from '../lib/bookings.js';
+import { myListingsWhere } from './listings.controller.js';
 
 export async function getUserProfile(
   request: FastifyRequest,
@@ -106,8 +107,10 @@ export async function getMyStats(
   const sixMonthsAgoStr = `${sixMonthsAgoYear}-${sixMonthsAgoMonth}`;
   const currentYearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
+  // Mesmo escopo de "Meus Imóveis" — antes era só `ownerId`, que é sempre null em imóvel de
+  // organização, então o painel de uma imobiliária ficava inteiro zerado.
   const listings = await prisma.listing.findMany({
-    where: { ownerId: userId },
+    where: await myListingsWhere(userId),
     select: { id: true, name: true, status: true, price: true }
   });
 
@@ -139,11 +142,15 @@ export async function getMyStats(
     prisma.review.findMany({
       where: { listingId: { in: listingIds } }
     }),
+    // Só propostas de VENDA contam como faturamento de venda: desde a negociação no chat, também
+    // existem propostas aceitas de diária (o valor já está na reserva, via discountedPrice) e de
+    // aluguel mensal (valor acordado, não receita realizada).
     prisma.offer.findMany({
       where: {
         listingId: { in: listingIds },
         createdAt: { gte: sixMonthsAgo },
-        status: 'ACCEPTED'
+        status: 'ACCEPTED',
+        negotiation: { operationType: 'SALE' }
       }
     })
   ]);

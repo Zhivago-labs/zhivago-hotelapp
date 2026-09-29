@@ -14,9 +14,15 @@ export interface GuestBookingData {
   endDate: string;
   status: string;
   createdAt: string;
-  // Preço efetivo travado no momento da reserva (já considerando um eventual desconto pontual
-  // aplicado pelo anfitrião a esta reserva) — nunca o preço ao vivo do anúncio.
+  // Preço efetivo travado no momento da reserva (já considerando um eventual desconto pontual ou
+  // valor negociado no chat) — nunca o preço ao vivo do anúncio. Em reservas com snapshot
+  // (`total` preenchido, criadas a partir de 21/09) é o TOTAL da estadia; nas antigas, sem
+  // snapshot, era o valor por noite.
   price?: number;
+  total?: number | null;
+  nightlyRateSnapshot?: number | null;
+  cleaningFeeSnapshot?: number | null;
+  discountedPrice?: number | null;
   listing: {
     id: string;
     name: string;
@@ -45,8 +51,12 @@ export function GuestBookingItem({ booking }: { booking: GuestBookingData }) {
   const [error, setError] = useState<string | null>(null);
 
   const nights = calculateNights(booking.startDate, booking.endDate);
-  const unitPrice = booking.price ?? booking.listing.price;
-  const totalPrice = unitPrice * nights;
+  const hasSnapshot = booking.total != null;
+  const totalPrice = hasSnapshot
+    ? (booking.price ?? booking.total ?? 0)
+    : (booking.price ?? booking.listing.price) * nights;
+  const unitPrice = booking.nightlyRateSnapshot ?? (hasSnapshot ? null : (booking.price ?? booking.listing.price));
+  const isNegotiated = booking.discountedPrice != null;
 
   const handleCancel = async () => {
     if (!token) return;
@@ -154,7 +164,17 @@ export function GuestBookingItem({ booking }: { booking: GuestBookingData }) {
             <span className={styles.detailLabel}>Valor Estimado</span>
             <span className={styles.detailValueHighlight}>
               R$ {totalPrice.toLocaleString("pt-BR")}
-              <span className={styles.pricePerNight}> (R$ {unitPrice.toLocaleString("pt-BR")}/noite)</span>
+              {isNegotiated ? (
+                <span className={styles.pricePerNight}> (valor com desconto/negociado)</span>
+              ) : (
+                unitPrice != null && (
+                  <span className={styles.pricePerNight}>
+                    {" "}
+                    (R$ {unitPrice.toLocaleString("pt-BR")}/noite
+                    {booking.cleaningFeeSnapshot ? ` + limpeza R$ ${booking.cleaningFeeSnapshot.toLocaleString("pt-BR")}` : ""})
+                  </span>
+                )
+              )}
             </span>
           </div>
         </div>
