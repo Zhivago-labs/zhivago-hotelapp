@@ -1,4 +1,5 @@
 import { getApiUrl } from "@/lib/api";
+import type { ListingOperationType } from "@zhivago/shared";
 
 export interface ChatParticipant {
   id: string;
@@ -51,8 +52,7 @@ export interface ConversationDetail {
   // muda conforme o Lead é (re)atribuído no CRM.
   canManage: boolean;
   // Comandos de "/" que fazem sentido agora nesta conversa (ver computeAvailableCommands em
-  // chat.controller.ts) — alimenta o menu de autocomplete ao digitar "/" no chat. Sempre vazio se
-  // `canManage` for falso.
+  // chat.controller.ts) — alimenta o menu de autocomplete ao digitar "/" no chat.
   availableCommands: ChatCommand[];
   property: {
     id: string;
@@ -61,6 +61,8 @@ export interface ConversationDetail {
     image: string;
     ownerId: string | null;
     category: string;
+    operationType: ListingOperationType;
+    acceptsNegotiation: boolean;
     status: string;
   };
   participants: ChatParticipant[];

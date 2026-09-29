@@ -179,6 +179,9 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
 
   // Preço e Endereço
   const [price, setPrice] = useState("");
+  // Negociação de valor no chat — piso opcional e sigiloso
+  const [acceptsNegotiation, setAcceptsNegotiation] = useState(true);
+  const [minNegotiablePrice, setMinNegotiablePrice] = useState("");
   const [cep, setCep] = useState("");
   const [logradouro, setLogradouro] = useState("");
   const [numero, setNumero] = useState("");
@@ -329,6 +332,8 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
           seus campos visíveis só existem no DOM enquanto a etapa correspondente está ativa. */}
       <input type="hidden" name="name" value={name} />
       <input type="hidden" name="price" value={price} />
+      <input type="hidden" name="acceptsNegotiation" value={String(acceptsNegotiation)} />
+      <input type="hidden" name="minNegotiablePrice" value={minNegotiablePrice} />
       <input type="hidden" name="description" value={description} />
       <input type="hidden" name="cep" value={cep} />
       <input type="hidden" name="logradouro" value={logradouro} />
@@ -932,6 +937,38 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
                 className={styles.airbnbPriceInput}
               />
             </div>
+
+            <div className={styles.toggleGrid} style={{ marginTop: "16px" }}>
+              <label className={styles.toggleItem}>
+                <input
+                  type="checkbox"
+                  checked={acceptsNegotiation}
+                  onChange={(e) => setAcceptsNegotiation(e.target.checked)}
+                />
+                <span>Aceita negociação de valor pelo chat</span>
+              </label>
+            </div>
+            {acceptsNegotiation && (
+              <div style={{ marginTop: "12px" }}>
+                <label className={styles.label} htmlFor="minNegotiablePrice">
+                  <span>
+                    Valor mínimo aceito (R${modality === "diaria" ? " por noite" : modality === "mensal" ? "/mês" : ""}) — opcional
+                  </span>
+                </label>
+                <input
+                  id="minNegotiablePrice"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={minNegotiablePrice}
+                  onChange={(e) => setMinNegotiablePrice(e.target.value)}
+                  className={styles.input}
+                />
+                <p className={styles.sectionSubtitle}>
+                  Nunca aparece para o cliente. Propostas abaixo dele são recusadas automaticamente.
+                </p>
+              </div>
+            )}
           </section>
 
           {/* ── VENDA (seção 66) ── */}

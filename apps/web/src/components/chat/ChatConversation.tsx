@@ -3,7 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Flag, Lock, Unlock, Send, Handshake, CalendarRange } from "lucide-react";
+import type { Negotiation, NegotiationRound } from "@zhivago/shared";
 import { useChatSocket } from "./ChatSocketProvider";
+import { NegotiationModal, NegotiationRoundCard } from "./NegotiationWidgets";
 import { getPublicApiUrl } from "@/lib/public-api";
 import type { ChatCommand, ChatMessage, ConversationDetail } from "@/lib/chat-api";
 import styles from "./ChatConversation.module.css";
@@ -15,7 +17,9 @@ interface ChatConversationProps {
   currentUser: { id: string; role: string; name: string };
 }
 
-const OFFER_PAYMENT_METHODS = ["À Vista", "Financiamento", "Parcelado", "Carta de Crédito"];
+function upsertNegotiation(list: Negotiation[], next: Negotiation): Negotiation[] {
+  return list.some((n) => n.id === next.id) ? list.map((n) => (n.id === next.id ? next : n)) : [...list, next];
+}
 
 function formatPrice(value: number): string {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
@@ -53,11 +57,11 @@ export function ChatConversation({ conversation, initialMessages, token, current
   const [actionError, setActionError] = useState<string | null>(null);
   const [isClosed, setIsClosed] = useState(conversation.isClosed);
   const [isReported, setIsReported] = useState(conversation.isReported);
-  const [isOfferModalOpen, setIsOfferModalOpen] = useState(false);
-  const [offerValue, setOfferValue] = useState("");
-  const [offerPaymentMethod, setOfferPaymentMethod] = useState(OFFER_PAYMENT_METHODS[0]);
-  const [offerError, setOfferError] = useState<string | null>(null);
-  const [isSubmittingOffer, setIsSubmittingOffer] = useState(false);
+  const [negotiations, setNegotiations] = useState<Negotiation[]>([]);
+  // null = fechado; { counterTo: null } = proposta nova; com counterTo = contraproposta.
+  const [negotiationModal, setNegotiationModal] = useState<{
+    counterTo: { negotiation: Negotiation; round: NegotiationRound } | null;
+  } | null>(null);
   const [commandMenuIndex, setCommandMenuIndex] = useState(0);
   const [commandMenuDismissed, setCommandMenuDismissed] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -67,12 +71,16 @@ export function ChatConversation({ conversation, initialMessages, token, current
   const isAuditor = !isParticipant && isAdmin;
   const isOwner = conversation.property.ownerId === currentUser.id;
   const other = conversation.participants.find((p) => p.id !== currentUser.id);
-  const canOffer =
-    conversation.property.category === "venda" &&
-    conversation.property.status !== "SOLD" &&
-    !isOwner &&
-    isParticipant &&
-    !isClosed;
+
+  // Negociação de valor (lib/negotiations.ts no backend): o lado do viewer é o do anúncio quando
+  // ele pode gerenciar a conversa; senão é o cliente.
+  const viewerSide = conversation.canManage ? "LISTING" : "CUSTOMER";
+  const canActOnNegotiation = isParticipant && !isAuditor && !isClosed;
+  const canNegotiate =
+    canActOnNegotiation && conversation.property.acceptsNegotiation && conversation.property.status === "APPROVED";
+  const openNegotiation = negotiations.find((n) => n.status === "OPEN");
+  const pendingRound = openNegotiation?.rounds.find((r) => r.status === "PENDING");
+  const waitingOnOther = !!pendingRound && pendingRound.side === viewerSide;
 
   // Menu de "/" (autocomplete de comandos, ver docs do backend em socket.ts CHAT_COMMANDS): digitar
   // "/" abre a lista dos comandos que fazem sentido AGORA nesta conversa (já vem filtrada pelo
@@ -97,6 +105,21 @@ export function ChatConversation({ conversation, initialMessages, token, current
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    fetch(`${getPublicApiUrl()}/conversations/${conversation.id}/negotiations`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data: Negotiation[]) => {
+        if (!cancelled) setNegotiations(data);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [conversation.id, token]);
+
+  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
@@ -109,9 +132,26 @@ export function ChatConversation({ conversation, initialMessages, token, current
       markAsRead();
     };
 
+    // Estado de uma negociação mudou (nova rodada, aceite, recusa, expiração) — atualiza os cards
+    // nas duas telas sem recarregar.
+    const handleNegotiation = (negotiation: Negotiation) => {
+      if (negotiation.conversationId !== conversation.id) return;
+      setNegotiations((prev) => upsertNegotiation(prev, negotiation));
+    };
+
+    // Card de reserva respondido pelo outro lado.
+    const handleMessageUpdated = (update: Pick<ChatMessage, "id" | "type" | "conversationId">) => {
+      if (update.conversationId !== conversation.id) return;
+      setMessages((prev) => prev.map((m) => (m.id === update.id ? { ...m, type: update.type } : m)));
+    };
+
     socket.on("receiveMessage", handleReceive);
+    socket.on("negotiationUpdated", handleNegotiation);
+    socket.on("messageUpdated", handleMessageUpdated);
     return () => {
       socket.off("receiveMessage", handleReceive);
+      socket.off("negotiationUpdated", handleNegotiation);
+      socket.off("messageUpdated", handleMessageUpdated);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket, conversation.id]);
@@ -143,6 +183,12 @@ export function ChatConversation({ conversation, initialMessages, token, current
   };
 
   const handleSelectCommand = (command: ChatCommand) => {
+    // "/negociar" aceita um valor ("/negociar 450000") — deixa o cursor pronto pra digitá-lo.
+    if (command.trigger === "/negociar") {
+      setInput("/negociar ");
+      setCommandMenuDismissed(true);
+      return;
+    }
     sendContent(command.trigger);
   };
 
@@ -179,32 +225,50 @@ export function ChatConversation({ conversation, initialMessages, token, current
     if (await patchConversation(token, conversation.id, path)) setIsClosed(!isClosed);
   };
 
-  const handleSendOffer = async () => {
-    const rawValue = parseFloat(offerValue.replace(/[^0-9,.]/g, "").replace(",", "."));
-    if (isNaN(rawValue) || rawValue <= 0) {
-      setOfferError("Digite um valor de proposta válido maior que zero.");
-      return;
-    }
-
-    setIsSubmittingOffer(true);
-    setOfferError(null);
+  /** Envia proposta ou contraproposta; devolve a mensagem de erro, ou null se deu certo. */
+  const handleSubmitRound = async (value: number, paymentMethod: string | null): Promise<string | null> => {
     try {
-      const res = await fetch(`${getPublicApiUrl()}/listings/${conversation.property.id}/offers`, {
+      const res = await fetch(`${getPublicApiUrl()}/conversations/${conversation.id}/negotiations/rounds`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ value: rawValue, paymentMethod: offerPaymentMethod }),
+        body: JSON.stringify({ value, paymentMethod }),
       });
-      if (res.ok) {
-        setIsOfferModalOpen(false);
-        setOfferValue("");
-      } else {
-        const data = await res.json().catch(() => null);
-        setOfferError(data?.error ?? "Não foi possível enviar a proposta.");
-      }
+      const data = await res.json().catch(() => null);
+      if (!res.ok) return data?.error ?? "Não foi possível enviar a proposta.";
+      // A mensagem do card chega pelo socket (receiveMessage); o estado, por negotiationUpdated —
+      // aplicado aqui também caso o socket esteja desconectado.
+      if (data?.negotiation) setNegotiations((prev) => upsertNegotiation(prev, data.negotiation));
+      setNegotiationModal(null);
+      return null;
     } catch {
-      setOfferError("Não foi possível conectar ao servidor.");
-    } finally {
-      setIsSubmittingOffer(false);
+      return "Não foi possível conectar ao servidor.";
+    }
+  };
+
+  const handleRoundAction = async (roundId: string, action: "accept" | "reject" | "withdraw") => {
+    if (action === "accept" && !confirm("Aceitar esta proposta? O valor passa a valer como acordado.")) return;
+    setActionError(null);
+    try {
+      const res = await fetch(`${getPublicApiUrl()}/offers/${roundId}/${action}`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setActionError(data?.error ?? "Não foi possível concluir a ação. Tente novamente.");
+        return;
+      }
+      if (data?.id) setNegotiations((prev) => upsertNegotiation(prev, data as Negotiation));
+    } catch {
+      setActionError("Não foi possível conectar ao servidor.");
+    }
+  };
+
+  const openNegotiationModal = () => {
+    if (pendingRound && openNegotiation && pendingRound.side !== viewerSide) {
+      setNegotiationModal({ counterTo: { negotiation: openNegotiation, round: pendingRound } });
+    } else {
+      setNegotiationModal({ counterTo: null });
     }
   };
 
@@ -232,6 +296,25 @@ export function ChatConversation({ conversation, initialMessages, token, current
   };
 
   function renderMessageBody(message: ChatMessage) {
+    if (message.type === "NEGOTIATION_ROUND") {
+      let meta: { negotiationId?: string; offerId?: string } = {};
+      try {
+        meta = message.metadata ? JSON.parse(message.metadata) : {};
+      } catch {}
+      return (
+        <NegotiationRoundCard
+          negotiation={negotiations.find((n) => n.id === meta.negotiationId)}
+          roundId={meta.offerId ?? ""}
+          fallbackContent={message.content}
+          viewerId={currentUser.id}
+          viewerSide={viewerSide}
+          canAct={canActOnNegotiation}
+          onAction={handleRoundAction}
+          onCounter={(negotiation, round) => setNegotiationModal({ counterTo: { negotiation, round } })}
+        />
+      );
+    }
+
     const isOfferType = message.type === "OFFER_REQUEST" || message.type === "OFFER_APPROVED" || message.type === "OFFER_REJECTED";
     const isBookingType =
       message.type === "BOOKING_REQUEST" || message.type === "BOOKING_APPROVED" || message.type === "BOOKING_REJECTED";
@@ -329,10 +412,16 @@ export function ChatConversation({ conversation, initialMessages, token, current
         </Link>
 
         <div className={styles.headerActions}>
-          {canOffer && (
-            <button type="button" onClick={() => setIsOfferModalOpen(true)} className={styles.offerButton}>
+          {canNegotiate && (
+            <button
+              type="button"
+              onClick={openNegotiationModal}
+              className={styles.offerButton}
+              disabled={waitingOnOther}
+              title={waitingOnOther ? "Aguardando resposta à sua proposta" : undefined}
+            >
               <Handshake size={14} />
-              Proposta
+              {waitingOnOther ? "Aguardando resposta" : pendingRound ? "Contrapropor" : "Negociar valor"}
             </button>
           )}
           {isOwner && isParticipant && !isReported && (
@@ -419,60 +508,14 @@ export function ChatConversation({ conversation, initialMessages, token, current
 
       {sendError && <p className={styles.sendError}>{sendError}</p>}
 
-      {isOfferModalOpen && (
-        <div className={styles.modalOverlay} onClick={() => !isSubmittingOffer && setIsOfferModalOpen(false)}>
-          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-            <p className={styles.modalTitle}>Enviar Proposta de Compra</p>
-
-            <label className={styles.modalLabel} htmlFor="offerValue">
-              Valor da proposta (R$)
-            </label>
-            <input
-              id="offerValue"
-              type="text"
-              inputMode="numeric"
-              placeholder="Ex: 350000"
-              value={offerValue}
-              onChange={(e) => setOfferValue(e.target.value)}
-              className={styles.modalInput}
-            />
-
-            <p className={styles.modalLabel}>Forma de pagamento</p>
-            <div className={styles.methodsRow}>
-              {OFFER_PAYMENT_METHODS.map((method) => (
-                <button
-                  type="button"
-                  key={method}
-                  onClick={() => setOfferPaymentMethod(method)}
-                  className={`${styles.methodBadge} ${offerPaymentMethod === method ? styles.methodBadgeSelected : ""}`}
-                >
-                  {method}
-                </button>
-              ))}
-            </div>
-
-            {offerError && <p className={styles.sendError}>{offerError}</p>}
-
-            <div className={styles.modalActions}>
-              <button
-                type="button"
-                className={styles.modalCancelButton}
-                onClick={() => setIsOfferModalOpen(false)}
-                disabled={isSubmittingOffer}
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                className={styles.modalSubmitButton}
-                onClick={handleSendOffer}
-                disabled={isSubmittingOffer}
-              >
-                {isSubmittingOffer ? "Enviando…" : "Enviar Proposta"}
-              </button>
-            </div>
-          </div>
-        </div>
+      {negotiationModal && (
+        <NegotiationModal
+          operationType={conversation.property.operationType}
+          listingPrice={conversation.property.price}
+          counterTo={negotiationModal.counterTo}
+          onClose={() => setNegotiationModal(null)}
+          onSubmit={handleSubmitRound}
+        />
       )}
     </div>
   );

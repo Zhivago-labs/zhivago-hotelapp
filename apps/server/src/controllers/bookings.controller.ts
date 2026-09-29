@@ -5,6 +5,7 @@ import { sendNotification } from '../services/notification.service.js';
 import { getIO } from '../socket.js';
 import { ensureLead, getCurrentAssignment, canManageListingConversation, closeLeadForDealOutcome } from '../lib/leads.js';
 import { canManageOrgListing } from './listings.controller.js';
+import { closeNegotiationsForBooking } from '../lib/negotiations.js';
 
 export async function createBooking(request: FastifyRequest, reply: FastifyReply) {
   const { id: userId, role } = request.user as { id: string; role: string };
@@ -199,6 +200,26 @@ export async function getBookings(request: FastifyRequest, reply: FastifyReply) 
 }
 
 /**
+ * Avisa as duas telas que o card de solicitação de reserva mudou de estado — antes só quem clicou
+ * via a mudança; o outro participante só via depois de recarregar a conversa.
+ */
+async function emitBookingCardUpdates(conversationId: string, bookingId: string, type: string) {
+  const [messages, conversation] = await Promise.all([
+    prisma.message.findMany({
+      where: { conversationId, type, metadata: { contains: bookingId } },
+      select: { id: true, type: true, conversationId: true },
+    }),
+    prisma.conversation.findUnique({ where: { id: conversationId }, include: { participants: { select: { id: true } } } }),
+  ]);
+  try {
+    const io = getIO();
+    for (const participant of conversation?.participants ?? []) {
+      for (const message of messages) io.to(`room_${participant.id}`).emit('messageUpdated', message);
+    }
+  } catch {}
+}
+
+/**
  * Núcleo de "aprovar reserva" sem depender de FastifyRequest/Reply — reaproveitado pelo endpoint
  * HTTP (`approveBooking`) e pelo comando de chat `/aprovar` (`socket.ts`, fallback pra quando o
  * botão não aparece/não é clicável). Mesma checagem de permissão dos dois caminhos.
@@ -218,6 +239,7 @@ export async function approveBookingCore(userId: string, bookingId: string): Pro
     where: { id: bookingId },
     data: { status: 'CONFIRMED' }
   });
+  await closeNegotiationsForBooking(bookingId);
 
   try {
     await closeLeadForDealOutcome(userId, booking.listing, booking.userId, 'WON');
@@ -235,7 +257,9 @@ export async function approveBookingCore(userId: string, bookingId: string): Pro
   const conversation = await prisma.conversation.findFirst({
     where: {
       propertyId: booking.listingId,
-      participants: { every: { id: { in: [booking.userId, userId] } } }
+      // Só pelo hóspede (igual à criação): com `every` em [hóspede, quem aprova] a conversa não
+      // era achada depois de o Lead ser reatribuído a outro corretor.
+      participants: { some: { id: booking.userId } }
     }
   });
 
@@ -244,6 +268,7 @@ export async function approveBookingCore(userId: string, bookingId: string): Pro
       where: { conversationId: conversation.id, type: 'BOOKING_REQUEST', metadata: { contains: bookingId } },
       data: { type: 'BOOKING_APPROVED' }
     });
+    await emitBookingCardUpdates(conversation.id, bookingId, 'BOOKING_APPROVED');
 
     const message = await prisma.message.create({
       data: {
@@ -282,6 +307,7 @@ export async function rejectBookingCore(userId: string, bookingId: string): Prom
     where: { id: bookingId },
     data: { status: 'REJECTED' }
   });
+  await closeNegotiationsForBooking(bookingId);
 
   await sendNotification({
     userId: booking.userId,
@@ -293,7 +319,9 @@ export async function rejectBookingCore(userId: string, bookingId: string): Prom
   const conversation = await prisma.conversation.findFirst({
     where: {
       propertyId: booking.listingId,
-      participants: { every: { id: { in: [booking.userId, userId] } } }
+      // Só pelo hóspede (igual à criação): com `every` em [hóspede, quem aprova] a conversa não
+      // era achada depois de o Lead ser reatribuído a outro corretor.
+      participants: { some: { id: booking.userId } }
     }
   });
 
@@ -302,6 +330,7 @@ export async function rejectBookingCore(userId: string, bookingId: string): Prom
       where: { conversationId: conversation.id, type: 'BOOKING_REQUEST', metadata: { contains: bookingId } },
       data: { type: 'BOOKING_REJECTED' }
     });
+    await emitBookingCardUpdates(conversation.id, bookingId, 'BOOKING_REJECTED');
 
     const message = await prisma.message.create({
       data: {
@@ -369,6 +398,7 @@ export async function cancelBooking(request: FastifyRequest, reply: FastifyReply
       where: { id },
       data: { status: 'CANCELLED' }
     });
+    await closeNegotiationsForBooking(id);
 
     const targetUserId = booking.userId === user.id ? booking.listing.ownerId : booking.userId;
     const isGuest = booking.userId === user.id;

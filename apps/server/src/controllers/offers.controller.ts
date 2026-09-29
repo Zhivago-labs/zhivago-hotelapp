@@ -1,61 +1,91 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
-import { sendNotification } from '../services/notification.service.js';
-import { getIO } from '../socket.js';
-import { ensureLead, getCurrentAssignment, canManageListingConversation, closeLeadForDealOutcome } from '../lib/leads.js';
+import { ensureLead, getCurrentAssignment } from '../lib/leads.js';
+import {
+  proposeRound,
+  respondToRound,
+  listConversationNegotiations,
+  type RoundAction,
+} from '../lib/negotiations.js';
 
+// Negociação de valor no chat — toda a regra vive em lib/negotiations.ts; aqui só HTTP.
+
+const roundSchema = z.object({
+  value: z.number().positive(),
+  paymentMethod: z.string().max(60).optional().nullable(),
+});
+
+/** POST /conversations/:id/negotiations/rounds — proposta nova ou contraproposta. */
+export async function createNegotiationRound(request: FastifyRequest, reply: FastifyReply) {
+  const { id: userId } = request.user as { id: string };
+  const { id: conversationId } = request.params as { id: string };
+
+  const parsed = roundSchema.safeParse(request.body);
+  if (!parsed.success) return reply.status(400).send({ error: 'Informe um valor válido.' });
+
+  try {
+    const { status, body } = await proposeRound({ actorId: userId, conversationId, ...parsed.data });
+    return reply.status(status).send(body);
+  } catch (error) {
+    console.error('Negotiation Round Error:', error);
+    return reply.status(500).send({ error: 'Erro ao enviar proposta.' });
+  }
+}
+
+/** GET /conversations/:id/negotiations — estado atual pros cards do chat. */
+export async function getConversationNegotiations(request: FastifyRequest, reply: FastifyReply) {
+  const { id: userId, role } = request.user as { id: string; role: string };
+  const { id: conversationId } = request.params as { id: string };
+  try {
+    const { status, body } = await listConversationNegotiations(userId, role, conversationId);
+    return reply.status(status).send(body);
+  } catch (error) {
+    console.error('List Negotiations Error:', error);
+    return reply.status(500).send({ error: 'Erro ao carregar negociações.' });
+  }
+}
+
+function roundActionHandler(action: RoundAction) {
+  return async (request: FastifyRequest, reply: FastifyReply) => {
+    const { id: userId } = request.user as { id: string };
+    const { id: offerId } = request.params as { id: string };
+    try {
+      const { status, body } = await respondToRound({ actorId: userId, offerId, action });
+      return reply.status(status).send(body);
+    } catch (error) {
+      console.error(`Negotiation ${action} Error:`, error);
+      return reply.status(500).send({ error: 'Erro ao responder a proposta.' });
+    }
+  };
+}
+
+export const acceptOffer = roundActionHandler('ACCEPT');
+export const rejectOffer = roundActionHandler('REJECT');
+export const withdrawOffer = roundActionHandler('WITHDRAW');
+
+/**
+ * POST /listings/:id/offers — rota do fluxo antigo de "proposta de compra", ainda usada pelo app
+ * mobile. Garante a conversa do cliente com o responsável (mesma regra de sempre: dono na pessoa
+ * física, corretor do Lead na organização) e delega pra `proposeRound`.
+ */
 export async function createOffer(request: FastifyRequest, reply: FastifyReply) {
   const { id: userId } = request.user as { id: string };
   const { id: listingId } = request.params as { id: string };
 
-  const schema = z.object({
-    value: z.number().positive(),
-    paymentMethod: z.string().min(1),
-  });
+  const parsed = roundSchema.safeParse(request.body);
+  if (!parsed.success) return reply.status(400).send({ error: 'Informe um valor válido.' });
 
-  const parsed = schema.safeParse(request.body);
-  if (!parsed.success) {
-    return reply.status(400).send({ error: parsed.error.errors });
-  }
-
-  const { value, paymentMethod } = parsed.data;
-
-  // Garante que o imóvel de fato existe, é de venda (operationType, seção 99 da spec — não mais
-  // `category` solto) e ainda não foi negociado/vendido.
   const listing = await prisma.listing.findUnique({ where: { id: listingId } });
   if (!listing) return reply.status(404).send({ error: 'Imóvel não encontrado.' });
-  if (listing.operationType !== 'SALE') return reply.status(400).send({ error: 'Propostas só estão disponíveis para venda.' });
-  if (listing.status === 'SOLD') return reply.status(400).send({ error: 'Este imóvel já foi vendido.' });
 
   try {
-    // Lead nasce ANTES da Offer (seção 110 da spec) — mesmo padrão de chat/booking.
     let leadId: string | null = null;
     if (listing.organizationId) {
-      const lead = await ensureLead({
-        userId,
-        listingId,
-        organizationId: listing.organizationId,
-        source: 'OFFER',
-      });
+      const lead = await ensureLead({ userId, listingId, organizationId: listing.organizationId, source: 'OFFER' });
       leadId = lead.id;
     }
 
-    // Cria a proposta no banco de dados para auditoria futura
-    const offer = await prisma.offer.create({
-      data: {
-        value,
-        paymentMethod,
-        buyerId: userId,
-        listingId,
-        leadId,
-      }
-    });
-
-    let conversation;
-
-    // Dono, na pessoa física; responsável atual do Lead, na organização (seção 108/146 da spec —
-    // não mais `ownerId ?? agentId`, travado no criador do imóvel e alheio a reatribuições do CRM).
     let contactId: string | null = listing.ownerId;
     if (leadId) {
       const currentAssignment = await getCurrentAssignment(leadId);
@@ -64,245 +94,25 @@ export async function createOffer(request: FastifyRequest, reply: FastifyReply) 
         contactId = broker?.userId ?? null;
       }
     }
+    if (!contactId || contactId === userId) {
+      return reply.status(400).send({ error: 'Não há um responsável disponível para receber a proposta.' });
+    }
 
-    if (contactId) {
-      // Dispara uma notificação push para o dono/responsável do imóvel avisando que há uma nova proposta
-      await sendNotification({
-        userId: contactId,
-        title: 'Nova Proposta de Compra',
-        message: `Você recebeu uma proposta de R$ ${value.toLocaleString('pt-BR')} para o imóvel "${listing.name}".`,
-        type: 'INFO',
-      });
-
-      /**
-       * ─── DETECÇÃO OU CRIAÇÃO DE CONVERSA ──────────────────────────────────────────────
-       * O sistema de proposta é integrado ao chat. Busca só pelo comprador (`userId`), não pelo
-       * par [userId, contactId] — em imóvel de organização o responsável muda conforme o Lead é
-       * (re)atribuído no CRM (ver `assignLead`/`syncConversationParticipant` em lib/leads.ts),
-       * então travar a busca no `contactId` de hoje deixaria de achar a conversa já aberta assim
-       * que o corretor responsável mudasse, e duplicaria conversa.
-       */
-      conversation = await prisma.conversation.findFirst({
-        where: {
-          propertyId: listingId,
-          participants: { some: { id: userId } }
-        }
-      });
-
-      if (!conversation) {
-        conversation = await prisma.conversation.create({
-          data: {
-            propertyId: listingId,
-            leadId,
-            participants: {
-              connect: [{ id: userId }, { id: contactId }]
-            }
-          }
-        });
-      }
-
-      /**
-       * ─── CRIAÇÃO DA MENSAGEM ESPECIAL DE PROPOSTA ─────────────────────────────────────
-       * Em vez de uma mensagem de texto simples, criamos uma mensagem com o tipo
-       * `OFFER_REQUEST`. Os dados específicos da proposta (ID, valor, forma de pagamento)
-       * são serializados em JSON e salvos no campo "metadata" do banco.
-       * Isso permite ao app renderizar um card interativo com botões de "Aceitar" e "Recusar".
-       */
-      const message = await prisma.message.create({
-        data: {
-          content: `Proposta de Compra: R$ ${value.toLocaleString('pt-BR')} via ${paymentMethod}`,
-          type: 'OFFER_REQUEST',
-          metadata: JSON.stringify({ offerId: offer.id, value, paymentMethod }),
-          senderId: userId,
-          conversationId: conversation.id
-        },
-        include: { sender: { select: { id: true, name: true, avatar: true } } }
-      });
-
-      /**
-       * ─── EMISSÃO VIA WEBSOCKET EM TEMPO REAL ──────────────────────────────────────────
-       * Emitimos a mensagem criada para as salas individuais de ambos os participantes.
-       * Isso atualiza a tela de chat do comprador (mostrando a proposta dele como enviada)
-       * e do vendedor (mostrando o card interativo de proposta a ser aceito ou recusado).
-       */
-      try {
-        const io = getIO();
-        io.to(`room_${contactId}`).emit('receiveMessage', message);
-        io.to(`room_${userId}`).emit('receiveMessage', message);
-      } catch (e) {}
-
-      // Atualiza o updatedAt da conversa para fins de ordenação da inbox
-      await prisma.conversation.update({
-        where: { id: conversation.id },
-        data: { updatedAt: new Date() }
+    // Busca só pelo cliente (não pelo par) — o responsável muda com a (re)atribuição do Lead.
+    let conversation = await prisma.conversation.findFirst({
+      where: { propertyId: listingId, participants: { some: { id: userId } } },
+    });
+    if (!conversation) {
+      conversation = await prisma.conversation.create({
+        data: { propertyId: listingId, leadId, participants: { connect: [{ id: userId }, { id: contactId }] } },
       });
     }
 
-    return reply.status(201).send({ offer, conversationId: conversation?.id });
+    const { status, body } = await proposeRound({ actorId: userId, conversationId: conversation.id, ...parsed.data });
+    if (status >= 300) return reply.status(status).send(body);
+    return reply.status(201).send({ ...(body as object), conversationId: conversation.id });
   } catch (error) {
     console.error('Offer Creation Error:', error);
     return reply.status(500).send({ error: 'Erro ao criar proposta.' });
-  }
-}
-
-/**
- * Núcleo de "aprovar proposta" sem depender de FastifyRequest/Reply — reaproveitado pelo endpoint
- * HTTP (`approveOffer`) e pelo comando de chat `/aprovar` (`socket.ts`, fallback pra quando o
- * botão não aparece/não é clicável). Mesma checagem de permissão dos dois caminhos.
- */
-export async function approveOfferCore(userId: string, offerId: string): Promise<{ status: number; body: unknown }> {
-  const offer = await prisma.offer.findUnique({
-    where: { id: offerId },
-    include: { listing: true }
-  });
-
-  if (!offer) return { status: 404, body: { error: 'Proposta não encontrada.' } };
-  // Dono do imóvel (pessoa física) ou, no caso de organização, quem pode agir no Lead do
-  // comprador (OWNER/ADMIN/MANAGER ou o corretor responsável — ver canManageListingConversation).
-  if (!(await canManageListingConversation(userId, offer.listing, [offer.buyerId]))) {
-    return { status: 403, body: { error: 'Sem permissão.' } };
-  }
-
-  // Aceitar uma proposta e cancelar as demais pendentes do mesmo imóvel (seção 45 da spec) precisa
-  // ser atômico: sem transação, duas propostas concorrentes poderiam ficar ACCEPTED ao mesmo tempo.
-  const [updated] = await prisma.$transaction([
-    prisma.offer.update({ where: { id: offerId }, data: { status: 'ACCEPTED' } }),
-    prisma.offer.updateMany({
-      where: { listingId: offer.listingId, status: 'PENDING', id: { not: offerId } },
-      data: { status: 'CANCELLED' },
-    }),
-    // Quando uma proposta é aceita, o imóvel é marcado como 'SOLD' — impede novas propostas no
-    // mesmo anúncio e bloqueia novas conversações sobre ele.
-    prisma.listing.update({ where: { id: offer.listingId }, data: { status: 'SOLD' } }),
-  ]);
-
-  try {
-    await closeLeadForDealOutcome(userId, offer.listing, offer.buyerId, 'WON');
-  } catch (err) {
-    console.error('Falha ao mover o Lead automaticamente pra WON após aprovar proposta:', err);
-  }
-
-  await sendNotification({
-    userId: offer.buyerId,
-    title: 'Proposta Aceita! 🎉',
-    message: `Sua proposta para o imóvel "${offer.listing.name}" foi aceita pelo proprietário.`,
-    type: 'INFO',
-  });
-
-  const conversation = await prisma.conversation.findFirst({
-    where: {
-      propertyId: offer.listingId,
-      participants: { every: { id: { in: [offer.buyerId, userId] } } }
-    }
-  });
-
-  if (conversation) {
-    await prisma.message.updateMany({
-      where: { conversationId: conversation.id, type: 'OFFER_REQUEST', metadata: { contains: offerId } },
-      data: { type: 'OFFER_APPROVED' }
-    });
-
-    const message = await prisma.message.create({
-      data: {
-        content: `✅ O proprietário aceitou sua proposta de R$ ${offer.value.toLocaleString('pt-BR')} via ${offer.paymentMethod}!`,
-        type: 'TEXT',
-        senderId: userId,
-        conversationId: conversation.id
-      },
-      include: { sender: { select: { id: true, name: true, avatar: true } } }
-    });
-
-    await prisma.conversation.update({ where: { id: conversation.id }, data: { updatedAt: new Date() } });
-
-    try {
-      const io = getIO();
-      io.to(`room_${offer.buyerId}`).emit('receiveMessage', message);
-      io.to(`room_${userId}`).emit('receiveMessage', message);
-    } catch (e) {}
-  }
-
-  return { status: 200, body: updated };
-}
-
-/** Espelho de `approveOfferCore` pra recusar. */
-export async function rejectOfferCore(userId: string, offerId: string): Promise<{ status: number; body: unknown }> {
-  const offer = await prisma.offer.findUnique({
-    where: { id: offerId },
-    include: { listing: true }
-  });
-
-  if (!offer) return { status: 404, body: { error: 'Proposta não encontrada.' } };
-  if (!(await canManageListingConversation(userId, offer.listing, [offer.buyerId]))) {
-    return { status: 403, body: { error: 'Sem permissão.' } };
-  }
-
-  const updated = await prisma.offer.update({
-    where: { id: offerId },
-    data: { status: 'REJECTED' }
-  });
-
-  await sendNotification({
-    userId: offer.buyerId,
-    title: 'Proposta Recusada',
-    message: `Sua proposta para o imóvel "${offer.listing.name}" foi recusada pelo proprietário.`,
-    type: 'INFO',
-  });
-
-  const conversation = await prisma.conversation.findFirst({
-    where: {
-      propertyId: offer.listingId,
-      participants: { every: { id: { in: [offer.buyerId, userId] } } }
-    }
-  });
-
-  if (conversation) {
-    await prisma.message.updateMany({
-      where: { conversationId: conversation.id, type: 'OFFER_REQUEST', metadata: { contains: offerId } },
-      data: { type: 'OFFER_REJECTED' }
-    });
-
-    const message = await prisma.message.create({
-      data: {
-        content: `❌ O proprietário recusou a proposta de R$ ${offer.value.toLocaleString('pt-BR')} via ${offer.paymentMethod}.`,
-        type: 'TEXT',
-        senderId: userId,
-        conversationId: conversation.id
-      },
-      include: { sender: { select: { id: true, name: true, avatar: true } } }
-    });
-
-    await prisma.conversation.update({ where: { id: conversation.id }, data: { updatedAt: new Date() } });
-
-    try {
-      const io = getIO();
-      io.to(`room_${offer.buyerId}`).emit('receiveMessage', message);
-      io.to(`room_${userId}`).emit('receiveMessage', message);
-    } catch (e) {}
-  }
-
-  return { status: 200, body: updated };
-}
-
-export async function approveOffer(request: FastifyRequest, reply: FastifyReply) {
-  const { id } = request.params as { id: string };
-  const user = request.user as { id: string };
-  try {
-    const { status, body } = await approveOfferCore(user.id, id);
-    return reply.status(status).send(body);
-  } catch (error) {
-    console.error('Approve Offer Error:', error);
-    return reply.status(500).send({ error: 'Erro ao aprovar proposta.' });
-  }
-}
-
-export async function rejectOffer(request: FastifyRequest, reply: FastifyReply) {
-  const { id } = request.params as { id: string };
-  const user = request.user as { id: string };
-  try {
-    const { status, body } = await rejectOfferCore(user.id, id);
-    return reply.status(status).send(body);
-  } catch (error) {
-    console.error('Reject Offer Error:', error);
-    return reply.status(500).send({ error: 'Erro ao recusar proposta.' });
   }
 }

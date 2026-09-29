@@ -1,4 +1,4 @@
-import { Building2, Receipt, Landmark, Repeat, CalendarClock, Sofa, PawPrint } from "lucide-react";
+import { Building2, Receipt, Landmark, Repeat, CalendarClock, Sofa, PawPrint, Handshake } from "lucide-react";
 import type { Listing } from "@zhivago/shared";
 import styles from "./HouseRules.module.css";
 
@@ -34,6 +34,7 @@ export function CommercialConditionsPanel({ listing }: { listing: Listing }) {
       listing.iptuAnnual != null && { icon: Receipt, label: "IPTU", value: `${formatCurrency(listing.iptuAnnual)}/ano` },
       listing.acceptsFinancing && { icon: Landmark, label: "Financiamento", value: "Aceita financiamento" },
       listing.acceptsExchange && { icon: Repeat, label: "Permuta", value: "Aceita permuta" },
+      listing.acceptsNegotiation && { icon: Handshake, label: "Negociação", value: "Aceita negociar o valor pelo chat" },
     ].filter((r): r is { icon: typeof Building2; label: string; value: string } => Boolean(r));
 
     if (rows.length === 0) return null;
@@ -74,6 +75,7 @@ export function CommercialConditionsPanel({ listing }: { listing: Listing }) {
       },
       listing.isFurnished && { icon: Sofa, label: "Mobiliado", value: "Sim" },
       listing.allowPets != null && { icon: PawPrint, label: "Animais de estimação", value: listing.allowPets ? "Aceita" : "Não aceita" },
+      listing.acceptsNegotiation && { icon: Handshake, label: "Negociação", value: "Aceita negociar o valor pelo chat" },
     ].filter((r): r is { icon: typeof Building2; label: string; value: string } => Boolean(r));
 
     if (rows.length === 0 && guarantees.length === 0) return null;

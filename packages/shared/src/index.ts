@@ -22,11 +22,51 @@ export type MessageType =
   | 'BOOKING_REJECTED'
   | 'OFFER_REQUEST'
   | 'OFFER_APPROVED'
-  | 'OFFER_REJECTED';
+  | 'OFFER_REJECTED'
+  | 'NEGOTIATION_ROUND';
 
 export type NotificationType = 'INFO' | 'MESSAGE' | 'BOOKING' | 'SYSTEM';
 
-export type OfferStatus = 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'CANCELLED';
+export type OfferStatus =
+  | 'PENDING'
+  | 'ACCEPTED'
+  | 'REJECTED'
+  | 'COUNTERED'
+  | 'WITHDRAWN'
+  | 'EXPIRED'
+  | 'CANCELLED';
+
+// Negociação de valor no chat (apps/server/src/lib/negotiations.ts).
+export type NegotiationStatus = 'OPEN' | 'AGREED' | 'CLOSED' | 'EXPIRED';
+export type NegotiationSide = 'CUSTOMER' | 'LISTING';
+
+export interface NegotiationRound {
+  id: string;
+  value: number;
+  unit: 'TOTAL' | 'MONTHLY';
+  paymentMethod: string | null;
+  status: OfferStatus;
+  expiresAt: string | null;
+  previousOfferId: string | null;
+  proposedById: string;
+  proposedByName: string;
+  side: NegotiationSide;
+  createdAt: string;
+}
+
+export interface Negotiation {
+  id: string;
+  conversationId: string | null;
+  listingId: string;
+  customerId: string;
+  bookingId: string | null;
+  operationType: ListingOperationType;
+  status: NegotiationStatus;
+  referencePrice: number;
+  agreedValue: number | null;
+  createdAt: string;
+  rounds: NegotiationRound[];
+}
 
 // B2B (Organization/OrganizationMember) — evoluído de Company/CompanyMember (Fase B) em
 // 2026-08-30, ver docs/crm-b2b-organizacoes-leads.md.
@@ -316,6 +356,9 @@ export interface Listing {
   guaranteeTypes?: string | null;
   isFurnished?: boolean | null;
   allowPets?: boolean | null;
+  acceptsNegotiation?: boolean;
+  // Piso sigiloso — a API só devolve para o próprio anunciante.
+  minNegotiablePrice?: number | null;
   status: ListingStatus;
   viewCount: number;
   ownerId: string | null;

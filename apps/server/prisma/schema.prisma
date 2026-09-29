@@ -52,7 +52,9 @@ model User {
   conversations Conversation[] @relation("ConversationParticipants")
   messages      Message[]
   notifications Notification[]
-  offers        Offer[]
+  offers           Offer[]        @relation("OfferBuyer")
+  proposedOffers   Offer[]        @relation("OfferProposedBy")
+  negotiations     Negotiation[]
   devices       UserDevice[]
 
   // B2B (Organization/OrganizationMember) — v1: um usuário pertence a no máximo uma organização
@@ -132,6 +134,13 @@ model Listing {
   isFurnished        Boolean? @default(false)
   allowPets          Boolean? @default(true) // condição de 1ª classe do mensal; diária mantém seu próprio allowPets dentro de houseRules
 
+  // Negociação de valor no chat — vale pras 3 modalidades (ver lib/negotiations.ts).
+  // `minNegotiablePrice` é um piso SIGILOSO: fica fora de toda consulta por padrão (omit global em
+  // lib/prisma.ts) e só é lido explicitamente pelo serviço de negociação e pelo próprio anunciante
+  // na edição — nunca pode vazar na API pública.
+  acceptsNegotiation Boolean @default(true)
+  minNegotiablePrice Float?
+
   // Status de moderação pelo admin / ciclo de vida do dono
   // SEGURANÇA: default alterado de "APPROVED" para "PENDING" — novos anúncios
   // entram em moderação, não ficam públicos automaticamente.
@@ -159,6 +168,7 @@ model Listing {
   bookings      Booking[]
   conversations Conversation[]
   offers        Offer[]
+  negotiations  Negotiation[]
   images        ListingImage[]
   leads         Lead[]
 
@@ -243,6 +253,8 @@ model Booking {
   leadId String?
   lead   Lead?   @relation(fields: [leadId], references: [id], onDelete: SetNull)
 
+  negotiations Negotiation[]
+
   createdAt DateTime @default(now())
 
   @@index([listingId, status])
@@ -266,6 +278,7 @@ model Conversation {
 
   participants User[]    @relation("ConversationParticipants")
   messages     Message[]
+  negotiations Negotiation[]
 
   isReported   Boolean   @default(false)
   isClosed     Boolean   @default(false)
@@ -280,7 +293,7 @@ model Conversation {
 model Message {
   id             String       @id @default(uuid())
   content        String
-  type           String       @default("TEXT") // "TEXT" | "BOOKING_REQUEST"
+  type     String  @default("TEXT") // "TEXT" | "BOOKING_*" | "OFFER_*" (legado) | "NEGOTIATION_ROUND"
   metadata       String?      // JSON string for extra data like bookingId
 
   senderId       String
@@ -470,6 +483,7 @@ model Lead {
   conversations Conversation[]
   offers        Offer[]
   bookings      Booking[]
+  negotiations  Negotiation[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -504,12 +518,12 @@ model LeadAssignment {
   firstContactAt DateTime? // preenchido na 1ª LeadInteraction — base de SLA, Fase 4
   unassignedAt   DateTime?
   reason         String?
-
-  @@index([leadId])
-  @@index([brokerId])
   // Garantia adicional (banco): no máximo 1 assignment aberto por Lead (seção 31 da spec).
   // Prisma não expressa índice único parcial (WHERE) no schema — criado via migration manual
   // (ver prisma/migrations/20260921000000_sprint1_operation_model_and_contracts/migration.sql).
+
+  @@index([leadId])
+  @@index([brokerId])
 }
 
 // Log de contato com o cliente (Fase 3). STATUS_CHANGE é reservado ao sistema — nunca escolhível
@@ -619,17 +633,34 @@ model OrganizationAuditLog {
 
 // ─── PROPOSTAS DE COMPRA (Apenas para Venda) ──────────────────────────────────
 
+// Uma rodada de negociação (proposta ou contraproposta). O nome `Offer` ficou do fluxo antigo de
+// "proposta de compra" — cada linha agora pertence a uma Negotiation e pode ter sido feita por
+// qualquer um dos lados (`proposedById`); `buyerId` continua sendo sempre o CLIENTE.
 model Offer {
   id            String   @id @default(uuid())
-  value         Float    // Valor proposto pelo comprador
-  paymentMethod String   // Método de pagamento
-  status        String   @default("PENDING") // "PENDING" | "ACCEPTED" | "REJECTED" | "CANCELLED"
+  value         Float // Valor proposto nesta rodada, na unidade de `unit`
+  unit          String    @default("TOTAL") // "TOTAL" | "MONTHLY" (aluguel mensal)
+  paymentMethod String? // Só venda
+  // "PENDING" | "ACCEPTED" | "REJECTED" | "COUNTERED" | "WITHDRAWN" | "EXPIRED" | "CANCELLED"
+  status        String    @default("PENDING")
+  expiresAt     DateTime?
 
   listingId     String
   listing       Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
 
   buyerId       String
-  buyer         User     @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  buyer   User   @relation("OfferBuyer", fields: [buyerId], references: [id], onDelete: Cascade)
+
+  proposedById String
+  proposedBy   User   @relation("OfferProposedBy", fields: [proposedById], references: [id], onDelete: Cascade)
+
+  negotiationId String
+  negotiation   Negotiation @relation(fields: [negotiationId], references: [id], onDelete: Cascade)
+
+  // Rodada à qual esta responde (contraproposta) — null na 1ª rodada.
+  previousOfferId String? @unique
+  previousOffer   Offer?  @relation("OfferCounter", fields: [previousOfferId], references: [id], onDelete: SetNull)
+  counterOffer    Offer?  @relation("OfferCounter")
 
   leadId String?
   lead   Lead?   @relation(fields: [leadId], references: [id], onDelete: SetNull)
@@ -638,5 +669,45 @@ model Offer {
 
   @@index([listingId])
   @@index([buyerId])
+  @@index([leadId])
+  @@index([negotiationId, status])
+}
+
+// Negociação de valor entre o cliente e o lado do anúncio, dentro de uma conversa. No máximo uma
+// OPEN por conversa (índice único parcial na migration). Rodadas = Offer.
+model Negotiation {
+  id            String @id @default(uuid())
+  operationType String // "SALE" | "MONTHLY_RENT" | "DAILY_RENT" — snapshot do anúncio na abertura
+  status        String @default("OPEN") // "OPEN" | "AGREED" | "CLOSED" | "EXPIRED"
+
+  // Preço do anúncio (venda/mensal) ou total da reserva (diária) quando a negociação abriu.
+  referencePrice Float
+  agreedValue    Float?
+
+  listingId String
+  listing   Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  // Null só em negociações migradas de propostas antigas que nunca tiveram conversa.
+  conversationId String?
+  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  customerId String
+  customer   User   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  leadId String?
+  lead   Lead?   @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  // Só diária: a reserva PENDING cujo valor está sendo negociado.
+  bookingId String?
+  booking   Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+
+  offers Offer[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([listingId, status])
+  @@index([conversationId])
+  @@index([customerId])
   @@index([leadId])
 }

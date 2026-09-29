@@ -2,7 +2,7 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { z } from 'zod';
 import { ensureLead, getCurrentAssignment, canManageListingConversation } from '../lib/leads.js';
-import { CHAT_COMMANDS } from '../socket.js';
+import { CHAT_COMMANDS, findActionablePending } from '../socket.js';
 
 const LEAD_STATUSES_WITHOUT_NEGOTIATE_COMMAND = new Set(['NEGOTIATION', 'WON', 'LOST']);
 const COMMAND_BY_TRIGGER = Object.fromEntries(CHAT_COMMANDS.map((c) => [c.trigger, c]));
@@ -10,34 +10,34 @@ const COMMAND_BY_TRIGGER = Object.fromEntries(CHAT_COMMANDS.map((c) => [c.trigge
 /**
  * Quais comandos de `/` fazem sentido oferecer agora nesta conversa — usado pelo menu de
  * autocomplete do front (digitar "/" no chat). Mesma fonte de verdade que `socket.ts` realmente
- * executa (`CHAT_COMMANDS`), só decide QUAIS mostrar: nada se o viewer não pode agir
- * (`canManage`); aprovar/recusar só com uma solicitação ainda pendente; negociar só em imóvel de
- * organização com Lead que ainda não chegou no fim do funil.
+ * executa (`CHAT_COMMANDS`), só decide QUAIS mostrar: aprovar/recusar só com uma solicitação
+ * que o viewer ainda pode responder (ver findActionablePending); negociar pra qualquer um dos
+ * lados quando o anúncio aceita negociação, ou pro lado do anúncio enquanto o Lead não chegou no
+ * fim do funil (o "/negociar" sem valor, que move o Lead).
  */
 async function computeAvailableCommands(
+  viewerId: string,
   canManage: boolean,
-  conversation: { id: string; leadId: string | null }
+  isParticipant: boolean,
+  conversation: { id: string; leadId: string | null },
+  property: { acceptsNegotiation: boolean; status: string }
 ): Promise<(typeof CHAT_COMMANDS)[number][]> {
-  if (!canManage) return [];
+  if (!isParticipant) return [];
 
   const commands: (typeof CHAT_COMMANDS)[number][] = [];
 
-  const pendingRequest = await prisma.message.findFirst({
-    where: { conversationId: conversation.id, type: { in: ['BOOKING_REQUEST', 'OFFER_REQUEST'] } },
-    orderBy: { createdAt: 'desc' },
-  });
-  if (pendingRequest) {
+  if (await findActionablePending(conversation.id, viewerId, canManage)) {
     commands.push(COMMAND_BY_TRIGGER['/aprovar']!, COMMAND_BY_TRIGGER['/recusar']!);
   }
 
+  let offerNegotiate = property.acceptsNegotiation && property.status === 'APPROVED';
   // Fonte de verdade única (seção 27 da spec): o Lead da conversa é `conversation.leadId`, não
   // mais um heurístico por listingId+participantes.
-  if (conversation.leadId) {
+  if (!offerNegotiate && canManage && conversation.leadId) {
     const lead = await prisma.lead.findUnique({ where: { id: conversation.leadId }, select: { status: true } });
-    if (lead && !LEAD_STATUSES_WITHOUT_NEGOTIATE_COMMAND.has(lead.status)) {
-      commands.push(COMMAND_BY_TRIGGER['/negociar']!);
-    }
+    offerNegotiate = !!lead && !LEAD_STATUSES_WITHOUT_NEGOTIATE_COMMAND.has(lead.status);
   }
+  if (offerNegotiate) commands.push(COMMAND_BY_TRIGGER['/negociar']!);
 
   return commands;
 }
@@ -175,6 +175,8 @@ export async function getConversation(request: FastifyRequest, reply: FastifyRep
             ownerId: true,
             organizationId: true,
             category: true,
+            operationType: true,
+            acceptsNegotiation: true,
             status: true,
             images: { take: 1, orderBy: { order: 'asc' }, select: { url: true } },
           },
@@ -204,7 +206,13 @@ export async function getConversation(request: FastifyRequest, reply: FastifyRep
     // Comandos de "/" que fazem sentido oferecer agora (ver computeAvailableCommands) — o menu de
     // autocomplete do front usa isso pra saber o que listar, sem duplicar a regra de quando cada
     // comando se aplica.
-    const availableCommands = await computeAvailableCommands(canManage, conversation);
+    const availableCommands = await computeAvailableCommands(
+      userId,
+      canManage,
+      conversation.participants.some((p) => p.id === userId),
+      conversation,
+      conversation.property
+    );
 
     return reply.send({
       ...conversation,
@@ -216,6 +224,8 @@ export async function getConversation(request: FastifyRequest, reply: FastifyRep
         price: conversation.property.price,
         ownerId: conversation.property.ownerId,
         category: conversation.property.category,
+        operationType: conversation.property.operationType,
+        acceptsNegotiation: conversation.property.acceptsNegotiation,
         status: conversation.property.status,
         image: conversation.property.images[0]?.url ?? null,
       },

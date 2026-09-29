@@ -196,6 +196,16 @@ export async function getListingById(
         ? listing
         : { ...listing, owner: { ...listing.owner, email: null } };
 
+    // Piso sigiloso de negociação: omitido por padrão (lib/prisma.ts); só o próprio anunciante o
+    // recebe, pra preencher a edição do anúncio.
+    if (isOwner) {
+      const floor = await prisma.listing.findUnique({
+        where: { id },
+        select: { minNegotiablePrice: true },
+      });
+      return reply.send({ ...sanitized, minNegotiablePrice: floor?.minNegotiablePrice ?? null });
+    }
+
     return reply.send(sanitized);
   } catch {
     return reply.status(500).send({ error: 'Erro ao buscar imóvel.' });
@@ -330,6 +340,8 @@ export async function createListing(
       guaranteeTypes: z.string().optional(),
       isFurnished: multipartBoolean,
       allowPets: multipartBoolean,
+      acceptsNegotiation: multipartBoolean,
+      minNegotiablePrice: z.coerce.number().positive().optional(),
       // Etapa 5 — Atendimento/CRM (seção 72 da spec), só usada se o criador pertencer a uma organização.
       buildingId: z.string().optional(),
       assignedAgentId: z.string().optional(), // "responsável por este imóvel" (seção 73)
@@ -417,6 +429,8 @@ export async function createListing(
         guaranteeTypes: data.guaranteeTypes ?? null,
         isFurnished: data.isFurnished ?? false,
         allowPets: data.allowPets ?? true,
+        acceptsNegotiation: data.acceptsNegotiation ?? true,
+        minNegotiablePrice: data.minNegotiablePrice ?? null,
         operationType: data.operationType ?? deriveOperationType(data.category, data.billingCycle),
         createdById: userId,
         ownerId: membership ? null : userId,
@@ -553,6 +567,8 @@ export async function updateListing(
     guaranteeTypes: z.string().optional(),
     isFurnished: z.boolean().optional(),
     allowPets: z.boolean().optional(),
+    acceptsNegotiation: z.boolean().optional(),
+    minNegotiablePrice: z.coerce.number().positive().nullable().optional(),
     buildingId: z.string().nullable().optional(),
     assignedAgentId: z.string().optional(),
     assumeBuildingLeads: z.boolean().optional(),

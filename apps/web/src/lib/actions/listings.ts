@@ -116,6 +116,13 @@ export async function createListingAction(
     payload.set("acceptsExchange", String(formData.get("acceptsExchange") === "true"));
   }
 
+  // Negociação de valor no chat — vale pras 3 modalidades; o piso é opcional e sigiloso.
+  payload.set("acceptsNegotiation", String(formData.get("acceptsNegotiation") !== "false"));
+  const minNegotiablePrice = String(formData.get("minNegotiablePrice") ?? "").trim();
+  if (minNegotiablePrice && formData.get("acceptsNegotiation") !== "false") {
+    payload.set("minNegotiablePrice", minNegotiablePrice);
+  }
+
   // Condições de ALUGUEL MENSAL (seção 67 da spec)
   if (operationType === "MONTHLY_RENT") {
     const iptuMonthly = String(formData.get("iptuMonthly") ?? "");
@@ -247,6 +254,13 @@ export async function updateListingAction(
     body.iptuAnnual = iptuAnnual ? Number(iptuAnnual) : null;
     body.acceptsFinancing = formData.get("acceptsFinancing") === "true";
     body.acceptsExchange = formData.get("acceptsExchange") === "true";
+  }
+
+  // Negociação de valor no chat — só mexe se o formulário exibiu o campo.
+  if (formData.has("acceptsNegotiation")) {
+    body.acceptsNegotiation = formData.get("acceptsNegotiation") !== "false";
+    const minNegotiablePrice = String(formData.get("minNegotiablePrice") ?? "").trim();
+    body.minNegotiablePrice = body.acceptsNegotiation && minNegotiablePrice ? Number(minNegotiablePrice) : null;
   }
   if (operationType === "MONTHLY_RENT") {
     const iptuMonthly = formData.get("iptuMonthly");

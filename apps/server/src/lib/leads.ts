@@ -462,6 +462,37 @@ export async function moveLeadToNegotiationFromChatCommand(
   return transitionLeadStatus(userId, listing, participantIds, 'NEGOTIATION', 'via comando de chat "/negociar"');
 }
 
+const LEAD_FUNNEL_ORDER = ['NEW', 'CONTACTED', 'QUALIFIED', 'VISIT_SCHEDULED', 'PROPOSAL', 'NEGOTIATION', 'WON'];
+
+/**
+ * Avanço automático do Lead disparado por um evento do sistema (rodadas de negociação no chat,
+ * lib/negotiations.ts) — ao contrário de `transitionLeadStatus`, não exige que quem disparou seja
+ * membro da organização, porque muitas vezes é o próprio CLIENTE (ex.: a 1ª proposta dele leva o
+ * Lead a PROPOSAL). Só anda pra frente no funil e nunca mexe num Lead já WON/LOST. O log vai no
+ * nome do corretor responsável (LeadInteraction exige um membro), direto na tabela — sem passar
+ * por `recordInteraction`, pra não marcar `firstContactAt` (SLA) com algo que não foi contato do
+ * corretor. Melhor esforço: quem chama deve envolver num try/catch.
+ */
+export async function advanceLeadBySystem(leadId: string, status: string, note: string): Promise<void> {
+  const lead = await prisma.lead.findUnique({ where: { id: leadId } });
+  if (!lead || lead.status === 'WON' || lead.status === 'LOST') return;
+  if (LEAD_FUNNEL_ORDER.indexOf(status) <= LEAD_FUNNEL_ORDER.indexOf(lead.status)) return;
+
+  await prisma.lead.update({ where: { id: leadId }, data: { status } });
+
+  const current = await getCurrentAssignment(leadId);
+  if (current) {
+    await prisma.leadInteraction.create({
+      data: {
+        leadId,
+        memberId: current.brokerId,
+        type: 'STATUS_CHANGE',
+        content: `${lead.status} → ${status} (automático: ${note})`,
+      },
+    });
+  }
+}
+
 /**
  * Registra um contato com o cliente. Se a atribuição aberta do lead ainda não tem
  * `firstContactAt` (base de SLA, Fase 4), preenche com agora — só na 1ª interação.

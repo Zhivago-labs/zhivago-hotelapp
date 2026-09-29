@@ -409,6 +409,77 @@
   background: #dc2626;
 }
 
+.approveButton:disabled,
+.rejectButton:disabled,
+.counterButton:disabled,
+.offerButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ─── NEGOCIAÇÃO DE VALOR ─────────────────────────────────────────────────── */
+
+.negotiationValue {
+  font-size: 18px;
+  font-weight: 800;
+  margin: 0 0 4px;
+}
+
+.negotiationMeta {
+  font-size: 12px;
+  font-weight: 500;
+  opacity: 0.8;
+  margin: 0 0 2px;
+}
+
+.negotiationStatusMuted {
+  font-size: 12px;
+  font-weight: 700;
+  opacity: 0.75;
+  margin: 6px 0 0;
+}
+
+.counterButton {
+  border: 1px solid currentColor;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: inherit;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.counterButton:hover:not(:disabled) {
+  background: rgba(127, 127, 127, 0.12);
+}
+
+.negotiationHistory {
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.negotiationHistory summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.negotiationHistory ol {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.negotiationHistory li {
+  margin-bottom: 2px;
+}
+
+.modalHint {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+
 /* ─── MODAL DE PROPOSTA ───────────────────────────────────────────────────── */
 
 .modalOverlay {
