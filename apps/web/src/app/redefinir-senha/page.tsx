@@ -4,6 +4,7 @@ import Image from "next/image";
 import { ArrowLeft } from "lucide-react";
 import { ResetPasswordForm } from "@/components/auth/ResetPasswordForm";
 import { SiteFooter } from "@/components/SiteFooter";
+import { AuthBackgroundPreload } from "@/components/auth/AuthBackgroundPreload";
 import styles from "./page.module.css";
 
 export const metadata: Metadata = {
@@ -17,6 +18,7 @@ export default async function ResetPasswordPage({ searchParams }: Props) {
 
   return (
     <main className={styles.main}>
+      <AuthBackgroundPreload />
       <div className={styles.contentArea}>
         <div className={styles.authCard}>
           <div className={styles.cardHeader}>

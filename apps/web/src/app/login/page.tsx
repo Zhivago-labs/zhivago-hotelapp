@@ -3,6 +3,7 @@ import Link from "next/link";
 import { X } from "lucide-react";
 import { LoginForm } from "@/components/auth/LoginForm";
 import { SiteFooter } from "@/components/SiteFooter";
+import { AuthBackgroundPreload } from "@/components/auth/AuthBackgroundPreload";
 import styles from "./page.module.css";
 
 export const metadata: Metadata = {
@@ -16,6 +17,7 @@ export default async function LoginPage({ searchParams }: Props) {
 
   return (
     <main className={styles.main}>
+      <AuthBackgroundPreload />
       <div className={styles.contentArea}>
         <div className={styles.authCard}>
           <div className={styles.cardHeader}>
