@@ -27,6 +27,14 @@ export const WEB_URL = ALLOWED_ORIGINS[0] ?? 'http://localhost:3000';
 // sem depender do header Host da requisição (que pode ser manipulado pelo cliente).
 export const BASE_URL = process.env['BASE_URL'] ?? 'http://localhost:3333';
 
+// Login com Google via Firebase Auth — id do projeto Firebase (o mesmo do NEXT_PUBLIC_FIREBASE_PROJECT_ID
+// do site). Sem ele a rota POST /auth/firebase responde 503 e o resto do login segue funcionando.
+export const FIREBASE_PROJECT_ID = process.env['FIREBASE_PROJECT_ID'] ?? null;
+
+if (!FIREBASE_PROJECT_ID) {
+  console.warn('⚠️  FIREBASE_PROJECT_ID não definido — login com Google fica desativado.');
+}
+
 // Web Push (VAPID)
 const vapidPublicKey = process.env['VAPID_PUBLIC_KEY'];
 const vapidPrivateKey = process.env['VAPID_PRIVATE_KEY'];

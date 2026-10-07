@@ -4,6 +4,7 @@ import { z } from 'zod';
 import sharp from 'sharp';
 import { prisma } from '../lib/prisma.js';
 import { saveUpload } from '../lib/storage.js';
+import { isFirebaseEnabled, verifyFirebaseIdToken } from '../lib/firebase.js';
 
 // ─── REGISTER ────────────────────────────────────────────────────────────────
 
@@ -106,7 +107,8 @@ export async function login(
     return reply.status(403).send({ error: 'Conta suspensa ou banida. Entre em contato com o suporte.' });
   }
 
-  const valid = await bcrypt.compare(password, user.passwordHash);
+  // Conta criada via Google sem senha definida: mesma resposta genérica (não revela o motivo).
+  const valid = !!user.passwordHash && (await bcrypt.compare(password, user.passwordHash));
   if (!valid) {
     return reply.status(401).send({ error: 'E-mail ou senha inválidos.' });
   }
@@ -128,9 +130,163 @@ export async function login(
       creci: user.creci,
       companyName: user.companyName,
       verified: user.verified,
+      onboardingCompleted: user.onboardingCompleted,
     },
     token,
   });
+}
+
+// ─── LOGIN COM GOOGLE (FIREBASE) ─────────────────────────────────────────────
+
+export async function firebaseLogin(
+  request: FastifyRequest,
+  reply: FastifyReply
+): Promise<void> {
+  if (!isFirebaseEnabled()) {
+    return reply.status(503).send({ error: 'Login com Google indisponível no momento.' });
+  }
+
+  const schema = z.object({ idToken: z.string().min(1) });
+  const parsed = schema.safeParse(request.body);
+  if (!parsed.success) {
+    return reply.status(400).send({ error: parsed.error.errors });
+  }
+
+  let decoded: Awaited<ReturnType<typeof verifyFirebaseIdToken>>;
+  try {
+    decoded = await verifyFirebaseIdToken(parsed.data.idToken);
+  } catch {
+    return reply.status(401).send({ error: 'Não foi possível validar o login com Google. Tente novamente.' });
+  }
+
+  // Só vinculamos/criamos contas com e-mail confirmado pelo provedor — senão alguém poderia
+  // assumir uma conta existente cadastrando o mesmo e-mail num provedor que não o verifica.
+  const email = decoded.email?.trim().toLowerCase();
+  if (!email || !decoded.email_verified) {
+    return reply.status(400).send({ error: 'Sua conta Google precisa ter um e-mail verificado.' });
+  }
+
+  let user =
+    (await prisma.user.findUnique({ where: { firebaseUid: decoded.uid } })) ??
+    (await prisma.user.findUnique({ where: { email } }));
+
+  if (user && user.status !== 'ACTIVE') {
+    return reply.status(403).send({ error: 'Conta suspensa ou banida. Entre em contato com o suporte.' });
+  }
+
+  if (!user) {
+    // Conta nova: nasce como pessoal e com onboarding pendente — o site leva a pessoa à tela de
+    // escolha do tipo de uso (pessoal ou imobiliária) antes de liberar o resto da app.
+    const name = decoded.name?.trim();
+    user = await prisma.user.create({
+      data: {
+        name: name && name.length >= 2 ? name : email.split('@')[0]!,
+        email,
+        passwordHash: null,
+        firebaseUid: decoded.uid,
+        avatar: decoded.picture ?? null,
+        accountType: 'INDIVIDUAL',
+        verified: false,
+        onboardingCompleted: false,
+      },
+    });
+  } else if (user.firebaseUid !== decoded.uid) {
+    // Conta já existente com o mesmo e-mail (cadastro por senha): vincula ao Google e entra direto.
+    user = await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        firebaseUid: decoded.uid,
+        ...(user.avatar ? {} : { avatar: decoded.picture ?? null }),
+      },
+    });
+  }
+
+  const token = await reply.jwtSign(
+    { id: user.id, email: user.email, role: user.role, tokenVersion: user.tokenVersion },
+    { expiresIn: '7d' }
+  );
+
+  return reply.send({
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      avatar: user.avatar,
+      accountType: user.accountType,
+      document: user.document,
+      creci: user.creci,
+      companyName: user.companyName,
+      verified: user.verified,
+      onboardingCompleted: user.onboardingCompleted,
+    },
+    token,
+  });
+}
+
+// ─── ONBOARDING (escolha do tipo de uso após login com Google) ───────────────
+
+export async function completeOnboarding(
+  request: FastifyRequest,
+  reply: FastifyReply
+): Promise<void> {
+  const { id } = request.user as { id: string };
+
+  // Mesmas regras do cadastro (`register`): imobiliária exige documento; nome fantasia e CRECI
+  // só são gravados para contas AGENCY.
+  const schema = z
+    .object({
+      accountType: z.enum(['INDIVIDUAL', 'AGENCY']),
+      document: z.string().trim().optional(),
+      creci: z.string().trim().max(20).optional(),
+      companyName: z.string().trim().max(120).optional(),
+    })
+    .refine((data) => data.accountType !== 'AGENCY' || !!data.document, {
+      message: 'Informe o CNPJ (ou CPF) da imobiliária.',
+      path: ['document'],
+    });
+
+  const parsed = schema.safeParse(request.body);
+  if (!parsed.success) {
+    return reply.status(400).send({ error: parsed.error.errors });
+  }
+
+  const current = await prisma.user.findUnique({ where: { id }, select: { onboardingCompleted: true } });
+  if (!current) {
+    return reply.status(404).send({ error: 'Usuário não encontrado.' });
+  }
+  // Escolha única: depois de concluída, trocar de pessoal para imobiliária não passa por aqui.
+  if (current.onboardingCompleted) {
+    return reply.status(409).send({ error: 'O tipo de conta já foi definido.' });
+  }
+
+  const { accountType, document, creci, companyName } = parsed.data;
+  const isAgency = accountType === 'AGENCY';
+
+  const user = await prisma.user.update({
+    where: { id },
+    data: {
+      accountType,
+      document: isAgency ? document || null : null,
+      creci: isAgency ? creci || null : null,
+      companyName: isAgency ? companyName || null : null,
+      onboardingCompleted: true,
+    },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      accountType: true,
+      document: true,
+      creci: true,
+      companyName: true,
+      verified: true,
+      onboardingCompleted: true,
+    },
+  });
+
+  return reply.send(user);
 }
 
 // ─── ME (perfil do usuário logado) ───────────────────────────────────────────
@@ -158,6 +314,8 @@ export async function me(
       companyName: true,
       logoUrl: true,
       verified: true,
+      onboardingCompleted: true,
+      passwordHash: true,
     },
   });
 
@@ -165,7 +323,9 @@ export async function me(
     return reply.status(404).send({ error: 'Usuário não encontrado.' });
   }
 
-  return reply.send(user);
+  // Nunca devolve o hash — só informa se a conta tem senha (contas do Google podem não ter).
+  const { passwordHash, ...profile } = user;
+  return reply.send({ ...profile, hasPassword: !!passwordHash });
 }
 
 // ─── UPDATE ME ───────────────────────────────────────────────────────────────
@@ -281,6 +441,12 @@ export async function updatePassword(
   const user = await prisma.user.findUnique({ where: { id } });
   if (!user) {
     return reply.status(404).send({ error: 'Usuário não encontrado.' });
+  }
+
+  if (!user.passwordHash) {
+    return reply.status(400).send({
+      error: 'Sua conta entra com Google e ainda não tem senha. Use "Esqueci minha senha" para criar uma.',
+    });
   }
 
   const valid = await bcrypt.compare(currentPassword, user.passwordHash);

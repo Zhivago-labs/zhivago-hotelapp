@@ -50,6 +50,7 @@ export default async function LandingPage() {
   const user = await getSessionUser();
 
   if (user) {
+    if (!user.onboardingCompleted) redirect("/boas-vindas");
     const isAgencyAccount = user.accountType === "AGENCY" && user.role !== "ADMIN";
     redirect(isAgencyAccount ? "/dashboard" : "/imoveis");
   }

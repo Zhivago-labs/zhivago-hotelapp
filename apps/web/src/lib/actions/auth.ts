@@ -123,6 +123,82 @@ export async function registerAction(
   redirect(safeRedirectTarget(formData.get("next"), accountType === "AGENCY" ? "/dashboard" : "/imoveis"));
 }
 
+/**
+ * Login/cadastro com Google: troca o ID token do Firebase (obtido no navegador) pelo JWT do backend.
+ * Conta nova cai na escolha do tipo de uso (/boas-vindas); conta existente segue a regra normal.
+ */
+export async function firebaseLoginAction(idToken: string, next?: string): Promise<AuthFormState> {
+  if (!idToken) {
+    return { error: "Não foi possível entrar com o Google. Tente novamente." };
+  }
+
+  let token: string;
+  let needsOnboarding = false;
+  let isAgencyAccount = false;
+  try {
+    const res = await fetch(`${getApiUrl()}/auth/firebase`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ idToken }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      return { error: extractErrorMessage(data, "Não foi possível entrar com o Google.") };
+    }
+    token = data.token;
+    needsOnboarding = data.user?.onboardingCompleted === false;
+    isAgencyAccount = data.user?.accountType === "AGENCY" && data.user?.role !== "ADMIN";
+  } catch {
+    return { error: "Não foi possível conectar ao servidor. Tente novamente." };
+  }
+
+  await setAuthCookie(token);
+  const target = safeRedirectTarget(next ?? null, "");
+  if (needsOnboarding) {
+    redirect(target ? `/boas-vindas?next=${encodeURIComponent(target)}` : "/boas-vindas");
+  }
+  redirect(target || (isAgencyAccount ? "/dashboard" : "/imoveis"));
+}
+
+/** Escolha do tipo de uso (pessoal ou imobiliária) de quem entrou pela 1ª vez com o Google. */
+export async function completeOnboardingAction(
+  _prevState: AuthFormState,
+  formData: FormData
+): Promise<AuthFormState> {
+  const accountType = formData.get("accountType") === "AGENCY" ? "AGENCY" : "INDIVIDUAL";
+  const companyName = String(formData.get("companyName") ?? "").trim();
+  const document = String(formData.get("document") ?? "").trim();
+  const creci = String(formData.get("creci") ?? "").trim();
+
+  if (accountType === "AGENCY" && (!companyName || !document)) {
+    return { error: "Preencha o nome fantasia e o CNPJ (ou CPF) da imobiliária." };
+  }
+
+  const cookieStore = await cookies();
+  const token = cookieStore.get(TOKEN_COOKIE)?.value;
+  if (!token) redirect("/login");
+
+  try {
+    const res = await fetch(`${getApiUrl()}/auth/onboarding`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        accountType,
+        ...(accountType === "AGENCY" ? { companyName, document, creci: creci || undefined } : {}),
+      }),
+    });
+    // 409 = tipo já definido (ex.: duas abas) — segue para a área da conta normalmente.
+    if (!res.ok && res.status !== 409) {
+      const data = await res.json().catch(() => null);
+      return { error: extractErrorMessage(data, "Não foi possível salvar sua escolha.") };
+    }
+  } catch {
+    return { error: "Não foi possível conectar ao servidor. Tente novamente." };
+  }
+
+  redirect(safeRedirectTarget(formData.get("next"), accountType === "AGENCY" ? "/dashboard" : "/imoveis"));
+}
+
 export async function logoutAction(): Promise<void> {
   const cookieStore = await cookies();
   cookieStore.delete(TOKEN_COOKIE);

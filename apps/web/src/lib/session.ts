@@ -18,6 +18,10 @@ export interface SessionUser {
   companyName: string | null;
   creci: string | null;
   verified: boolean;
+  /** false enquanto quem entrou com o Google ainda não escolheu o tipo de uso (ver /boas-vindas). */
+  onboardingCompleted: boolean;
+  /** Contas criadas via Google podem não ter senha definida. */
+  hasPassword: boolean;
 }
 
 export async function getToken(): Promise<string | null> {
@@ -51,6 +55,11 @@ export async function requireAuth(redirectTo: string): Promise<{ token: string; 
 
   if (!token || !user) {
     redirect(`/login?next=${encodeURIComponent(redirectTo)}`);
+  }
+
+  // Conta criada via Google sem tipo de uso definido: escolhe primeiro, depois segue pro destino.
+  if (!user.onboardingCompleted) {
+    redirect(`/boas-vindas?next=${encodeURIComponent(redirectTo)}`);
   }
 
   return { token, user };

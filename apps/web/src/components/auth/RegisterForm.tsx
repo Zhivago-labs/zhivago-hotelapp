@@ -5,6 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { Eye, EyeOff, User, Building2 } from "lucide-react";
 import { registerAction } from "@/lib/actions/auth";
+import { GoogleSignInButton } from "./GoogleSignInButton";
 import styles from "./AuthForm.module.css";
 
 export function RegisterForm({ next }: { next?: string }) {
@@ -189,6 +190,10 @@ export function RegisterForm({ next }: { next?: string }) {
         <span className={styles.dividerLine} />
         <span className={styles.dividerText}>ou</span>
         <span className={styles.dividerLine} />
+      </div>
+
+      <div className={styles.socialButtons}>
+        <GoogleSignInButton next={next} />
       </div>
 
       <div className={styles.footerRow}>

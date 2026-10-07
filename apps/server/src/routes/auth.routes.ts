@@ -3,6 +3,8 @@ import { authenticate } from '../middlewares/authenticate.js';
 import {
   register,
   login,
+  firebaseLogin,
+  completeOnboarding,
   me,
   updateMe,
   updateAvatar,
@@ -17,6 +19,12 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
   // POST /auth/login — login público
   app.post('/auth/login', login);
+
+  // POST /auth/firebase — login/cadastro com Google (ID token do Firebase Auth)
+  app.post('/auth/firebase', firebaseLogin);
+
+  // POST /auth/onboarding — escolha do tipo de uso (pessoal ou imobiliária) após login com Google
+  app.post('/auth/onboarding', { preHandler: [authenticate] }, completeOnboarding);
 
   // GET /auth/me — perfil do usuário logado
   app.get('/auth/me', { preHandler: [authenticate] }, me);
