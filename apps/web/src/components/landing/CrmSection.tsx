@@ -55,6 +55,7 @@ export function CrmSection() {
 
           {/* Showcase com abas interativas */}
           <CrmInteractiveShowcase />
+          <p className={styles.mockNote}>Telas ilustrativas, com nomes e números de exemplo.</p>
 
           {/* Destaques das Funcionalidades do CRM */}
           <div className={styles.crmFeatGrid}>

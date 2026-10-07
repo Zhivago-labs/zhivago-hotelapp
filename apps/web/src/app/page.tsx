@@ -1,50 +1,29 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { Fraunces, Inter } from "next/font/google";
 import type { Listing } from "@zhivago/shared";
 import { getListings } from "@/lib/api";
 import { getSessionUser } from "@/lib/session";
 import { LandingNav } from "@/components/landing/LandingNav";
-import { LandingHero } from "@/components/landing/LandingHero";
-import { PropertyDiscoverySection } from "@/components/landing/PropertyDiscoverySection";
-import { ExperienceSection } from "@/components/landing/ExperienceSection";
-import { TestimonialsSection } from "@/components/landing/TestimonialsSection";
-import { TransitionBand } from "@/components/landing/TransitionBand";
-import { CrmSection } from "@/components/landing/CrmSection";
+import { HomeHero } from "@/components/landing/HomeHero";
+import { LocationsSection } from "@/components/landing/LocationsSection";
+import { FeaturedListingsSection } from "@/components/landing/FeaturedListingsSection";
+import { WhyZhivagoSection } from "@/components/landing/WhyZhivagoSection";
+import { ChatSection } from "@/components/landing/ChatSection";
 import { ListYourPropertySection } from "@/components/landing/ListYourPropertySection";
+import { AgencyTeaserSection } from "@/components/landing/AgencyTeaserSection";
 import { FaqSection } from "@/components/landing/FaqSection";
-import { CtaSection } from "@/components/landing/CtaSection";
 import { LandingFooter } from "@/components/landing/LandingFooter";
+import { fraunces, inter } from "@/components/landing/fonts";
+import { byRelevance, citySummaries, locationSuggestions } from "@/components/landing/home-data";
 import styles from "./page.module.css";
 
-// Tipografia exclusiva da landing page (Fraunces nos títulos, Inter no corpo)
-const fraunces = Fraunces({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  variable: "--font-landing-serif",
-});
+export const metadata: Metadata = {
+  title: { absolute: "Zhivago — Imóveis para comprar, alugar ou temporada" },
+  description:
+    "Encontre casas e apartamentos para comprar, alugar ou ficar por temporada e fale direto com quem anuncia pelo chat do Zhivago.",
+};
 
-const inter = Inter({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  variable: "--font-landing-sans",
-});
-
-// Critério de relevância: contagem de visualizações com desempate por mais recente
-function byRelevance(a: Listing, b: Listing): number {
-  if (b.viewCount !== a.viewCount) return b.viewCount - a.viewCount;
-  return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-}
-
-function topLocations(listings: Listing[], limit: number): string[] {
-  const counts = new Map<string, number>();
-  for (const listing of listings) {
-    counts.set(listing.location, (counts.get(listing.location) ?? 0) + 1);
-  }
-  return Array.from(counts.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, limit)
-    .map(([location]) => location);
-}
+const FEATURED_LIMIT = 6;
 
 export default async function LandingPage() {
   const user = await getSessionUser();
@@ -63,26 +42,24 @@ export default async function LandingPage() {
     loadError = true;
   }
 
-  const withPhoto = listings.filter((listing) => listing.images.length > 0);
-  const sorted = [...withPhoto].sort(byRelevance);
-  const featuredListing = sorted[0] ?? null;
-  const editorialListing = sorted[1] ?? featuredListing;
-  const discoveryListings = sorted.slice(0, 9);
-  const locations = topLocations(listings, 6);
+  // Destaques só com foto — um card sem imagem não vende o imóvel na vitrine da home.
+  const featured = listings
+    .filter((listing) => listing.images.length > 0)
+    .sort(byRelevance)
+    .slice(0, FEATURED_LIMIT);
 
   return (
     <div className={`${styles.landingRoot} ${fraunces.variable} ${inter.variable}`}>
       <LandingNav />
       <main>
-        <LandingHero featuredListing={featuredListing} locations={locations} />
-        <PropertyDiscoverySection listings={discoveryListings} loadError={loadError} />
-        <ExperienceSection featuredImage={editorialListing?.images[0]?.url ?? null} />
-        <TestimonialsSection />
-        <TransitionBand />
-        <CrmSection />
+        <HomeHero suggestions={locationSuggestions(listings)} />
+        <LocationsSection cities={citySummaries(listings)} />
+        <FeaturedListingsSection listings={featured} loadError={loadError} />
+        <WhyZhivagoSection />
+        <ChatSection />
         <ListYourPropertySection />
+        <AgencyTeaserSection />
         <FaqSection />
-        <CtaSection />
       </main>
       <LandingFooter />
     </div>

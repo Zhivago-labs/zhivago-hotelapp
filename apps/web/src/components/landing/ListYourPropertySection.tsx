@@ -3,9 +3,9 @@ import shared from "./shared.module.css";
 import styles from "./ListYourPropertySection.module.css";
 
 const STEPS = [
-  { title: "Cadastre o imóvel", text: "Nome, fotos, preço, tipo e características do espaço." },
-  { title: "Aguarde a moderação", text: "A equipe Zhivago revisa antes da publicação." },
-  { title: "Receba interessados", text: "O imóvel aparece na busca e as conversas chegam no inbox." },
+  { title: "Cadastre", text: "Fotos, preço e as características do imóvel." },
+  { title: "Publique", text: "Depois de aprovado, o anúncio aparece na busca." },
+  { title: "Receba interessados", text: "As conversas chegam direto nas suas mensagens." },
 ];
 
 export function ListYourPropertySection() {
@@ -14,10 +14,10 @@ export function ListYourPropertySection() {
       <div className={shared.wrap}>
         <div className={styles.top}>
           <div className={styles.copy}>
-            <div className={shared.sectionKicker}>Para proprietários e imobiliárias</div>
-            <h2 className={shared.sectionTitle}>Tem um imóvel pra anunciar?</h2>
+            <div className={shared.sectionKicker}>Para proprietários</div>
+            <h2 className={shared.sectionTitle}>Tem um imóvel para anunciar?</h2>
             <p className={shared.sectionSub}>
-              Coloque seu imóvel na frente de quem está procurando o próximo lugar pra morar.
+              Publique seu imóvel e comece a receber interessados pelo Zhivago.
             </p>
           </div>
           <Link href="/anuncios/novo" className={shared.btnPrimary}>

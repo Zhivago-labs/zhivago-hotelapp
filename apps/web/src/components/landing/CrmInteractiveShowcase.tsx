@@ -6,8 +6,8 @@ import { MetricsCardMock } from "./MetricsCardMock";
 import styles from "./CrmInteractiveShowcase.module.css";
 
 const ROLES = [
-  { role: "Proprietário", access: "Total", desc: "Acesso administrativo completo, faturamento e configurações de conta." },
-  { role: "Administrador", access: "Gestão", desc: "Gerencia membros da equipe, regras de moderação e integrações." },
+  { role: "Proprietário", access: "Total", desc: "Acesso completo à organização, à equipe e às configurações." },
+  { role: "Administrador", access: "Gestão", desc: "Gerencia membros da equipe, aprova anúncios e define a distribuição de leads." },
   { role: "Gerente", access: "Supervisão", desc: "Acompanha desempenho da equipe, redistribui leads e monitora metas." },
   { role: "Corretor", access: "Operação", desc: "Atende leads atribuídos, registra notas de visita e atualiza propostas." },
   { role: "Assistente", access: "Suporte", desc: "Auxilia no cadastro de imóveis com acesso restrito a dados dos clientes." },

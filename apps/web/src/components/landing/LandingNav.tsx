@@ -37,14 +37,17 @@ export function LandingNav() {
           <Link href="/anuncios/novo" className={styles.navLink}>
             Anunciar imóvel
           </Link>
-          <Link href="#crm" className={styles.navLink}>
+          <Link href="/para-imobiliarias" className={styles.navLink}>
             Para imobiliárias
+          </Link>
+          <Link href="/favoritos" className={styles.navLink}>
+            Favoritos
           </Link>
           <Link href="/login" className={styles.navLink}>
             Entrar
           </Link>
           <Link href="/cadastro" className={styles.navCta}>
-            Cadastre-se
+            Criar conta
           </Link>
           <button
             type="button"
@@ -73,14 +76,17 @@ export function LandingNav() {
         <Link href="/anuncios/novo" onClick={() => setMenuOpen(false)}>
           Anunciar imóvel
         </Link>
-        <Link href="#crm" onClick={() => setMenuOpen(false)}>
+        <Link href="/para-imobiliarias" onClick={() => setMenuOpen(false)}>
           Para imobiliárias
+        </Link>
+        <Link href="/favoritos" onClick={() => setMenuOpen(false)}>
+          Favoritos
         </Link>
         <Link href="/login" onClick={() => setMenuOpen(false)}>
           Entrar
         </Link>
         <Link href="/cadastro" onClick={() => setMenuOpen(false)}>
-          Cadastre-se
+          Criar conta
         </Link>
       </div>
     </nav>

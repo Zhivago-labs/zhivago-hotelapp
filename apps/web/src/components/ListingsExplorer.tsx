@@ -29,7 +29,8 @@ import {
 } from "@/lib/recent-activity";
 import styles from "./ListingsExplorer.module.css";
 
-type Category = "todos" | "aluguel" | "venda";
+// "aluguel" = aluguel mensal; "temporada" = diária (operationType DAILY_RENT), mesma divisão da busca da home.
+export type Category = "todos" | "aluguel" | "venda" | "temporada";
 type SortOption = "relevance" | "newest" | "price_asc" | "price_desc";
 type OwnerFilter = "todos" | "proprietario" | "imobiliaria";
 
@@ -76,6 +77,8 @@ export function ListingsExplorer({
   initialQuery = "",
   initialType = null,
   initialCategory = "todos",
+  initialMinPrice = "",
+  initialMaxPrice = "",
 }: {
   listings: Listing[];
   isAdmin?: boolean;
@@ -85,6 +88,8 @@ export function ListingsExplorer({
   initialQuery?: string;
   initialType?: ListingType | null;
   initialCategory?: Category;
+  initialMinPrice?: string;
+  initialMaxPrice?: string;
 }) {
   const [query, setQuery] = useState(initialQuery);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -97,8 +102,8 @@ export function ListingsExplorer({
   const [minBedrooms, setMinBedrooms] = useState<number | null>(null);
   const [minBathrooms, setMinBathrooms] = useState<number | null>(null);
   const [minParking, setMinParking] = useState<number | null>(null);
-  const [minPrice, setMinPrice] = useState<string>("");
-  const [maxPrice, setMaxPrice] = useState<string>("");
+  const [minPrice, setMinPrice] = useState<string>(initialMinPrice);
+  const [maxPrice, setMaxPrice] = useState<string>(initialMaxPrice);
   const [selectedAmenities, setSelectedAmenities] = useState<string[]>([]);
   const [ownerFilter, setOwnerFilter] = useState<OwnerFilter>("todos");
   const [sortOption, setSortOption] = useState<SortOption>("relevance");
@@ -138,9 +143,19 @@ export function ListingsExplorer({
 
     const data = listings.filter((item) => {
       const matchesType = !activeType || item.type === activeType;
-      const matchesCategory = activeCategory === "todos" || item.category === activeCategory;
+      const matchesCategory =
+        activeCategory === "todos" ||
+        (activeCategory === "temporada"
+          ? item.operationType === "DAILY_RENT"
+          : activeCategory === "aluguel"
+            ? item.category === "aluguel" && item.operationType !== "DAILY_RENT"
+            : item.category === activeCategory);
       const matchesQuery =
-        !q || item.name.toLowerCase().includes(q) || item.location.toLowerCase().includes(q);
+        !q ||
+        item.name.toLowerCase().includes(q) ||
+        item.location.toLowerCase().includes(q) ||
+        (item.cidade ?? "").toLowerCase().includes(q) ||
+        (item.bairro ?? "").toLowerCase().includes(q);
 
       const matchesBedrooms = minBedrooms === null || (item.bedrooms || 0) >= minBedrooms;
       const matchesBathrooms = minBathrooms === null || (item.bathrooms || 0) >= minBathrooms;
@@ -359,6 +374,11 @@ export function ListingsExplorer({
             label="Comprar"
             active={activeCategory === "venda"}
             onClick={() => setActiveCategory(activeCategory === "venda" ? "todos" : "venda")}
+          />
+          <FilterChip
+            label="Temporada"
+            active={activeCategory === "temporada"}
+            onClick={() => setActiveCategory(activeCategory === "temporada" ? "todos" : "temporada")}
           />
         </div>
 

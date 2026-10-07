@@ -15,12 +15,37 @@ const TYPE_LABELS: Record<Listing["type"], string> = {
   apartamento: "Apartamento",
 };
 
-const CATEGORY_LABELS: Record<Listing["category"], string> = {
-  aluguel: "Aluguel",
-  venda: "Venda",
+// Rótulo pela operação real (operationType) — diária aparece como Temporada, não como Aluguel.
+const OPERATION_LABELS: Record<Listing["operationType"], string> = {
+  SALE: "Venda",
+  MONTHLY_RENT: "Aluguel",
+  DAILY_RENT: "Temporada",
 };
 
-export function ListingCard({ listing, isAdmin = false }: { listing: Listing; isAdmin?: boolean }) {
+/**
+ * Bairro e cidade, sem rua/número. Usa a localização estruturada quando existe; anúncios antigos só
+ * têm o texto livre "Rua X, 53 - Bairro - Cidade, UF" — aí descarta o 1º trecho (logradouro).
+ */
+function shortLocation(listing: Listing): string {
+  const parts = [listing.bairro, listing.cidade && listing.uf ? `${listing.cidade} - ${listing.uf}` : listing.cidade]
+    .map((part) => part?.trim())
+    .filter(Boolean);
+  if (parts.length > 0) return parts.join(", ");
+
+  const segments = listing.location.split(" - ").map((part) => part.trim()).filter(Boolean);
+  return segments.length > 1 ? segments.slice(1).join(" - ") : listing.location;
+}
+
+export function ListingCard({
+  listing,
+  isAdmin = false,
+  compactLocation = false,
+}: {
+  listing: Listing;
+  isAdmin?: boolean;
+  // Home: mostra só bairro/cidade, sem endereço completo.
+  compactLocation?: boolean;
+}) {
   // Garantir fallback idêntico ao do mobile
   const bedrooms = listing.bedrooms || 0;
   const bathrooms = listing.bathrooms || 0;
@@ -139,7 +164,7 @@ export function ListingCard({ listing, isAdmin = false }: { listing: Listing; is
         <Link href={`/imovel/${listing.id}`} className={styles.info}>
           <div className={styles.tagRow}>
             <span className={styles.typeTag}>{TYPE_LABELS[listing.type]}</span>
-            <span className={styles.categoryTag}>{CATEGORY_LABELS[listing.category]}</span>
+            <span className={styles.categoryTag}>{OPERATION_LABELS[listing.operationType] ?? (listing.category === "venda" ? "Venda" : "Aluguel")}</span>
             {isVerified && (
               <span className={styles.verifiedTag}>
                 <BadgeCheck size={12} />
@@ -148,7 +173,7 @@ export function ListingCard({ listing, isAdmin = false }: { listing: Listing; is
             )}
           </div>
           <h3 className={styles.name}>{listing.name}</h3>
-          <p className={styles.location}>{listing.location}</p>
+          <p className={styles.location}>{compactLocation ? shortLocation(listing) : listing.location}</p>
           <div className={styles.amenities}>
             <span className={styles.amenityItem} title={`${bedrooms} quartos`}>
               <BedDouble size={15} />

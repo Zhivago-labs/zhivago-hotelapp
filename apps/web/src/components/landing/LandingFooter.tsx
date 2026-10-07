@@ -4,25 +4,36 @@ import styles from "./LandingFooter.module.css";
 
 const GROUPS: { title: string; links: { label: string; href: string }[] }[] = [
   {
-    title: "Marketplace",
+    title: "Explorar",
     links: [
-      { label: "Explorar imóveis", href: "/imoveis" },
-      { label: "Favoritos", href: "/favoritos" },
-      { label: "Anunciar imóvel", href: "/anuncios/novo" },
+      { label: "Comprar", href: "/imoveis?categoria=venda" },
+      { label: "Alugar", href: "/imoveis?categoria=aluguel" },
+      { label: "Temporada", href: "/imoveis?categoria=temporada" },
+      { label: "Todos os imóveis", href: "/imoveis" },
     ],
   },
   {
-    title: "Imobiliárias",
+    title: "Para anunciantes",
     links: [
-      { label: "Para imobiliárias", href: "#crm" },
-      { label: "Criar organização", href: "/cadastro" },
+      { label: "Anunciar imóvel", href: "/anuncios/novo" },
+      { label: "Para imobiliárias", href: "/para-imobiliarias" },
+    ],
+  },
+  {
+    title: "Zhivago",
+    links: [
+      { label: "Ajuda", href: "/ajuda" },
+      { label: "Termos de uso", href: "/termos" },
+      { label: "Privacidade", href: "/privacidade" },
     ],
   },
   {
     title: "Conta",
     links: [
       { label: "Entrar", href: "/login" },
-      { label: "Cadastre-se", href: "/cadastro" },
+      { label: "Criar conta", href: "/cadastro" },
+      { label: "Favoritos", href: "/favoritos" },
+      { label: "Mensagens", href: "/inbox" },
     ],
   },
 ];

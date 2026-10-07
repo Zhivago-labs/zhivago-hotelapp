@@ -6,7 +6,7 @@ import { MessageCircle } from "lucide-react";
 import { useChatSocket } from "./ChatSocketProvider";
 import styles from "./FloatingChatButton.module.css";
 
-const HIDDEN_ROUTES = ["/", "/login", "/cadastro", "/esqueci-senha", "/redefinir-senha"];
+const HIDDEN_ROUTES = ["/", "/para-imobiliarias", "/login", "/cadastro", "/esqueci-senha", "/redefinir-senha"];
 
 export function FloatingChatButton() {
   const pathname = usePathname();

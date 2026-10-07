@@ -3,14 +3,23 @@ import type { Metadata } from "next";
 import type { Listing, ListingType } from "@zhivago/shared";
 import { getListings } from "@/lib/api";
 import { getSessionUser } from "@/lib/session";
-import { ListingsExplorer } from "@/components/ListingsExplorer";
+import { ListingsExplorer, type Category } from "@/components/ListingsExplorer";
 import styles from "./page.module.css";
 
 export const metadata: Metadata = { title: "Explorar imóveis" };
 
 const LISTING_TYPES: ListingType[] = ["casa", "apartamento"];
 
-type Props = { searchParams: Promise<{ q?: string; tipo?: string; categoria?: string }> };
+type Props = {
+  searchParams: Promise<{ q?: string; tipo?: string; categoria?: string; precoMin?: string; precoMax?: string }>;
+};
+
+const CATEGORIES: Category[] = ["aluguel", "venda", "temporada"];
+
+/** Só aceita inteiros positivos — o resto é ignorado em vez de quebrar o filtro. */
+function parsePrice(value?: string): string {
+  return value && /^\d{1,10}$/.test(value) ? value : "";
+}
 
 export default async function ImoveisPage({ searchParams }: Props) {
   let listings: Listing[];
@@ -22,11 +31,11 @@ export default async function ImoveisPage({ searchParams }: Props) {
     redirect("/dashboard");
   }
 
-  // ?q=&tipo=&categoria= vêm da busca do hero da home — mesma sintaxe validada aqui e usada
-  // pra inicializar o filtro do ListingsExplorer, em vez de servir só de decoração.
-  const { q, tipo, categoria } = await searchParams;
+  // ?q=&tipo=&categoria=&precoMin=&precoMax= vêm da busca do hero da home — validados aqui e
+  // usados pra inicializar o filtro do ListingsExplorer, em vez de servir só de decoração.
+  const { q, tipo, categoria, precoMin, precoMax } = await searchParams;
   const initialType = LISTING_TYPES.includes(tipo as ListingType) ? (tipo as ListingType) : null;
-  const initialCategory = categoria === "aluguel" || categoria === "venda" ? categoria : "todos";
+  const initialCategory = CATEGORIES.includes(categoria as Category) ? (categoria as Category) : "todos";
 
   try {
     listings = await getListings();
@@ -39,7 +48,7 @@ export default async function ImoveisPage({ searchParams }: Props) {
     <main className={styles.main}>
       <div className={styles.heroSection}>
         <h1 className={styles.title}>Explorar imóveis</h1>
-        <p className={styles.subtitle}>Casas e apartamentos para alugar ou comprar.</p>
+        <p className={styles.subtitle}>Casas e apartamentos para comprar, alugar ou ficar por temporada.</p>
       </div>
 
       <ListingsExplorer
@@ -49,6 +58,8 @@ export default async function ImoveisPage({ searchParams }: Props) {
         initialQuery={q ?? ""}
         initialType={initialType}
         initialCategory={initialCategory}
+        initialMinPrice={parsePrice(precoMin)}
+        initialMaxPrice={parsePrice(precoMax)}
       />
     </main>
   );

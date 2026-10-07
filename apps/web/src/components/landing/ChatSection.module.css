@@ -1,0 +1,134 @@
+.section {
+  padding: 72px 0;
+}
+
+.inner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 420px);
+  align-items: center;
+  gap: 56px;
+}
+
+.copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 24px;
+}
+
+.copy p {
+  margin-top: 0;
+  max-width: 460px;
+}
+
+.mock {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 8px 28px rgba(18, 21, 28, 0.07);
+  overflow: hidden;
+}
+
+.mockHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--paper-2);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.mockName {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.mockListing {
+  font-size: 12px;
+  color: var(--slate);
+}
+
+.messages {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px;
+  background: #fdfbf8;
+}
+
+.msgIn,
+.msgOut {
+  max-width: 85%;
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 14px;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.msgOut {
+  align-self: flex-end;
+  background: var(--ink);
+  color: #ffffff;
+  border-bottom-right-radius: 4px;
+}
+
+.msgIn {
+  align-self: flex-start;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-bottom-left-radius: 4px;
+}
+
+.offer {
+  align-self: flex-end;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 200px;
+  padding: 12px 14px;
+  border: 1px solid var(--sand);
+  border-radius: 12px;
+  background: #ffffff;
+  font-size: 13px;
+}
+
+.offerLabel {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--coral-deep);
+}
+
+.offer strong {
+  font-size: 17px;
+}
+
+.offerStatus {
+  color: var(--slate);
+}
+
+@media (max-width: 860px) {
+  .inner {
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
+}
+
+@media (max-width: 560px) {
+  .section {
+    padding: 48px 0;
+  }
+}

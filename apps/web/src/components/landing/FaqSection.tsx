@@ -6,28 +6,28 @@ import styles from "./FaqSection.module.css";
 
 const FAQ = [
   {
-    q: "É grátis pra procurar ou anunciar um imóvel?",
-    a: "Sim. Criar conta, buscar imóveis e publicar seu próprio anúncio não custa nada.",
+    q: "É grátis procurar imóveis?",
+    a: "Sim. Buscar, ver os detalhes e salvar favoritos não custa nada e não exige conta. Anunciar também é gratuito.",
   },
   {
-    q: "Preciso pagar pra falar com quem anuncia?",
-    a: "Não. A conversa acontece direto pelo chat da plataforma, sem custo e sem intermediário.",
+    q: "Preciso criar uma conta para entrar em contato?",
+    a: "Sim. Para conversar com quem anuncia, pedir uma reserva ou enviar uma proposta, é preciso entrar. O cadastro é gratuito e pode ser feito com e-mail ou com sua conta Google.",
+  },
+  {
+    q: "Como funciona o chat?",
+    a: "Na página do imóvel, você abre uma conversa com quem anuncia. Ela fica salva nas suas mensagens, onde vocês tiram dúvidas, combinam visitas e trocam propostas de valor.",
+  },
+  {
+    q: "Os anúncios são verificados?",
+    a: "Todo anúncio passa por aprovação antes de aparecer na busca: os de pessoas físicas pela equipe Zhivago e os de imobiliárias pela própria imobiliária. O selo “Verificado” aparece só em anúncios de imobiliárias aprovadas pela equipe Zhivago.",
+  },
+  {
+    q: "Posso anunciar meu imóvel?",
+    a: "Sim. Crie sua conta, cadastre o imóvel com fotos, preço e características e envie para aprovação. Depois de aprovado, ele aparece na busca.",
   },
   {
     q: "Como funciona a reserva por temporada?",
-    a: "Você escolhe as datas de check-in e check-out e envia um pedido de reserva; o anunciante confirma, recusa ou negocia pelo chat.",
-  },
-  {
-    q: "Também dá pra alugar por mês, não só por temporada?",
-    a: "Sim. Além da temporada (diária) e da venda, existe o aluguel mensal — negociado direto no chat com quem anuncia.",
-  },
-  {
-    q: "Todo anúncio passa por revisão?",
-    a: "Sim, cada anúncio é moderado antes de ficar público, pra manter o marketplace confiável pra quem procura e pra quem anuncia.",
-  },
-  {
-    q: "Consigo salvar os imóveis que eu gostei?",
-    a: "Sim. Use o botão de favoritos em qualquer anúncio e volte a eles quando quiser, sem perder o histórico de busca.",
+    a: "Você escolhe as datas de entrada e saída e envia um pedido de reserva. Quem anuncia confirma, recusa ou negocia com você pelo chat.",
   },
 ];
 
@@ -38,8 +38,7 @@ export function FaqSection() {
     <section className={styles.section} id="faq">
       <div className={shared.wrap}>
         <div className={shared.sectionHead}>
-          <div className={shared.sectionKicker}>Perguntas frequentes</div>
-          <h2 className={shared.sectionTitle}>Antes de começar</h2>
+          <h2 className={shared.sectionTitle}>Perguntas frequentes</h2>
         </div>
 
         <div className={styles.list}>
