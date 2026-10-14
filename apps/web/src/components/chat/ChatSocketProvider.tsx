@@ -16,6 +16,8 @@ export interface AppNotification {
 
 interface ChatSocketContextValue {
   socket: Socket | null;
+  /** Se o socket está conectado agora — a tela de conversa mostra "Reconectando…" quando não. */
+  isConnected: boolean;
   unreadCount: number;
   refreshUnreadCount: () => void;
   isSidebarOpen: boolean;
@@ -34,6 +36,7 @@ interface ChatSocketContextValue {
 
 const ChatSocketContext = createContext<ChatSocketContextValue>({
   socket: null,
+  isConnected: false,
   unreadCount: 0,
   refreshUnreadCount: () => {},
   isSidebarOpen: false,
@@ -64,6 +67,7 @@ export function ChatSocketProvider({
   children: React.ReactNode;
 }) {
   const [socket, setSocket] = useState<Socket | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
@@ -159,6 +163,14 @@ export function ChatSocketProvider({
 
     const newSocket = io(getPublicApiUrl(), { auth: { token } });
     newSocket.on("receiveMessage", () => refreshUnreadCount());
+    // Reconexão (o Cloud Run derruba conexões longas): o que chegou enquanto estava desconectado
+    // não é reenviado pelo servidor — o contador se recalcula aqui e cada tela de conversa aberta
+    // ressincroniza as próprias mensagens no mesmo evento.
+    newSocket.on("connect", () => {
+      setIsConnected(true);
+      refreshUnreadCount();
+    });
+    newSocket.on("disconnect", () => setIsConnected(false));
     newSocket.on("receiveNotification", (notification: AppNotification) => {
       setNotifications((prev) => [notification, ...prev]);
       setUnreadNotificationCount((prev) => prev + 1);
@@ -170,6 +182,7 @@ export function ChatSocketProvider({
     return () => {
       newSocket.disconnect();
       setSocket(null);
+      setIsConnected(false);
       setUser(null);
       setUnreadCount(0);
       setNotifications([]);
@@ -182,6 +195,7 @@ export function ChatSocketProvider({
     <ChatSocketContext.Provider
       value={{
         socket,
+        isConnected,
         unreadCount,
         refreshUnreadCount,
         isSidebarOpen,

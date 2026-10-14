@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState, Suspense, useMemo } from "react";
+import { useCallback, useEffect, useState, Suspense, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { X, ArrowLeft, MessageCircle, Search, Building2 } from "lucide-react";
 import { useChatSocket } from "./ChatSocketProvider";
 import { ChatConversation } from "./ChatConversation";
+import { avatarUrl, messagePreview } from "./chat-utils";
 import { getPublicApiUrl } from "@/lib/public-api";
 import type { ConversationListItem, ConversationDetail, ChatMessage } from "@/lib/chat-api";
 import styles from "./ChatSidebar.module.css";
@@ -71,6 +72,16 @@ function DetailSkeleton() {
   );
 }
 
+/**
+ * Conversa carregada, sempre junto do id que foi pedido. A tela de detalhe só aparece quando o
+ * `id` bate com a conversa ativa — antes a conversa anterior continuava montada durante a troca e,
+ * como o componente não era remontado, seguia mostrando as mensagens antigas (ou da conversa
+ * errada) mesmo depois de os dados novos chegarem.
+ */
+type LoadedDetail =
+  | { id: string; conversation: ConversationDetail; messages: ChatMessage[]; error?: undefined }
+  | { id: string; error: string; conversation?: undefined; messages?: undefined };
+
 export function ChatSidebar() {
   const {
     isSidebarOpen,
@@ -80,94 +91,75 @@ export function ChatSidebar() {
     closeSidebar,
     selectConversation,
     socket,
-    refreshUnreadCount,
   } = useChatSocket();
 
-  const [conversations, setConversations] = useState<ConversationListItem[]>([]);
-  const [loadingList, setLoadingList] = useState(false);
-  const [activeConversation, setActiveConversation] = useState<ConversationDetail | null>(null);
-  const [activeMessages, setActiveMessages] = useState<ChatMessage[]>([]);
-  const [loadingDetail, setLoadingDetail] = useState(false);
-  const [detailError, setDetailError] = useState<string | null>(null);
+  const [conversations, setConversations] = useState<ConversationListItem[] | null>(null);
+  const [detail, setDetail] = useState<LoadedDetail | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Carrega a lista de conversas ao abrir a sidebar
-  useEffect(() => {
-    if (!isSidebarOpen || !token) return;
-
-    let ignore = false;
+  const loadConversations = useCallback(() => {
+    if (!token) return;
     fetch(`${getPublicApiUrl()}/conversations`, {
       headers: { Authorization: `Bearer ${token}` },
     })
-      .then((res) => (res.ok ? res.json() : []))
-      .then((data) => {
-        if (!ignore) {
-          setConversations(data);
-          setLoadingList(false);
-        }
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: ConversationListItem[] | null) => {
+        if (data) setConversations(data);
       })
-      .catch(() => {
-        if (!ignore) setLoadingList(false);
-      });
+      .catch(() => {});
+  }, [token]);
 
-    return () => {
-      ignore = true;
-    };
-  }, [isSidebarOpen, token]);
-
-  // Atualiza a lista quando recebe mensagem via socket em tempo real
+  // Lista de conversas: recarrega toda vez que a sidebar abre (não só na primeira).
   useEffect(() => {
-    if (!socket || !token) return;
-    const handleReceive = () => {
-      fetch(`${getPublicApiUrl()}/conversations`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-        .then((res) => (res.ok ? res.json() : []))
-        .then((data) => setConversations(data))
-        .catch(() => {});
-      refreshUnreadCount();
-    };
-    socket.on("receiveMessage", handleReceive);
-    return () => {
-      socket.off("receiveMessage", handleReceive);
-    };
-  }, [socket, token, refreshUnreadCount]);
+    if (!isSidebarOpen) return;
+    loadConversations();
+  }, [isSidebarOpen, loadConversations]);
 
-  // Carrega os detalhes e mensagens da conversa selecionada
+  // Atualiza a lista com mensagem nova e na reconexão (o que chegou durante a queda não vem pelo
+  // socket). O contador de não lidas já é atualizado pelo provider nesses mesmos eventos.
   useEffect(() => {
-    if (!activeConversationId || !token) return;
+    if (!socket || !isSidebarOpen) return;
+    socket.on("receiveMessage", loadConversations);
+    socket.on("connect", loadConversations);
+    return () => {
+      socket.off("receiveMessage", loadConversations);
+      socket.off("connect", loadConversations);
+    };
+  }, [socket, isSidebarOpen, loadConversations]);
+
+  // Detalhe da conversa ativa: busca de novo a cada abertura da sidebar e a cada troca de
+  // conversa. O cleanup descarta o que estava carregado, então a tela mostra o skeleton em vez da
+  // conversa anterior enquanto a nova chega.
+  useEffect(() => {
+    if (!isSidebarOpen || !activeConversationId || !token) return;
 
     let ignore = false;
+    const headers = { Authorization: `Bearer ${token}` };
     Promise.all([
-      fetch(`${getPublicApiUrl()}/conversations/${activeConversationId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      }).then((res) => (res.ok ? res.json() : null)),
-      fetch(`${getPublicApiUrl()}/conversations/${activeConversationId}/messages`, {
-        headers: { Authorization: `Bearer ${token}` },
-      }).then((res) => (res.ok ? res.json() : [])),
+      fetch(`${getPublicApiUrl()}/conversations/${activeConversationId}`, { headers }).then((res) =>
+        res.ok ? res.json() : null
+      ),
+      fetch(`${getPublicApiUrl()}/conversations/${activeConversationId}/messages`, { headers }).then((res) =>
+        res.ok ? res.json() : null
+      ),
     ])
-      .then(([conv, msgs]) => {
-        if (!ignore) {
-          if (!conv) {
-            setDetailError("Conversa não encontrada.");
-          } else {
-            setActiveConversation(conv);
-            setActiveMessages(msgs);
-          }
-          setLoadingDetail(false);
+      .then(([conversation, messages]: [ConversationDetail | null, ChatMessage[] | null]) => {
+        if (ignore) return;
+        if (!conversation || !messages) {
+          setDetail({ id: activeConversationId, error: "Conversa não encontrada." });
+        } else {
+          setDetail({ id: activeConversationId, conversation, messages });
         }
       })
       .catch(() => {
-        if (!ignore) {
-          setDetailError("Erro ao carregar a conversa.");
-          setLoadingDetail(false);
-        }
+        if (!ignore) setDetail({ id: activeConversationId, error: "Erro ao carregar a conversa." });
       });
 
     return () => {
       ignore = true;
+      setDetail(null);
     };
-  }, [activeConversationId, token]);
+  }, [isSidebarOpen, activeConversationId, token]);
 
   // Atalho ESC para fechar
   useEffect(() => {
@@ -182,6 +174,7 @@ export function ChatSidebar() {
 
   // Filtro de busca na lista de conversas
   const filteredConversations = useMemo(() => {
+    if (!conversations) return [];
     if (!searchQuery.trim()) return conversations;
     const q = searchQuery.toLowerCase();
     return conversations.filter((c) => {
@@ -192,6 +185,10 @@ export function ChatSidebar() {
     });
   }, [conversations, searchQuery, user?.id]);
 
+  const currentDetail = detail && detail.id === activeConversationId ? detail : null;
+  const activeConversation = currentDetail?.conversation ?? null;
+  const activeOther = activeConversation?.participants.find((p) => p.id !== user?.id);
+
   return (
     <>
       {/* O ouvinte de parâmetro de URL deve ficar sempre montado */}
@@ -201,7 +198,7 @@ export function ChatSidebar() {
 
       {isSidebarOpen && (
         <div className={styles.overlay} onClick={closeSidebar}>
-          <aside className={styles.drawer} onClick={(e) => e.stopPropagation()}>
+          <aside className={styles.drawer} onClick={(e) => e.stopPropagation()} aria-label="Mensagens">
             {/* Cabeçalho da Sidebar */}
             <header className={styles.header}>
               <div className={styles.headerLeft}>
@@ -215,14 +212,29 @@ export function ChatSidebar() {
                     <ArrowLeft size={18} />
                   </button>
                 )}
+                {activeConversationId && activeConversation && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={avatarUrl(activeOther?.name, activeOther?.avatar)}
+                    alt=""
+                    className={styles.headerAvatar}
+                  />
+                )}
                 <div className={styles.headerTitleGroup}>
                   <h2 className={styles.title}>
-                    {activeConversationId && activeConversation
-                      ? activeConversation.participants.find((p) => p.id !== user?.id)?.name ?? "Conversa"
+                    {activeConversationId
+                      ? activeConversation
+                        ? activeOther?.name ?? "Aguardando atendimento"
+                        : "Carregando…"
                       : "Mensagens"}
                   </h2>
-                  {activeConversationId && activeConversation?.property && (
-                    <span className={styles.subtitle}>{activeConversation.property.name}</span>
+                  {!activeConversationId && conversations && conversations.length > 0 && (
+                    <span className={styles.subtitle}>
+                      {conversations.length} {conversations.length === 1 ? "conversa" : "conversas"}
+                    </span>
+                  )}
+                  {activeConversationId && activeConversation && !activeOther && (
+                    <span className={styles.subtitle}>Um corretor vai responder em breve</span>
                   )}
                 </div>
               </div>
@@ -243,27 +255,28 @@ export function ChatSidebar() {
                   <p className={styles.emptyText}>Faça login para acessar e responder suas mensagens.</p>
                 </div>
               ) : activeConversationId ? (
-                /* Visualização da Conversa Ativa */
-                loadingDetail ? (
+                /* Visualização da Conversa Ativa — só renderiza com o usuário carregado: sem ele
+                   `currentUser.id` vinha vazio, o viewer não era reconhecido como participante e o
+                   campo de mensagem nem aparecia. */
+                !currentDetail || !user ? (
                   <DetailSkeleton />
-                ) : detailError ? (
+                ) : !currentDetail.conversation ? (
                   <div className={styles.errorContainer}>
-                    <p>{detailError}</p>
+                    <p>{currentDetail.error ?? "Conversa não encontrada."}</p>
                     <button type="button" onClick={() => selectConversation(null)} className={styles.retryButton}>
                       Voltar para lista
                     </button>
                   </div>
-                ) : activeConversation ? (
+                ) : (
                   <div className={styles.conversationWrapper}>
                     <ChatConversation
-                      conversation={activeConversation}
-                      initialMessages={activeMessages}
+                      key={currentDetail.id}
+                      conversation={currentDetail.conversation}
+                      initialMessages={currentDetail.messages}
                       token={token}
-                      currentUser={{ id: user?.id ?? "", role: user?.role ?? "USER", name: user?.name ?? "Usuário" }}
+                      currentUser={{ id: user.id, role: user.role ?? "USER", name: user.name ?? "Usuário" }}
                     />
                   </div>
-                ) : (
-                  <DetailSkeleton />
                 )
               ) : (
                 /* Visualização da Lista de Conversas com Busca */
@@ -289,7 +302,7 @@ export function ChatSidebar() {
                     )}
                   </div>
 
-                  {loadingList ? (
+                  {conversations === null ? (
                     <ListSkeleton />
                   ) : filteredConversations.length === 0 ? (
                     <div className={styles.emptyState}>
@@ -315,31 +328,26 @@ export function ChatSidebar() {
                         const other = c.participants.find((p) => p.id !== user?.id);
                         const lastMessage = c.messages[0];
                         const unread = c._count?.messages ?? 0;
-                        const isActive = activeConversationId === c.id;
 
                         return (
                           <button
                             key={c.id}
                             type="button"
-                            className={`${styles.item} ${isActive ? styles.itemActive : ""}`}
+                            className={`${styles.item} ${unread > 0 ? styles.itemUnread : ""}`}
                             onClick={() => selectConversation(c.id)}
                           >
                             <div className={styles.avatarWrapper}>
                               {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img
-                                src={
-                                  other?.avatar ??
-                                  `https://ui-avatars.com/api/?name=${encodeURIComponent(other?.name ?? "?")}&background=E2E8F0&color=1E293B`
-                                }
-                                alt={other?.name ?? "Usuário"}
-                                className={styles.avatar}
-                              />
-                              <span className={styles.onlineDot} />
+                              <img src={avatarUrl(other?.name, other?.avatar)} alt="" className={styles.avatar} />
+                              {c.property.image && (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={c.property.image} alt="" className={styles.propertyThumb} />
+                              )}
                             </div>
 
                             <div className={styles.itemBody}>
                               <div className={styles.itemRow}>
-                                <span className={styles.itemName}>{other?.name ?? "Usuário"}</span>
+                                <span className={styles.itemName}>{other?.name ?? "Aguardando atendimento"}</span>
                                 {lastMessage && (
                                   <span className={styles.itemTime}>{formatTime(lastMessage.createdAt)}</span>
                                 )}
@@ -348,9 +356,11 @@ export function ChatSidebar() {
                               <div className={styles.itemRow}>
                                 <span className={styles.itemPreview}>
                                   {c.isReported && <span className={styles.reportedBadge}>Denunciada</span>}
-                                  {lastMessage ? lastMessage.content : c.property.name}
+                                  <span className={styles.itemPreviewText}>
+                                    {lastMessage ? messagePreview(lastMessage, user?.id) : "Nenhuma mensagem ainda"}
+                                  </span>
                                 </span>
-                                {unread > 0 && <span className={styles.unreadBadge}>{unread}</span>}
+                                {unread > 0 && <span className={styles.unreadBadge}>{unread > 99 ? "99+" : unread}</span>}
                               </div>
 
                               <div className={styles.propertyTag}>

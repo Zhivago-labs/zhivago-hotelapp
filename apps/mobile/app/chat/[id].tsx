@@ -1,12 +1,50 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform, StyleSheet, Image, ActivityIndicator, Alert, Modal } from 'react-native';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
+import { View, Text, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform, StyleSheet, Image, ActivityIndicator, Alert, Modal, AppState } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
+import type { Negotiation, NegotiationRound } from '@zhivago/shared';
 import { useAuth } from '@/contexts/AuthContext';
 import { useChat } from '@/contexts/ChatContext';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { API_URL } from '@/config/api';
+
+const PAYMENT_METHODS = ['À Vista', 'Financiamento', 'Parcelado', 'Carta de Crédito'];
+
+const ROUND_STATUS_LABEL: Record<string, string> = {
+  ACCEPTED: '✅ Proposta aceita',
+  REJECTED: '❌ Proposta recusada',
+  COUNTERED: '↪ Respondida com contraproposta',
+  WITHDRAWN: '↩ Proposta retirada',
+  EXPIRED: '⌛ Proposta expirada',
+  CANCELLED: 'Proposta cancelada',
+};
+
+const formatBRL = (value: number) =>
+  value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 2 });
+
+function parseMeta(raw: string | null | undefined): any {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Junta mensagens sem duplicar — a mesma mensagem pode chegar pelo callback do envio, pelo socket
+ * (outro aparelho do remetente) e por uma ressincronização. O `id` do banco é a chave.
+ */
+function mergeById(prev: any[], incoming: any[]): any[] {
+  const byId = new Map(prev.map((m) => [m.id, m]));
+  for (const message of incoming) byId.set(message.id, { ...byId.get(message.id), ...message });
+  return [...byId.values()].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+}
+
+function upsertNegotiation(list: Negotiation[], next: Negotiation): Negotiation[] {
+  return list.some((n) => n.id === next.id) ? list.map((n) => (n.id === next.id ? next : n)) : [...list, next];
+}
 
 export default function ChatScreen() {
   const { id } = useLocalSearchParams();
@@ -25,18 +63,88 @@ export default function ChatScreen() {
   const [isClosed, setIsClosed] = useState(false);
   const [isReported, setIsReported] = useState(false);
 
-  // Estados da proposta de compra
+  // Negociação de valor (lib/negotiations.ts no backend) — mesmas regras do web.
+  const [negotiations, setNegotiations] = useState<Negotiation[]>([]);
   const [isOfferModalVisible, setIsOfferModalVisible] = useState(false);
+  const [counterTo, setCounterTo] = useState<NegotiationRound | null>(null);
   const [offerValue, setOfferValue] = useState('');
   const [offerPaymentMethod, setOfferPaymentMethod] = useState('À Vista');
   const [isSubmittingOffer, setIsSubmittingOffer] = useState(false);
-  
+  const [busyRoundId, setBusyRoundId] = useState<string | null>(null);
+
   const flatListRef = useRef<FlatList>(null);
+
+  const viewerSide = canManage ? 'LISTING' : 'CUSTOMER';
+  const openNegotiation = negotiations.find((n) => n.status === 'OPEN');
+  const pendingRound = openNegotiation?.rounds.find((r) => r.status === 'PENDING');
+  const waitingOnOther = !!pendingRound && pendingRound.side === viewerSide;
+  const canNegotiate =
+    !!property && isParticipant && !isClosed && property.acceptsNegotiation && property.status === 'APPROVED';
+
+  const markAsRead = useCallback(async () => {
+    try {
+      await fetch(`${API_URL}/conversations/${id}/read`, {
+        method: 'PATCH',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+    } catch (error) {
+      // Ignorar
+    }
+  }, [id, token]);
+
+  const loadConversation = useCallback(async () => {
+    const convRes = await fetch(`${API_URL}/conversations/${id}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!convRes.ok) return;
+    const currentConv = await convRes.json();
+    setProperty(currentConv.property);
+    setCanManage(!!currentConv.canManage);
+    setAvailableCommands(currentConv.availableCommands ?? []);
+    setIsParticipant(currentConv.participants.some((p: any) => p.id === user?.id));
+    setIsClosed(currentConv.isClosed);
+    setIsReported(currentConv.isReported);
+  }, [id, token, user?.id]);
+
+  /**
+   * Busca de novo conversa, mensagens e negociações. Chamada ao abrir a tela, ao reconectar o
+   * socket e ao voltar o app pro primeiro plano: o servidor não reenvia o que foi emitido enquanto
+   * a conexão estava caída, então sem isso essas mensagens "sumiam" até reabrir a conversa.
+   */
+  const fetchMessagesAndConversation = useCallback(async () => {
+    try {
+      const headers = { 'Authorization': `Bearer ${token}` };
+      const [, msgRes, negRes] = await Promise.all([
+        loadConversation(),
+        fetch(`${API_URL}/conversations/${id}/messages`, { headers }),
+        fetch(`${API_URL}/conversations/${id}/negotiations`, { headers }),
+      ]);
+      if (msgRes.ok) {
+        const msgs = await msgRes.json();
+        setMessages(msgs);
+      }
+      if (negRes.ok) {
+        setNegotiations(await negRes.json());
+      }
+      markAsRead();
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  }, [id, token, loadConversation, markAsRead]);
 
   useEffect(() => {
     fetchMessagesAndConversation();
-    markAsRead();
-  }, [id, token]);
+  }, [fetchMessagesAndConversation]);
+
+  // App voltou pro primeiro plano — a conexão pode ter ficado suspensa em segundo plano.
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') fetchMessagesAndConversation();
+    });
+    return () => subscription.remove();
+  }, [fetchMessagesAndConversation]);
 
   /**
    * ─── ESCUTA DE MENSAGENS NO SOCKET GLOBAL ──────────────────────────────────────────
@@ -48,59 +156,45 @@ export default function ChatScreen() {
 
     const handleReceiveMessage = (message: any) => {
       // Filtro de Segurança: Garante que a mensagem recebida pertence a ESTA conversa aberta
-      if (message.conversationId === id) {
-        setMessages(prev => [...prev, message]);
-        // Se o usuário está com o chat aberto e ativo, marca automaticamente a mensagem como lida no servidor
-        markAsRead();
-      }
+      if (message.conversationId !== id) return;
+      setMessages(prev => mergeById(prev, [message]));
+      // Se o usuário está com o chat aberto e ativo, marca automaticamente a mensagem como lida no servidor
+      if (message.senderId !== user?.id) markAsRead();
+      if (message.type !== 'TEXT') loadConversation().catch(() => {});
+    };
+
+    // Card de reserva respondido pelo outro lado.
+    const handleMessageUpdated = (update: { id: string; type: string; conversationId: string }) => {
+      if (update.conversationId !== id) return;
+      setMessages(prev => prev.map(m => (m.id === update.id ? { ...m, type: update.type } : m)));
+      loadConversation().catch(() => {});
+    };
+
+    // Rodada de negociação nova/aceita/recusada/expirada.
+    const handleNegotiationUpdated = (negotiation: Negotiation) => {
+      if (negotiation.conversationId !== id) return;
+      setNegotiations(prev => upsertNegotiation(prev, negotiation));
+      loadConversation().catch(() => {});
     };
 
     socket.on('receiveMessage', handleReceiveMessage);
+    socket.on('messageUpdated', handleMessageUpdated);
+    socket.on('negotiationUpdated', handleNegotiationUpdated);
+    socket.on('connect', fetchMessagesAndConversation);
 
     return () => {
       socket.off('receiveMessage', handleReceiveMessage);
+      socket.off('messageUpdated', handleMessageUpdated);
+      socket.off('negotiationUpdated', handleNegotiationUpdated);
+      socket.off('connect', fetchMessagesAndConversation);
     };
-  }, [socket, id]);
+  }, [socket, id, user?.id, markAsRead, loadConversation, fetchMessagesAndConversation]);
 
-  const fetchMessagesAndConversation = async () => {
-    try {
-      // Usar a rota de conversa específica
-      const convRes = await fetch(`${API_URL}/conversations/${id}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (convRes.ok) {
-        const currentConv = await convRes.json();
-        setProperty(currentConv.property);
-        setCanManage(!!currentConv.canManage);
-        setAvailableCommands(currentConv.availableCommands ?? []);
-        setIsParticipant(currentConv.participants.some((p: any) => p.id === user?.id));
-        setIsClosed(currentConv.isClosed);
-        setIsReported(currentConv.isReported);
-      }
-
-      const msgRes = await fetch(`${API_URL}/conversations/${id}/messages`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (msgRes.ok) {
-        const msgs = await msgRes.json();
-        setMessages(msgs);
-      }
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const markAsRead = async () => {
-    try {
-      await fetch(`${API_URL}/conversations/${id}/read`, {
-        method: 'PATCH',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-    } catch (error) {
-      // Ignorar
-    }
+  const openOfferModal = (round: NegotiationRound | null) => {
+    setCounterTo(round);
+    setOfferValue('');
+    setOfferPaymentMethod(round?.paymentMethod ?? PAYMENT_METHODS[0]!);
+    setIsOfferModalVisible(true);
   };
 
   const sendOffer = async () => {
@@ -112,7 +206,8 @@ export default function ChatScreen() {
 
     setIsSubmittingOffer(true);
     try {
-      const res = await fetch(`${API_URL}/listings/${property.id}/offers`, {
+      // Mesmo endpoint do web (proposta nova ou contraproposta, conforme a rodada pendente).
+      const res = await fetch(`${API_URL}/conversations/${id}/negotiations/rounds`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -120,18 +215,19 @@ export default function ChatScreen() {
         },
         body: JSON.stringify({
           value: rawVal,
-          paymentMethod: offerPaymentMethod
+          paymentMethod: property?.operationType === 'SALE' ? offerPaymentMethod : null,
         })
       });
 
+      const data = await res.json().catch(() => null);
       if (res.ok) {
-        Alert.alert('Sucesso', 'Sua proposta foi enviada!');
+        if (data?.negotiation) setNegotiations(prev => upsertNegotiation(prev, data.negotiation));
+        if (data?.message) setMessages(prev => mergeById(prev, [data.message]));
         setOfferValue('');
         setIsOfferModalVisible(false);
-        fetchMessagesAndConversation();
+        setCounterTo(null);
       } else {
-        const err = await res.json();
-        Alert.alert('Erro', err.error || 'Não foi possível enviar a proposta.');
+        Alert.alert('Erro', data?.error || 'Não foi possível enviar a proposta.');
       }
     } catch (e) {
       Alert.alert('Erro', 'Verifique sua conexão.');
@@ -140,18 +236,57 @@ export default function ChatScreen() {
     }
   };
 
+  const respondToRound = async (roundId: string, action: 'accept' | 'reject' | 'withdraw') => {
+    setBusyRoundId(roundId);
+    try {
+      const res = await fetch(`${API_URL}/offers/${roundId}/${action}`, {
+        method: 'PATCH',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        Alert.alert('Erro', data?.error || 'Não foi possível concluir a ação.');
+        fetchMessagesAndConversation();
+        return;
+      }
+      if (data?.id) setNegotiations(prev => upsertNegotiation(prev, data));
+    } catch (e) {
+      Alert.alert('Erro', 'Verifique sua conexão.');
+    } finally {
+      setBusyRoundId(null);
+    }
+  };
+
+  const confirmAccept = (roundId: string) => {
+    Alert.alert('Aceitar proposta', 'O valor passa a valer como acordado. Deseja aceitar?', [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Aceitar', onPress: () => respondToRound(roundId, 'accept') },
+    ]);
+  };
+
   const sendContent = (content: string) => {
     if (!content.trim() || !socket || isClosed) return;
+    if (!socket.connected) {
+      Alert.alert('Sem conexão', 'Não foi possível enviar agora. Tente novamente em instantes.');
+      return;
+    }
 
     setInput('');
 
-    socket.emit('sendMessage', { conversationId: id, content: content.trim() }, (response: any) => {
+    socket.timeout(15000).emit('sendMessage', { conversationId: id, content: content.trim() }, (err: Error | null, response: any) => {
+      if (err || !response) {
+        setInput(content);
+        Alert.alert('Erro', 'O servidor não respondeu. Tente novamente.');
+        return;
+      }
       if (response.error) {
         Alert.alert('Erro', response.error);
         return;
       }
       if (response.message) {
-        setMessages(prev => [...prev, response.message]);
+        setMessages(prev => mergeById(prev, [response.message]));
+      } else {
+        loadConversation().catch(() => {});
       }
     });
   };
@@ -227,6 +362,99 @@ export default function ChatScreen() {
     );
   };
 
+  /**
+   * Card de rodada de negociação — antes o app não conhecia esse tipo e mostrava só o texto
+   * ("Proposta: R$ …"), sem botões: a proposta feita pelo app ficava sem como ser respondida aqui.
+   */
+  const renderNegotiationRound = (item: any, isMine: boolean, isAuditor: boolean) => {
+    const meta = parseMeta(item.metadata) ?? {};
+    const negotiation = negotiations.find((n) => n.id === meta.negotiationId);
+    const round = negotiation?.rounds.find((r) => r.id === meta.offerId);
+    const textStyle = [styles.messageText, isMine ? styles.myMessageText : styles.theirMessageText];
+    const mutedColor = isMine ? '#E0E7FF' : '#64748B';
+
+    if (!negotiation || !round) {
+      return (
+        <View>
+          <Text style={[...textStyle, { fontWeight: 'bold', marginBottom: 6 }]}>🤝 Negociação</Text>
+          <Text style={textStyle}>{item.content}</Text>
+        </View>
+      );
+    }
+
+    const suffix = round.unit === 'MONTHLY' ? '/mês' : '';
+    const isPending = round.status === 'PENDING';
+    const fromOtherSide = round.side !== viewerSide;
+    const canAct = isParticipant && !isAuditor && !isClosed && isPending;
+    const busy = busyRoundId === round.id;
+
+    return (
+      <View>
+        <Text style={[...textStyle, { fontWeight: 'bold', marginBottom: 6 }]}>
+          🤝 {round.previousOfferId ? 'Contraproposta' : 'Proposta de valor'}
+        </Text>
+        <Text style={[...textStyle, { fontSize: 18, fontWeight: '800', marginBottom: 4 }]}>
+          {formatBRL(round.value)}{suffix}
+        </Text>
+        <Text style={{ fontSize: 12, color: mutedColor }}>
+          Anúncio: {formatBRL(negotiation.referencePrice)}{suffix}
+        </Text>
+        {round.paymentMethod && (
+          <Text style={{ fontSize: 12, color: mutedColor }}>Pagamento: {round.paymentMethod}</Text>
+        )}
+        <Text style={{ fontSize: 12, color: mutedColor }}>
+          Por {round.proposedById === user?.id ? 'você' : round.proposedByName}
+        </Text>
+        {isPending && round.expiresAt && (
+          <Text style={{ fontSize: 12, color: mutedColor, marginTop: 4 }}>
+            {fromOtherSide ? 'Responda até' : 'Aguardando resposta até'}{' '}
+            {new Date(round.expiresAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+          </Text>
+        )}
+        {!isPending && ROUND_STATUS_LABEL[round.status] && (
+          <Text style={{ color: mutedColor, fontWeight: 'bold', fontSize: 12, marginTop: 6 }}>
+            {ROUND_STATUS_LABEL[round.status]}
+          </Text>
+        )}
+
+        {canAct && fromOtherSide && (
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+            <TouchableOpacity
+              style={[styles.actionBtn, { backgroundColor: '#10B981' }]}
+              disabled={busy}
+              onPress={() => confirmAccept(round.id)}
+            >
+              <Text style={styles.actionBtnText}>Aceitar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionBtn, { backgroundColor: '#EF4444' }]}
+              disabled={busy}
+              onPress={() => respondToRound(round.id, 'reject')}
+            >
+              <Text style={styles.actionBtnText}>Recusar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionBtn, { backgroundColor: '#4F46E5' }]}
+              disabled={busy}
+              onPress={() => openOfferModal(round)}
+            >
+              <Text style={styles.actionBtnText}>Contrapropor</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        {canAct && !fromOtherSide && (
+          <TouchableOpacity
+            style={[styles.actionBtn, { backgroundColor: isMine ? 'rgba(255,255,255,0.2)' : '#F1F5F9', marginTop: 10, flex: 0 }]}
+            disabled={busy}
+            onPress={() => respondToRound(round.id, 'withdraw')}
+          >
+            <Text style={[styles.actionBtnText, { color: isMine ? 'white' : '#475569' }]}>Retirar proposta</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  };
+
   if (loading) {
     return (
       <View style={styles.center}>
@@ -256,12 +484,16 @@ export default function ChatScreen() {
           >
             <Text style={styles.viewPropertyText}>Ver</Text>
           </TouchableOpacity>
-          {property.category === 'venda' && property.status !== 'SOLD' && user?.id !== property.ownerId && isParticipant && !isClosed && (
-            <TouchableOpacity 
-              style={[styles.viewPropertyBtn, { backgroundColor: '#4F46E5', marginLeft: 8 }]}
-              onPress={() => setIsOfferModalVisible(true)}
+          {/* Venda e aluguel (mensal/diária) que aceitam negociação — antes só `category === 'venda'`. */}
+          {canNegotiate && (
+            <TouchableOpacity
+              style={[styles.viewPropertyBtn, { backgroundColor: waitingOnOther ? '#A5B4FC' : '#4F46E5', marginLeft: 8 }]}
+              disabled={waitingOnOther}
+              onPress={() => openOfferModal(pendingRound && pendingRound.side !== viewerSide ? pendingRound : null)}
             >
-              <Text style={[styles.viewPropertyText, { color: 'white' }]}>Proposta</Text>
+              <Text style={[styles.viewPropertyText, { color: 'white' }]}>
+                {waitingOnOther ? 'Aguardando' : pendingRound ? 'Contrapropor' : 'Proposta'}
+              </Text>
             </TouchableOpacity>
           )}
           {/* Opção para o Proprietário */}
@@ -314,17 +546,19 @@ export default function ChatScreen() {
                 </Text>
               )}
               
-              {/* RENDERIZAÇÃO CONDICIONAL DE EVENTOS ESPECIAIS (PROPOSTAS DE COMPRA) */}
-              {item.type === 'OFFER_REQUEST' || item.type === 'OFFER_APPROVED' || item.type === 'OFFER_REJECTED' ? (
+              {/* RENDERIZAÇÃO CONDICIONAL DE EVENTOS ESPECIAIS (NEGOCIAÇÃO, PROPOSTAS, RESERVAS) */}
+              {item.type === 'NEGOTIATION_ROUND' ? (
+                renderNegotiationRound(item, isMine, isAuditor)
+              ) : item.type === 'OFFER_REQUEST' || item.type === 'OFFER_APPROVED' || item.type === 'OFFER_REJECTED' ? (
                 <View>
                   <Text style={[styles.messageText, isMine ? styles.myMessageText : styles.theirMessageText, { fontWeight: 'bold', marginBottom: 8 }]}>
                     🤝 Proposta de Compra
                   </Text>
                   <Text style={[styles.messageText, isMine ? styles.myMessageText : styles.theirMessageText]}>
-                    Valor: R$ {item.metadata ? parseFloat(JSON.parse(item.metadata).value).toLocaleString('pt-BR') : ''}
+                    Valor: R$ {item.metadata ? parseFloat(parseMeta(item.metadata)?.value).toLocaleString('pt-BR') : ''}
                   </Text>
                   <Text style={[styles.messageText, isMine ? styles.myMessageText : styles.theirMessageText, { marginBottom: 12 }]}>
-                    Pagamento: {item.metadata ? JSON.parse(item.metadata).paymentMethod : ''}
+                    Pagamento: {item.metadata ? parseMeta(item.metadata)?.paymentMethod : ''}
                   </Text>
                   
                   {item.type === 'OFFER_APPROVED' && (
@@ -345,7 +579,7 @@ export default function ChatScreen() {
                       <TouchableOpacity 
                         style={[styles.actionBtn, { backgroundColor: '#10B981' }]}
                         onPress={async () => {
-                          const offerId = JSON.parse(item.metadata).offerId;
+                          const offerId = parseMeta(item.metadata)?.offerId;
                           try {
                             const res = await fetch(`${API_URL}/offers/${offerId}/approve`, {
                               method: 'PATCH',
@@ -367,7 +601,7 @@ export default function ChatScreen() {
                       <TouchableOpacity 
                         style={[styles.actionBtn, { backgroundColor: '#EF4444' }]}
                         onPress={async () => {
-                          const offerId = JSON.parse(item.metadata).offerId;
+                          const offerId = parseMeta(item.metadata)?.offerId;
                           try {
                             const res = await fetch(`${API_URL}/offers/${offerId}/reject`, {
                               method: 'PATCH',
@@ -389,16 +623,16 @@ export default function ChatScreen() {
                     </View>
                   )}
                 </View>
-              ) : item.type === 'BOOKING_REQUEST' || item.type === 'BOOKING_APPROVED' || item.type === 'BOOKING_REJECTED' ? (
+              ) : item.type === 'BOOKING_REQUEST' || item.type === 'BOOKING_APPROVED' || item.type === 'BOOKING_REJECTED' || item.type === 'BOOKING_CANCELLED' ? (
                 <View>
                   <Text style={[styles.messageText, isMine ? styles.myMessageText : styles.theirMessageText, { fontWeight: 'bold', marginBottom: 8 }]}>
                     📅 Solicitação de Reserva
                   </Text>
                   <Text style={[styles.messageText, isMine ? styles.myMessageText : styles.theirMessageText]}>
-                    De: {item.metadata ? new Date(JSON.parse(item.metadata).startDate).toLocaleDateString() : ''}
+                    De: {item.metadata ? new Date(parseMeta(item.metadata)?.startDate).toLocaleDateString() : ''}
                   </Text>
                   <Text style={[styles.messageText, isMine ? styles.myMessageText : styles.theirMessageText, { marginBottom: 12 }]}>
-                    Até: {item.metadata ? new Date(JSON.parse(item.metadata).endDate).toLocaleDateString() : ''}
+                    Até: {item.metadata ? new Date(parseMeta(item.metadata)?.endDate).toLocaleDateString() : ''}
                   </Text>
                   
                   {item.type === 'BOOKING_APPROVED' && (
@@ -407,6 +641,9 @@ export default function ChatScreen() {
                   {item.type === 'BOOKING_REJECTED' && (
                     <Text style={{ color: isMine ? '#FECACA' : '#EF4444', fontWeight: 'bold', fontSize: 12, marginTop: 4 }}>❌ Reserva Recusada</Text>
                   )}
+                  {item.type === 'BOOKING_CANCELLED' && (
+                    <Text style={{ color: isMine ? '#E0E7FF' : '#64748B', fontWeight: 'bold', fontSize: 12, marginTop: 4 }}>🚫 Reserva Cancelada</Text>
+                  )}
 
                   {/* Se for o dono do imóvel e não for auditor, exibe os botões apenas se for PENDENTE */}
                   {item.type === 'BOOKING_REQUEST' && !isAuditor && canManage && (
@@ -414,7 +651,7 @@ export default function ChatScreen() {
                       <TouchableOpacity 
                         style={[styles.actionBtn, { backgroundColor: '#10B981' }]}
                         onPress={async () => {
-                          const bookingId = JSON.parse(item.metadata).bookingId;
+                          const bookingId = parseMeta(item.metadata)?.bookingId;
                           try {
                             const res = await fetch(`${API_URL}/bookings/${bookingId}/approve`, {
                               method: 'PATCH',
@@ -436,7 +673,7 @@ export default function ChatScreen() {
                       <TouchableOpacity 
                         style={[styles.actionBtn, { backgroundColor: '#EF4444' }]}
                         onPress={async () => {
-                          const bookingId = JSON.parse(item.metadata).bookingId;
+                          const bookingId = parseMeta(item.metadata)?.bookingId;
                           try {
                             const res = await fetch(`${API_URL}/bookings/${bookingId}/reject`, {
                               method: 'PATCH',
@@ -513,9 +750,20 @@ export default function ChatScreen() {
       <Modal visible={isOfferModalVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Enviar Proposta de Compra</Text>
-            
-            <Text style={styles.inputLabel}>Valor da Proposta (R$)</Text>
+            <Text style={styles.modalTitle}>{counterTo ? 'Enviar contraproposta' : 'Negociar valor'}</Text>
+            {counterTo && (
+              <Text style={{ color: '#64748B', textAlign: 'center', marginBottom: 4 }}>
+                Proposta atual: {formatBRL(counterTo.value)}{counterTo.unit === 'MONTHLY' ? '/mês' : ''}
+              </Text>
+            )}
+
+            <Text style={styles.inputLabel}>
+              {property?.operationType === 'MONTHLY_RENT'
+                ? 'Aluguel mensal (R$)'
+                : property?.operationType === 'DAILY_RENT'
+                  ? 'Valor total da reserva (R$)'
+                  : 'Valor total (R$)'}
+            </Text>
             <TextInput
               style={styles.modalInput}
               placeholder="Ex: 350000"
@@ -523,10 +771,15 @@ export default function ChatScreen() {
               value={offerValue}
               onChangeText={setOfferValue}
             />
+            <Text style={{ color: '#94A3B8', fontSize: 12, marginTop: -8, marginBottom: 12 }}>
+              A outra parte tem 48h para responder.
+            </Text>
 
+            {property?.operationType === 'SALE' && (
+            <>
             <Text style={styles.inputLabel}>Forma de Pagamento</Text>
             <View style={styles.paymentMethodsRow}>
-              {['À Vista', 'Financiamento', 'Parcelado', 'Carta de Crédito'].map((method) => (
+              {PAYMENT_METHODS.map((method) => (
                 <TouchableOpacity 
                   key={method} 
                   style={[
@@ -542,6 +795,8 @@ export default function ChatScreen() {
                 </TouchableOpacity>
               ))}
             </View>
+            </>
+            )}
 
             <View style={styles.modalActions}>
               <TouchableOpacity 
@@ -559,7 +814,7 @@ export default function ChatScreen() {
                 {isSubmittingOffer ? (
                   <ActivityIndicator color="white" />
                 ) : (
-                  <Text style={{ color: 'white', fontWeight: 'bold' }}>Enviar Proposta</Text>
+                  <Text style={{ color: 'white', fontWeight: 'bold' }}>{counterTo ? 'Enviar contraproposta' : 'Enviar proposta'}</Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -670,10 +925,12 @@ const styles = StyleSheet.create({
   actionBtn: {
     flex: 1,
     paddingVertical: 8,
+    paddingHorizontal: 6,
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center'
   },
+  actionBtnText: { color: 'white', fontWeight: 'bold', fontSize: 12 },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',

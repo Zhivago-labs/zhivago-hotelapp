@@ -209,7 +209,12 @@ export function setupSocket(io: SocketIOServer) {
     // Ouvir envio de mensagens enviado pelo app (React Native)
     socket.on('sendMessage', async (data: { conversationId: string, content: string }, callback) => {
       try {
-        const { conversationId, content } = data;
+        const { conversationId } = data ?? {};
+        const content = typeof data?.content === 'string' ? data.content : '';
+        if (!conversationId || !content.trim()) {
+          if (callback) callback({ error: 'Mensagem vazia.' });
+          return;
+        }
 
         // Validação de Segurança: Garante que a conversa existe e que o usuário solicitante
         // é de fato um dos participantes (comprador ou vendedor) dela
@@ -273,13 +278,21 @@ export function setupSocket(io: SocketIOServer) {
           data: { updatedAt: new Date() }
         });
 
-        // Identifica quem é o outro participante da conversa para notificá-lo
-        const recipient = conversation.participants.find(p => p.id !== user.id);
-        
-        if (recipient) {
-          // Emite a mensagem em tempo real para a sala exclusiva do destinatário
-          io.to(`room_${recipient.id}`).emit('receiveMessage', message);
+        // Retorna sucesso para o remetente (com a mensagem gerada e ID do banco) via callback de
+        // confirmação — antes das notificações, pra mensagem aparecer na hora pra quem enviou.
+        if (callback) callback({ success: true, message });
 
+        // Outras abas/aparelhos do próprio remetente (`socket.to` exclui esta conexão, que já
+        // recebeu pelo callback) — antes a mensagem só aparecia no aparelho que enviou.
+        socket.to(roomName).emit('receiveMessage', message);
+
+        // Todos os outros participantes (não só o "primeiro outro": a conversa pode ter mais de dois
+        // durante uma reatribuição de Lead). Os clientes deduplicam por `id`.
+        const recipients = conversation.participants.filter(p => p.id !== user.id);
+        for (const recipient of recipients) {
+          io.to(`room_${recipient.id}`).emit('receiveMessage', message);
+        }
+        for (const recipient of recipients) {
           // Dispara notificação (push vai só se o destinatário tiver algum device registrado)
           await sendNotification({
             userId: recipient.id,
@@ -288,9 +301,6 @@ export function setupSocket(io: SocketIOServer) {
             type: 'MESSAGE',
           });
         }
-
-        // Retorna sucesso para o remetente (com a mensagem gerada e ID do banco) via callback de confirmação
-        if (callback) callback({ success: true, message });
       } catch (error) {
         console.error('Error handling sendMessage:', error);
         if (callback) callback({ error: 'Internal server error' });

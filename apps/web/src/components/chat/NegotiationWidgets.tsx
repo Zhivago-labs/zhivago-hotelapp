@@ -17,13 +17,13 @@ const VALUE_LABEL: Record<ListingOperationType, string> = {
   DAILY_RENT: "Valor total da reserva (R$)",
 };
 
-const STATUS_LABEL: Record<string, { text: string; tone: "ok" | "bad" | "muted" }> = {
-  ACCEPTED: { text: "✅ Proposta aceita", tone: "ok" },
-  REJECTED: { text: "❌ Proposta recusada", tone: "bad" },
-  COUNTERED: { text: "↪ Respondida com contraproposta", tone: "muted" },
-  WITHDRAWN: { text: "↩ Proposta retirada", tone: "muted" },
-  EXPIRED: { text: "⌛ Proposta expirada", tone: "muted" },
-  CANCELLED: { text: "Proposta cancelada", tone: "muted" },
+const STATUS_LABEL: Record<string, { text: string; pill: string; tone: "ok" | "bad" | "muted" }> = {
+  ACCEPTED: { text: "✅ Proposta aceita", pill: "Aceita", tone: "ok" },
+  REJECTED: { text: "❌ Proposta recusada", pill: "Recusada", tone: "bad" },
+  COUNTERED: { text: "↪ Respondida com contraproposta", pill: "Contraproposta", tone: "muted" },
+  WITHDRAWN: { text: "↩ Proposta retirada", pill: "Retirada", tone: "muted" },
+  EXPIRED: { text: "⌛ Proposta expirada", pill: "Expirada", tone: "muted" },
+  CANCELLED: { text: "Proposta cancelada", pill: "Cancelada", tone: "muted" },
 };
 
 export function formatBRL(value: number): string {
@@ -81,12 +81,14 @@ export function NegotiationRoundCard({
 
   if (!negotiation || !round) {
     return (
-      <div className={styles.requestCard}>
-        <p className={styles.requestTitle}>
-          <Handshake size={14} />
-          Negociação
-        </p>
-        <p className={styles.requestLine}>{fallbackContent}</p>
+      <div className={styles.card}>
+        <div className={styles.cardHeader}>
+          <span className={styles.cardIcon}>
+            <Handshake size={15} />
+          </span>
+          <span className={styles.cardTitle}>Negociação</span>
+        </div>
+        <p className={styles.cardMeta}>{fallbackContent}</p>
       </div>
     );
   }
@@ -96,6 +98,13 @@ export function NegotiationRoundCard({
   const fromOtherSide = round.side !== viewerSide;
   const delta = deltaText(round.value, negotiation.referencePrice);
   const status = STATUS_LABEL[round.status];
+  const pillClass = isPending
+    ? styles.pillPending
+    : status?.tone === "ok"
+      ? styles.pillOk
+      : status?.tone === "bad"
+        ? styles.pillBad
+        : styles.pillMuted;
 
   const run = async (action: "accept" | "reject" | "withdraw") => {
     setBusy(true);
@@ -107,46 +116,34 @@ export function NegotiationRoundCard({
   };
 
   return (
-    <div className={styles.requestCard}>
-      <p className={styles.requestTitle}>
-        <Handshake size={14} />
-        {round.previousOfferId ? "Contraproposta" : "Proposta de valor"}
-      </p>
-      <p className={styles.negotiationValue}>
+    <div className={styles.card}>
+      <div className={styles.cardHeader}>
+        <span className={styles.cardIcon}>
+          <Handshake size={15} />
+        </span>
+        <span className={styles.cardTitle}>{round.previousOfferId ? "Contraproposta" : "Proposta de valor"}</span>
+        <span className={`${styles.pill} ${pillClass}`}>{isPending ? "Pendente" : status?.pill ?? round.status}</span>
+      </div>
+      <p className={styles.cardValue}>
         {formatBRL(round.value)}
         {unitSuffix(round)}
       </p>
-      <p className={styles.negotiationMeta}>
+      <p className={styles.cardMeta}>
         Anúncio: {formatBRL(negotiation.referencePrice)}
         {unitSuffix(round)}
         {delta && ` · ${delta}`}
       </p>
-      {round.paymentMethod && <p className={styles.negotiationMeta}>Pagamento: {round.paymentMethod}</p>}
-      <p className={styles.negotiationMeta}>
-        Por {round.proposedById === viewerId ? "você" : round.proposedByName}
-      </p>
+      {round.paymentMethod && <p className={styles.cardMeta}>Pagamento: {round.paymentMethod}</p>}
+      <p className={styles.cardMeta}>Por {round.proposedById === viewerId ? "você" : round.proposedByName}</p>
 
       {isPending && round.expiresAt && (
-        <p className={styles.negotiationMeta}>
+        <p className={styles.cardHint}>
           {fromOtherSide ? "Responda até" : "Aguardando resposta até"} {formatDateTime(round.expiresAt)}
-        </p>
-      )}
-      {status && (
-        <p
-          className={
-            status.tone === "ok"
-              ? styles.requestStatusApproved
-              : status.tone === "bad"
-                ? styles.requestStatusRejected
-                : styles.negotiationStatusMuted
-          }
-        >
-          {status.text}
         </p>
       )}
 
       {isPending && canAct && fromOtherSide && (
-        <div className={styles.requestActions}>
+        <div className={styles.cardActions}>
           <button type="button" className={styles.approveButton} disabled={busy} onClick={() => run("accept")}>
             Aceitar
           </button>
@@ -164,7 +161,7 @@ export function NegotiationRoundCard({
         </div>
       )}
       {isPending && canAct && !fromOtherSide && (
-        <div className={styles.requestActions}>
+        <div className={styles.cardActions}>
           <button type="button" className={styles.counterButton} disabled={busy} onClick={() => run("withdraw")}>
             Retirar proposta
           </button>

@@ -1,11 +1,21 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Flag, Lock, Unlock, Send, Handshake, CalendarRange } from "lucide-react";
+import { Flag, Lock, Unlock, Send, Handshake, CalendarRange, WifiOff, RotateCcw, ArrowDown } from "lucide-react";
 import type { Negotiation, NegotiationRound } from "@zhivago/shared";
 import { useChatSocket } from "./ChatSocketProvider";
 import { NegotiationModal, NegotiationRoundCard } from "./NegotiationWidgets";
+import {
+  createClientId,
+  formatDayLabel,
+  mergeMessages,
+  OPERATION_LABEL,
+  parseMetadata,
+  PRICE_SUFFIX,
+  replaceServerMessages,
+  type LocalChatMessage,
+} from "./chat-utils";
 import { getPublicApiUrl } from "@/lib/public-api";
 import type { ChatCommand, ChatMessage, ConversationDetail } from "@/lib/chat-api";
 import styles from "./ChatConversation.module.css";
@@ -17,6 +27,21 @@ interface ChatConversationProps {
   currentUser: { id: string; role: string; name: string };
 }
 
+const CARD_TYPES = new Set([
+  "NEGOTIATION_ROUND",
+  "OFFER_REQUEST",
+  "OFFER_APPROVED",
+  "OFFER_REJECTED",
+  "BOOKING_REQUEST",
+  "BOOKING_APPROVED",
+  "BOOKING_REJECTED",
+  "BOOKING_CANCELLED",
+]);
+
+// Mensagens do mesmo remetente com menos que isso de intervalo viram um "bloco" (sem repetir hora).
+const GROUP_WINDOW_MS = 5 * 60 * 1000;
+const SEND_TIMEOUT_MS = 15_000;
+
 function upsertNegotiation(list: Negotiation[], next: Negotiation): Negotiation[] {
   return list.some((n) => n.id === next.id) ? list.map((n) => (n.id === next.id ? next : n)) : [...list, next];
 }
@@ -26,7 +51,7 @@ function formatPrice(value: number): string {
 }
 
 function formatDate(value: string): string {
-  return new Date(value).toLocaleDateString("pt-BR");
+  return new Date(value).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" });
 }
 
 function formatTime(value: string): string {
@@ -41,31 +66,52 @@ async function patchConversation(token: string, id: string, path: string): Promi
   return res.ok;
 }
 
-async function patchRequest(token: string, kind: "bookings" | "offers", id: string, action: "approve" | "reject") {
-  const res = await fetch(`${getPublicApiUrl()}/${kind}/${id}/${action}`, {
-    method: "PATCH",
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  return res.ok;
+async function patchRequest(
+  token: string,
+  kind: "bookings" | "offers",
+  id: string,
+  action: "approve" | "reject"
+): Promise<string | null> {
+  try {
+    const res = await fetch(`${getPublicApiUrl()}/${kind}/${id}/${action}`, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.ok) return null;
+    const data = await res.json().catch(() => null);
+    return data?.error ?? "Não foi possível concluir a ação. Tente novamente.";
+  } catch {
+    return "Não foi possível conectar ao servidor.";
+  }
 }
 
-export function ChatConversation({ conversation, initialMessages, token, currentUser }: ChatConversationProps) {
-  const { socket } = useChatSocket();
-  const [messages, setMessages] = useState(initialMessages);
+export function ChatConversation({ conversation: initialConversation, initialMessages, token, currentUser }: ChatConversationProps) {
+  const { socket, isConnected, refreshUnreadCount } = useChatSocket();
+  // A conversa (permissões, comandos disponíveis) é recarregada a cada ressincronização — o que o
+  // viewer pode fazer muda conforme reservas/propostas são respondidas.
+  const [conversation, setConversation] = useState(initialConversation);
+  const [messages, setMessages] = useState<LocalChatMessage[]>(initialMessages);
   const [input, setInput] = useState("");
   const [sendError, setSendError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [isClosed, setIsClosed] = useState(conversation.isClosed);
-  const [isReported, setIsReported] = useState(conversation.isReported);
+  const [isClosed, setIsClosed] = useState(initialConversation.isClosed);
+  const [isReported, setIsReported] = useState(initialConversation.isReported);
   const [negotiations, setNegotiations] = useState<Negotiation[]>([]);
+  const [busyRequestId, setBusyRequestId] = useState<string | null>(null);
   // null = fechado; { counterTo: null } = proposta nova; com counterTo = contraproposta.
   const [negotiationModal, setNegotiationModal] = useState<{
     counterTo: { negotiation: Negotiation; round: NegotiationRound } | null;
   } | null>(null);
   const [commandMenuIndex, setCommandMenuIndex] = useState(0);
   const [commandMenuDismissed, setCommandMenuDismissed] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const nearBottomRef = useRef(true);
+  const firstScrollRef = useRef(true);
+  const resyncSeqRef = useRef(0);
 
+  const conversationId = conversation.id;
   const isParticipant = conversation.participants.some((p) => p.id === currentUser.id);
   const isAdmin = currentUser.role === "ADMIN";
   const isAuditor = !isParticipant && isAdmin;
@@ -95,86 +141,230 @@ export function ChatConversation({ conversation, initialMessages, token, current
       : [];
   const showCommandMenu = !commandMenuDismissed && !isClosed && isParticipant && matchingCommands.length > 0;
 
-  const markAsRead = () => {
-    patchConversation(token, conversation.id, "read").catch(() => {});
-  };
+  const authHeaders = { Authorization: `Bearer ${token}` };
+
+  const markAsRead = useCallback(() => {
+    if (!isParticipant) return;
+    patchConversation(token, conversationId, "read")
+      .then(() => refreshUnreadCount())
+      .catch(() => {});
+  }, [token, conversationId, isParticipant, refreshUnreadCount]);
+
+  const loadDetail = useCallback(async () => {
+    const res = await fetch(`${getPublicApiUrl()}/conversations/${conversationId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return;
+    const data: ConversationDetail = await res.json();
+    setConversation(data);
+    setIsClosed(data.isClosed);
+    setIsReported(data.isReported);
+  }, [conversationId, token]);
+
+  const loadNegotiations = useCallback(async () => {
+    const res = await fetch(`${getPublicApiUrl()}/conversations/${conversationId}/negotiations`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return;
+    const data: Negotiation[] = await res.json();
+    setNegotiations(data);
+  }, [conversationId, token]);
+
+  /**
+   * Busca de novo tudo o que a tela mostra. Chamada ao reconectar o socket e ao voltar pra aba: o
+   * servidor não reenvia o que foi emitido enquanto a conexão estava caída, então sem isso as
+   * mensagens desse intervalo simplesmente "sumiam" até recarregar a página.
+   */
+  const resync = useCallback(async () => {
+    const seq = ++resyncSeqRef.current;
+    try {
+      const [msgRes] = await Promise.all([
+        fetch(`${getPublicApiUrl()}/conversations/${conversationId}/messages`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        loadDetail(),
+        loadNegotiations(),
+      ]);
+      if (!msgRes.ok || seq !== resyncSeqRef.current) return;
+      const server: ChatMessage[] = await msgRes.json();
+      if (seq !== resyncSeqRef.current) return;
+      setMessages((prev) => replaceServerMessages(prev, server));
+      markAsRead();
+    } catch {
+      // Sem rede — a próxima reconexão tenta de novo.
+    }
+  }, [conversationId, token, loadDetail, loadNegotiations, markAsRead]);
 
   useEffect(() => {
     markAsRead();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [markAsRead]);
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`${getPublicApiUrl()}/conversations/${conversation.id}/negotiations`, {
+    fetch(`${getPublicApiUrl()}/conversations/${conversationId}/negotiations`, {
       headers: { Authorization: `Bearer ${token}` },
     })
-      .then((res) => (res.ok ? res.json() : []))
-      .then((data: Negotiation[]) => {
-        if (!cancelled) setNegotiations(data);
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: Negotiation[] | null) => {
+        if (!cancelled && data) setNegotiations(data);
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [conversation.id, token]);
+  }, [conversationId, token]);
 
+  // Voltar pra aba depois de um tempo fora: o navegador pode ter suspendido a conexão.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") resync();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, [resync]);
 
   useEffect(() => {
     if (!socket) return;
 
     const handleReceive = (message: ChatMessage) => {
-      if (message.conversationId !== conversation.id) return;
-      setMessages((prev) => [...prev, message]);
-      markAsRead();
+      if (message.conversationId !== conversationId) return;
+      setMessages((prev) => mergeMessages(prev, [message]));
+      if (message.senderId !== currentUser.id) markAsRead();
+      // Card de reserva/proposta novo muda o que o viewer pode fazer (comandos de "/").
+      if (CARD_TYPES.has(message.type)) loadDetail().catch(() => {});
     };
 
     // Estado de uma negociação mudou (nova rodada, aceite, recusa, expiração) — atualiza os cards
     // nas duas telas sem recarregar.
     const handleNegotiation = (negotiation: Negotiation) => {
-      if (negotiation.conversationId !== conversation.id) return;
+      if (negotiation.conversationId !== conversationId) return;
       setNegotiations((prev) => upsertNegotiation(prev, negotiation));
+      loadDetail().catch(() => {});
     };
 
     // Card de reserva respondido pelo outro lado.
     const handleMessageUpdated = (update: Pick<ChatMessage, "id" | "type" | "conversationId">) => {
-      if (update.conversationId !== conversation.id) return;
+      if (update.conversationId !== conversationId) return;
       setMessages((prev) => prev.map((m) => (m.id === update.id ? { ...m, type: update.type } : m)));
+      loadDetail().catch(() => {});
     };
 
     socket.on("receiveMessage", handleReceive);
     socket.on("negotiationUpdated", handleNegotiation);
     socket.on("messageUpdated", handleMessageUpdated);
+    socket.on("connect", resync);
     return () => {
       socket.off("receiveMessage", handleReceive);
       socket.off("negotiationUpdated", handleNegotiation);
       socket.off("messageUpdated", handleMessageUpdated);
+      socket.off("connect", resync);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socket, conversation.id]);
+  }, [socket, conversationId, currentUser.id, markAsRead, loadDetail, resync]);
+
+  // Rolagem: só desce sozinho se o usuário já estava no fim (ou se a última mensagem é dele) —
+  // antes qualquer mensagem nova arrancava quem estava lendo o histórico lá de cima.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const last = messages.at(-1);
+    if (firstScrollRef.current || nearBottomRef.current || last?.senderId === currentUser.id) {
+      el.scrollTo({ top: el.scrollHeight, behavior: firstScrollRef.current ? "auto" : "smooth" });
+      firstScrollRef.current = false;
+      setShowJumpToLatest(false);
+    } else {
+      setShowJumpToLatest(true);
+    }
+  }, [messages, currentUser.id]);
+
+  const handleScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    if (nearBottomRef.current) setShowJumpToLatest(false);
+  };
+
+  const jumpToLatest = () => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    setShowJumpToLatest(false);
+  };
+
+  // Campo de texto cresce com o conteúdo até um limite (o CSS define o máximo).
+  useLayoutEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [input]);
 
   const sendContent = (content: string) => {
     if (!content || !socket || isClosed || !isParticipant) return;
-
     setSendError(null);
-    socket.emit(
-      "sendMessage",
-      { conversationId: conversation.id, content },
-      (response: { error?: string; success?: boolean; message?: ChatMessage }) => {
-        if (response.error) {
-          setSendError(response.error);
-          return;
-        }
-        if (response.message) {
-          setMessages((prev) => [...prev, response.message as ChatMessage]);
-        }
-      }
-    );
     setInput("");
     setCommandMenuDismissed(false);
+
+    const isCommand = content.startsWith("/");
+    const clientId = createClientId();
+
+    // Mensagem otimista: aparece na hora como "enviando" e é trocada pela do servidor na
+    // confirmação. Comandos não viram mensagem, então não entram na lista.
+    if (!isCommand) {
+      const optimistic: LocalChatMessage = {
+        id: clientId,
+        clientId,
+        localStatus: "sending",
+        content,
+        type: "TEXT",
+        metadata: null,
+        senderId: currentUser.id,
+        conversationId,
+        isRead: false,
+        createdAt: new Date().toISOString(),
+        sender: { id: currentUser.id, name: currentUser.name, avatar: null },
+      };
+      setMessages((prev) => [...prev, optimistic]);
+    }
+
+    const markFailed = (error: string) => {
+      if (isCommand) setSendError(error);
+      else setMessages((prev) => prev.map((m) => (m.clientId === clientId ? { ...m, localStatus: "failed" } : m)));
+    };
+
+    // Desconectado: o socket.io guardaria o envio e mandaria depois de reconectar — mas a tela já
+    // teria marcado como falha e o "tentar de novo" duplicaria a mensagem. Falha na hora.
+    if (!socket.connected) {
+      markFailed("Sem conexão com o servidor. Tente novamente em instantes.");
+      return;
+    }
+
+    socket
+      .timeout(SEND_TIMEOUT_MS)
+      .emit(
+        "sendMessage",
+        { conversationId, content },
+        (err: Error | null, response?: { error?: string; success?: boolean; message?: ChatMessage }) => {
+          if (err || !response) {
+            markFailed("O servidor não respondeu. Tente novamente.");
+            return;
+          }
+          if (response.error) {
+            setMessages((prev) => prev.filter((m) => m.clientId !== clientId));
+            setSendError(response.error);
+            return;
+          }
+          if (response.message) {
+            const confirmed = response.message;
+            setMessages((prev) => mergeMessages(prev.filter((m) => m.clientId !== clientId), [confirmed]));
+          } else {
+            // Comando executado — o resultado chega pelos eventos de cada fluxo; atualiza os comandos.
+            loadDetail().catch(() => {});
+          }
+        }
+      );
+  };
+
+  const retryMessage = (message: LocalChatMessage) => {
+    setMessages((prev) => prev.filter((m) => m.clientId !== message.clientId));
+    sendContent(message.content);
   };
 
   const handleSend = (event: React.FormEvent) => {
@@ -187,57 +377,73 @@ export function ChatConversation({ conversation, initialMessages, token, current
     if (command.trigger === "/negociar") {
       setInput("/negociar ");
       setCommandMenuDismissed(true);
+      inputRef.current?.focus();
       return;
     }
     sendContent(command.trigger);
   };
 
-  const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = event.target.value;
     setInput(value);
     setCommandMenuIndex(0);
     if (!value.startsWith("/")) setCommandMenuDismissed(false);
   };
 
-  const handleInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (!showCommandMenu) return;
-    if (event.key === "ArrowDown") {
+  const handleInputKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.nativeEvent.isComposing) return;
+    if (showCommandMenu) {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setCommandMenuIndex((i) => (i + 1) % matchingCommands.length);
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setCommandMenuIndex((i) => (i - 1 + matchingCommands.length) % matchingCommands.length);
+        return;
+      }
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        handleSelectCommand(matchingCommands[commandMenuIndex]!);
+        return;
+      }
+      if (event.key === "Escape") {
+        setCommandMenuDismissed(true);
+        return;
+      }
+    }
+    // Enter envia; Shift+Enter quebra linha.
+    if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      setCommandMenuIndex((i) => (i + 1) % matchingCommands.length);
-    } else if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setCommandMenuIndex((i) => (i - 1 + matchingCommands.length) % matchingCommands.length);
-    } else if (event.key === "Enter") {
-      event.preventDefault();
-      handleSelectCommand(matchingCommands[commandMenuIndex]!);
-    } else if (event.key === "Escape") {
-      setCommandMenuDismissed(true);
+      sendContent(input.trim());
     }
   };
 
   const handleReport = async () => {
     if (!confirm("Denunciar esta conversa para a administração?")) return;
-    if (await patchConversation(token, conversation.id, "report")) setIsReported(true);
+    if (await patchConversation(token, conversationId, "report")) setIsReported(true);
   };
 
   const handleToggleClose = async () => {
     const path = isClosed ? "reopen" : "close";
-    if (await patchConversation(token, conversation.id, path)) setIsClosed(!isClosed);
+    if (await patchConversation(token, conversationId, path)) setIsClosed(!isClosed);
   };
 
   /** Envia proposta ou contraproposta; devolve a mensagem de erro, ou null se deu certo. */
   const handleSubmitRound = async (value: number, paymentMethod: string | null): Promise<string | null> => {
     try {
-      const res = await fetch(`${getPublicApiUrl()}/conversations/${conversation.id}/negotiations/rounds`, {
+      const res = await fetch(`${getPublicApiUrl()}/conversations/${conversationId}/negotiations/rounds`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json", ...authHeaders },
         body: JSON.stringify({ value, paymentMethod }),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) return data?.error ?? "Não foi possível enviar a proposta.";
-      // A mensagem do card chega pelo socket (receiveMessage); o estado, por negotiationUpdated —
-      // aplicado aqui também caso o socket esteja desconectado.
+      // A mensagem do card e o estado também chegam pelo socket — aplicados aqui caso ele esteja
+      // desconectado (o merge por id evita duplicar).
       if (data?.negotiation) setNegotiations((prev) => upsertNegotiation(prev, data.negotiation));
+      if (data?.message) setMessages((prev) => mergeMessages(prev, [data.message]));
       setNegotiationModal(null);
       return null;
     } catch {
@@ -251,11 +457,13 @@ export function ChatConversation({ conversation, initialMessages, token, current
     try {
       const res = await fetch(`${getPublicApiUrl()}/offers/${roundId}/${action}`, {
         method: "PATCH",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: authHeaders,
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
         setActionError(data?.error ?? "Não foi possível concluir a ação. Tente novamente.");
+        // Provavelmente o estado mudou do outro lado — traz a versão atual.
+        resync();
         return;
       }
       if (data?.id) setNegotiations((prev) => upsertNegotiation(prev, data as Negotiation));
@@ -279,9 +487,12 @@ export function ChatConversation({ conversation, initialMessages, token, current
     messageId: string
   ) => {
     setActionError(null);
-    const ok = await patchRequest(token, kind, id, action);
-    if (!ok) {
-      setActionError("Não foi possível concluir a ação. Tente novamente.");
+    setBusyRequestId(messageId);
+    const error = await patchRequest(token, kind, id, action);
+    setBusyRequestId(null);
+    if (error) {
+      setActionError(error);
+      resync();
       return;
     }
     const resolvedType =
@@ -295,12 +506,9 @@ export function ChatConversation({ conversation, initialMessages, token, current
     setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, type: resolvedType } : m)));
   };
 
-  function renderMessageBody(message: ChatMessage) {
+  function renderCard(message: LocalChatMessage) {
     if (message.type === "NEGOTIATION_ROUND") {
-      let meta: { negotiationId?: string; offerId?: string } = {};
-      try {
-        meta = message.metadata ? JSON.parse(message.metadata) : {};
-      } catch {}
+      const meta = parseMetadata<{ negotiationId?: string; offerId?: string }>(message.metadata) ?? {};
       return (
         <NegotiationRoundCard
           negotiation={negotiations.find((n) => n.id === meta.negotiationId)}
@@ -315,45 +523,45 @@ export function ChatConversation({ conversation, initialMessages, token, current
       );
     }
 
-    const isOfferType = message.type === "OFFER_REQUEST" || message.type === "OFFER_APPROVED" || message.type === "OFFER_REJECTED";
-    const isBookingType =
-      message.type === "BOOKING_REQUEST" || message.type === "BOOKING_APPROVED" || message.type === "BOOKING_REJECTED";
+    const canRespond = !isAuditor && conversation.canManage && isParticipant && !isClosed;
+    const busy = busyRequestId === message.id;
 
-    if (!isOfferType && !isBookingType) {
-      return <p className={styles.content}>{message.content}</p>;
-    }
-
-    const metadata = message.metadata ? JSON.parse(message.metadata) : null;
-    const canRespond = !isAuditor && conversation.canManage && isParticipant;
-
-    if (isOfferType) {
+    if (message.type.startsWith("OFFER_")) {
+      const metadata = parseMetadata<{ value?: number; paymentMethod?: string; offerId?: string }>(message.metadata);
       return (
-        <div className={styles.requestCard}>
-          <p className={styles.requestTitle}>
-            <Handshake size={14} />
-            Proposta de Compra
-          </p>
-          {metadata && (
+        <div className={styles.card}>
+          <div className={styles.cardHeader}>
+            <span className={styles.cardIcon}>
+              <Handshake size={15} />
+            </span>
+            <span className={styles.cardTitle}>Proposta de compra</span>
+            {message.type === "OFFER_APPROVED" && <span className={`${styles.pill} ${styles.pillOk}`}>Aceita</span>}
+            {message.type === "OFFER_REJECTED" && <span className={`${styles.pill} ${styles.pillBad}`}>Recusada</span>}
+            {message.type === "OFFER_REQUEST" && <span className={`${styles.pill} ${styles.pillPending}`}>Pendente</span>}
+          </div>
+          {metadata?.value != null ? (
             <>
-              <p className={styles.requestLine}>Valor: {formatPrice(Number(metadata.value))}</p>
-              <p className={styles.requestLine}>Pagamento: {metadata.paymentMethod}</p>
+              <p className={styles.cardValue}>{formatPrice(Number(metadata.value))}</p>
+              {metadata.paymentMethod && <p className={styles.cardMeta}>Pagamento: {metadata.paymentMethod}</p>}
             </>
+          ) : (
+            <p className={styles.cardMeta}>{message.content}</p>
           )}
-          {message.type === "OFFER_APPROVED" && <p className={styles.requestStatusApproved}>✅ Proposta aceita</p>}
-          {message.type === "OFFER_REJECTED" && <p className={styles.requestStatusRejected}>❌ Proposta recusada</p>}
-          {message.type === "OFFER_REQUEST" && canRespond && metadata && (
-            <div className={styles.requestActions}>
+          {message.type === "OFFER_REQUEST" && canRespond && metadata?.offerId && (
+            <div className={styles.cardActions}>
               <button
                 type="button"
                 className={styles.approveButton}
-                onClick={() => handleRespond("offers", metadata.offerId, "approve", message.id)}
+                disabled={busy}
+                onClick={() => handleRespond("offers", metadata.offerId!, "approve", message.id)}
               >
                 Aceitar
               </button>
               <button
                 type="button"
                 className={styles.rejectButton}
-                onClick={() => handleRespond("offers", metadata.offerId, "reject", message.id)}
+                disabled={busy}
+                onClick={() => handleRespond("offers", metadata.offerId!, "reject", message.id)}
               >
                 Recusar
               </button>
@@ -363,67 +571,96 @@ export function ChatConversation({ conversation, initialMessages, token, current
       );
     }
 
+    const metadata = parseMetadata<{ bookingId?: string; startDate?: string; endDate?: string }>(message.metadata);
+    const nights =
+      metadata?.startDate && metadata.endDate
+        ? Math.round((new Date(metadata.endDate).getTime() - new Date(metadata.startDate).getTime()) / 86_400_000)
+        : null;
+    const isPending = message.type === "BOOKING_REQUEST";
+
     return (
-      <div className={styles.requestCard}>
-        <p className={styles.requestTitle}>
-          <CalendarRange size={14} />
-          Solicitação de Reserva
-        </p>
-        {metadata && (
-          <>
-            <p className={styles.requestLine}>De: {formatDate(metadata.startDate)}</p>
-            <p className={styles.requestLine}>Até: {formatDate(metadata.endDate)}</p>
-          </>
+      <div className={styles.card}>
+        <div className={styles.cardHeader}>
+          <span className={styles.cardIcon}>
+            <CalendarRange size={15} />
+          </span>
+          <span className={styles.cardTitle}>Solicitação de reserva</span>
+          {message.type === "BOOKING_APPROVED" && <span className={`${styles.pill} ${styles.pillOk}`}>Aprovada</span>}
+          {message.type === "BOOKING_REJECTED" && <span className={`${styles.pill} ${styles.pillBad}`}>Recusada</span>}
+          {message.type === "BOOKING_CANCELLED" && <span className={`${styles.pill} ${styles.pillMuted}`}>Cancelada</span>}
+          {isPending && <span className={`${styles.pill} ${styles.pillPending}`}>Pendente</span>}
+        </div>
+        {metadata?.startDate && metadata.endDate ? (
+          <div className={styles.dateRange}>
+            <div>
+              <span className={styles.dateLabel}>Check-in</span>
+              <span className={styles.dateValue}>{formatDate(metadata.startDate)}</span>
+            </div>
+            <div>
+              <span className={styles.dateLabel}>Check-out</span>
+              <span className={styles.dateValue}>{formatDate(metadata.endDate)}</span>
+            </div>
+          </div>
+        ) : (
+          <p className={styles.cardMeta}>{message.content}</p>
         )}
-        {message.type === "BOOKING_APPROVED" && <p className={styles.requestStatusApproved}>✅ Reserva aprovada</p>}
-        {message.type === "BOOKING_REJECTED" && <p className={styles.requestStatusRejected}>❌ Reserva recusada</p>}
-        {message.type === "BOOKING_REQUEST" && canRespond && metadata && (
-          <div className={styles.requestActions}>
+        {nights !== null && nights > 0 && (
+          <p className={styles.cardMeta}>
+            {nights} {nights === 1 ? "noite" : "noites"}
+          </p>
+        )}
+        {isPending && canRespond && metadata?.bookingId && (
+          <div className={styles.cardActions}>
             <button
               type="button"
               className={styles.approveButton}
-              onClick={() => handleRespond("bookings", metadata.bookingId, "approve", message.id)}
+              disabled={busy}
+              onClick={() => handleRespond("bookings", metadata.bookingId!, "approve", message.id)}
             >
               Aprovar
             </button>
             <button
               type="button"
               className={styles.rejectButton}
-              onClick={() => handleRespond("bookings", metadata.bookingId, "reject", message.id)}
+              disabled={busy}
+              onClick={() => handleRespond("bookings", metadata.bookingId!, "reject", message.id)}
             >
               Recusar
             </button>
           </div>
         )}
+        {isPending && !conversation.canManage && isParticipant && (
+          <p className={styles.cardHint}>Aguardando resposta do anunciante.</p>
+        )}
       </div>
     );
   }
+
+  const operationType = conversation.property.operationType;
 
   return (
     <div className={styles.wrapper}>
       <div className={styles.header}>
         <Link href={`/imovel/${conversation.property.id}`} className={styles.propertyLink}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={conversation.property.image} alt={conversation.property.name} className={styles.propertyImage} />
-          <div>
+          {conversation.property.image ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={conversation.property.image} alt="" className={styles.propertyImage} />
+          ) : (
+            <span className={styles.propertyImage} />
+          )}
+          <div className={styles.propertyText}>
             <p className={styles.propertyName}>{conversation.property.name}</p>
-            <p className={styles.propertyPrice}>{formatPrice(conversation.property.price)}</p>
+            <p className={styles.propertyMeta}>
+              {operationType && <span className={styles.operationTag}>{OPERATION_LABEL[operationType]}</span>}
+              <span className={styles.propertyPrice}>
+                {formatPrice(conversation.property.price)}
+                {operationType ? PRICE_SUFFIX[operationType] : ""}
+              </span>
+            </p>
           </div>
         </Link>
 
         <div className={styles.headerActions}>
-          {canNegotiate && (
-            <button
-              type="button"
-              onClick={openNegotiationModal}
-              className={styles.offerButton}
-              disabled={waitingOnOther}
-              title={waitingOnOther ? "Aguardando resposta à sua proposta" : undefined}
-            >
-              <Handshake size={14} />
-              {waitingOnOther ? "Aguardando resposta" : pendingRound ? "Contrapropor" : "Negociar valor"}
-            </button>
-          )}
           {isOwner && isParticipant && !isReported && (
             <button type="button" onClick={handleReport} className={styles.iconButton} title="Denunciar conversa">
               <Flag size={16} />
@@ -442,25 +679,132 @@ export function ChatConversation({ conversation, initialMessages, token, current
         </div>
       </div>
 
+      {canNegotiate && (
+        <div className={styles.negotiateBar}>
+          <span className={styles.negotiateText}>
+            {waitingOnOther
+              ? "Sua proposta está aguardando resposta."
+              : pendingRound
+                ? "Há uma proposta esperando sua resposta."
+                : "Este anúncio aceita negociação de valor."}
+          </span>
+          <button
+            type="button"
+            onClick={openNegotiationModal}
+            className={styles.offerButton}
+            disabled={waitingOnOther}
+          >
+            <Handshake size={14} />
+            {waitingOnOther ? "Aguardando" : pendingRound ? "Contrapropor" : "Fazer proposta"}
+          </button>
+        </div>
+      )}
+
       {isReported && <div className={styles.banner}>Esta conversa foi denunciada e está em análise.</div>}
+      {socket && !isConnected && (
+        <div className={styles.connectionBanner}>
+          <WifiOff size={14} />
+          Reconectando… as mensagens novas aparecem assim que a conexão voltar.
+        </div>
+      )}
 
-      <div className={styles.messages}>
-        {messages.map((message) => {
-          const alignRight = isAuditor
-            ? message.senderId === conversation.property.ownerId
-            : message.senderId === currentUser.id;
-
-          return (
-            <div key={message.id} className={`${styles.messageRow} ${alignRight ? styles.messageRowMine : ""}`}>
-              <div className={`${styles.bubble} ${alignRight ? styles.bubbleMine : ""}`}>
-                {isAuditor && <p className={styles.senderLabel}>{message.sender.name}</p>}
-                {renderMessageBody(message)}
-                <p className={styles.time}>{formatTime(message.createdAt)}</p>
-              </div>
+      <div className={styles.messagesArea}>
+        <div className={styles.messages} ref={scrollRef} onScroll={handleScroll}>
+          {messages.length === 0 && (
+            <div className={styles.emptyConversation}>
+              <p className={styles.emptyTitle}>Comece a conversa</p>
+              <p className={styles.emptyText}>
+                {isParticipant
+                  ? `Envie uma mensagem sobre “${conversation.property.name}”.`
+                  : "Nenhuma mensagem nesta conversa ainda."}
+              </p>
             </div>
-          );
-        })}
-        <div ref={bottomRef} />
+          )}
+
+          {messages.map((message, index) => {
+            const previous = messages[index - 1];
+            const next = messages[index + 1];
+            const alignRight = isAuditor
+              ? message.senderId === conversation.property.ownerId
+              : message.senderId === currentUser.id;
+            const newDay =
+              !previous || new Date(previous.createdAt).toDateString() !== new Date(message.createdAt).toDateString();
+            const isCard = CARD_TYPES.has(message.type);
+            const groupedWithPrevious =
+              !newDay &&
+              !!previous &&
+              previous.senderId === message.senderId &&
+              !CARD_TYPES.has(previous.type) &&
+              !isCard &&
+              new Date(message.createdAt).getTime() - new Date(previous.createdAt).getTime() < GROUP_WINDOW_MS;
+            const groupedWithNext =
+              !!next &&
+              next.senderId === message.senderId &&
+              !CARD_TYPES.has(next.type) &&
+              !isCard &&
+              new Date(next.createdAt).toDateString() === new Date(message.createdAt).toDateString() &&
+              new Date(next.createdAt).getTime() - new Date(message.createdAt).getTime() < GROUP_WINDOW_MS;
+
+            return (
+              <Fragment key={message.clientId ?? message.id}>
+                {newDay && (
+                  <div className={styles.daySeparator}>
+                    <span>{formatDayLabel(message.createdAt)}</span>
+                  </div>
+                )}
+                <div
+                  className={[
+                    styles.messageRow,
+                    alignRight ? styles.messageRowMine : "",
+                    groupedWithPrevious ? styles.messageRowGrouped : "",
+                  ].join(" ")}
+                >
+                  {isCard ? (
+                    <div className={styles.cardWrapper}>
+                      {isAuditor && <p className={styles.senderLabelOutside}>{message.sender.name}</p>}
+                      {renderCard(message)}
+                      <p className={styles.cardTime}>{formatTime(message.createdAt)}</p>
+                    </div>
+                  ) : (
+                    <div
+                      className={[
+                        styles.bubble,
+                        alignRight ? styles.bubbleMine : "",
+                        groupedWithPrevious ? styles.bubbleGroupedTop : "",
+                        groupedWithNext ? styles.bubbleGroupedBottom : "",
+                        message.localStatus === "failed" ? styles.bubbleFailed : "",
+                      ].join(" ")}
+                    >
+                      {isAuditor && !groupedWithPrevious && <p className={styles.senderLabel}>{message.sender.name}</p>}
+                      <p className={styles.content}>{message.content}</p>
+                      {!groupedWithNext && (
+                        <p className={styles.time}>
+                          {message.localStatus === "sending" ? "Enviando…" : formatTime(message.createdAt)}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+                {message.localStatus === "failed" && (
+                  <div className={styles.failedRow}>
+                    <span>Não enviada.</span>
+                    <button type="button" onClick={() => retryMessage(message)} className={styles.retryLink}>
+                      <RotateCcw size={12} />
+                      Tentar de novo
+                    </button>
+                  </div>
+                )}
+              </Fragment>
+            );
+          })}
+        </div>
+
+        {showJumpToLatest && (
+          <button type="button" className={styles.jumpButton} onClick={jumpToLatest}>
+            <ArrowDown size={14} />
+            Novas mensagens
+          </button>
+        )}
       </div>
 
       {actionError && <p className={styles.sendError}>{actionError}</p>}
@@ -490,23 +834,25 @@ export function ChatConversation({ conversation, initialMessages, token, current
               ))}
             </div>
           )}
+          {sendError && <p className={styles.sendError}>{sendError}</p>}
           <form onSubmit={handleSend} className={styles.inputRow}>
-            <input
-              type="text"
+            <textarea
+              ref={inputRef}
+              rows={1}
               value={input}
               onChange={handleInputChange}
               onKeyDown={handleInputKeyDown}
-              placeholder={`Mensagem para ${other?.name ?? "..."}`}
+              placeholder={other ? `Mensagem para ${other.name}` : "Escreva uma mensagem"}
               className={styles.input}
+              aria-label="Mensagem"
             />
-            <button type="submit" className={styles.sendButton} aria-label="Enviar">
-              <Send size={18} />
+            <button type="submit" className={styles.sendButton} aria-label="Enviar" disabled={!input.trim()}>
+              <Send size={17} />
             </button>
           </form>
+          <p className={styles.inputHint}>Enter envia · Shift+Enter quebra linha</p>
         </div>
       ) : null}
-
-      {sendError && <p className={styles.sendError}>{sendError}</p>}
 
       {negotiationModal && (
         <NegotiationModal

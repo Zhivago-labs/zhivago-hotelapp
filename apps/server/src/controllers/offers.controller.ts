@@ -94,17 +94,20 @@ export async function createOffer(request: FastifyRequest, reply: FastifyReply) 
         contactId = broker?.userId ?? null;
       }
     }
-    if (!contactId || contactId === userId) {
+    if (contactId === userId || (!contactId && !leadId)) {
       return reply.status(400).send({ error: 'Não há um responsável disponível para receber a proposta.' });
     }
 
-    // Busca só pelo cliente (não pelo par) — o responsável muda com a (re)atribuição do Lead.
+    // Busca só pelo cliente (não pelo par) — o responsável muda com a (re)atribuição do Lead. Lead
+    // de organização ainda sem corretor: a conversa nasce só com o cliente e o corretor entra
+    // quando for atribuído (syncConversationParticipant em lib/leads.ts), igual a createBooking.
     let conversation = await prisma.conversation.findFirst({
       where: { propertyId: listingId, participants: { some: { id: userId } } },
     });
     if (!conversation) {
+      const participantIds = contactId ? [userId, contactId] : [userId];
       conversation = await prisma.conversation.create({
-        data: { propertyId: listingId, leadId, participants: { connect: [{ id: userId }, { id: contactId }] } },
+        data: { propertyId: listingId, leadId, participants: { connect: participantIds.map((id) => ({ id })) } },
       });
     }
 

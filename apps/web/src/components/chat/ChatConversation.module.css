@@ -4,34 +4,18 @@
   flex-direction: column;
   min-height: 0;
   background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  box-shadow: var(--shadow-md);
 }
+
+/* ─── CABEÇALHO: IMÓVEL DA CONVERSA ─────────────────────────────────────── */
 
 .header {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 16px 20px;
+  gap: 12px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   background: var(--card-bg);
-}
-
-.backButton {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--muted);
-  flex-shrink: 0;
-  transition: var(--transition);
-}
-
-.backButton:hover {
-  color: var(--foreground);
-  transform: translateX(-2px);
 }
 
 .propertyLink {
@@ -40,39 +24,70 @@
   display: flex;
   align-items: center;
   gap: 12px;
+  padding: 4px;
+  margin: -4px;
+  border-radius: var(--radius-lg);
+  color: inherit;
+  text-decoration: none;
+  transition: background-color 0.15s ease;
+}
+
+.propertyLink:hover {
+  background: var(--hover-bg);
 }
 
 .propertyImage {
-  width: 44px;
-  height: 44px;
-  border-radius: var(--radius-sm);
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-md);
   object-fit: cover;
-  background: #f1f5f9;
+  background: var(--hover-bg);
   flex-shrink: 0;
-  border: 1px solid var(--border);
+  display: block;
+}
+
+.propertyText {
+  min-width: 0;
 }
 
 .propertyName {
   font-size: 14px;
   font-weight: 600;
   color: var(--foreground);
-  margin: 0 0 2px;
+  margin: 0 0 3px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  letter-spacing: -0.01em;
+}
+
+.propertyMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  min-width: 0;
+}
+
+.operationTag {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-light);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
 }
 
 .propertyPrice {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
-  color: var(--accent);
-  margin: 0;
+  color: var(--foreground);
+  white-space: nowrap;
 }
 
 .headerActions {
   display: flex;
-  gap: 6px;
+  gap: 4px;
   flex-shrink: 0;
 }
 
@@ -91,33 +106,156 @@
 }
 
 .iconButton:hover {
-  background: rgba(15, 23, 42, 0.05);
+  background: var(--hover-bg);
   color: var(--foreground);
 }
 
-.banner {
-  padding: 10px 20px;
-  background: rgba(239, 68, 68, 0.06);
-  border-bottom: 1px solid rgba(239, 68, 68, 0.1);
-  color: var(--error);
+/* ─── FAIXAS (NEGOCIAÇÃO, DENÚNCIA, CONEXÃO) ────────────────────────────── */
+
+.negotiateBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--accent-light);
+  border-bottom: 1px solid var(--accent-light-border);
+  flex-shrink: 0;
+}
+
+.negotiateText {
   font-size: 13px;
+  font-weight: 500;
+  color: var(--foreground);
+  line-height: 1.4;
+}
+
+.offerButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: var(--radius-full);
+  border: none;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-size: 13px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  transition: var(--transition);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.offerButton:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.banner,
+.connectionBanner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  font-size: 12px;
   font-weight: 600;
   flex-shrink: 0;
+}
+
+.banner {
+  background: #fef2f2;
+  border-bottom: 1px solid #fee2e2;
+  color: var(--error);
+}
+
+.connectionBanner {
+  background: #fffbeb;
+  border-bottom: 1px solid #fef3c7;
+  color: #92400e;
+}
+
+/* ─── MENSAGENS ─────────────────────────────────────────────────────────── */
+
+.messagesArea {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .messages {
   flex: 1;
   overflow-y: auto;
-  padding: 20px;
+  padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  background: #f8fafc;
+  background: var(--surface-subtle);
+  overscroll-behavior: contain;
+}
+
+.messages::-webkit-scrollbar {
+  width: 6px;
+}
+
+.messages::-webkit-scrollbar-thumb {
+  background: var(--border-hover);
+  border-radius: 10px;
+}
+
+.emptyConversation {
+  margin: auto;
+  text-align: center;
+  padding: 24px;
+  max-width: 280px;
+}
+
+.emptyTitle {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--foreground);
+  margin: 0 0 4px;
+}
+
+.emptyText {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.daySeparator {
+  display: flex;
+  justify-content: center;
+  margin: 16px 0 8px;
+}
+
+.daySeparator:first-child {
+  margin-top: 0;
+}
+
+.daySeparator span {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  text-transform: capitalize;
+  box-shadow: var(--shadow-xs);
 }
 
 .messageRow {
   display: flex;
   justify-content: flex-start;
+  margin-top: 10px;
+}
+
+.messageRowGrouped {
+  margin-top: 2px;
 }
 
 .messageRowMine {
@@ -125,79 +263,369 @@
 }
 
 .bubble {
-  max-width: 70%;
+  max-width: min(78%, 360px);
   background: var(--card-bg);
   border: 1px solid var(--border);
   border-radius: 18px;
-  border-top-left-radius: 4px;
-  padding: 10px 16px;
-  box-shadow: var(--shadow-sm);
+  border-bottom-left-radius: 6px;
+  padding: 8px 12px;
   color: var(--foreground);
+  box-shadow: var(--shadow-xs);
 }
 
 .bubbleMine {
   background: var(--accent);
   color: var(--accent-contrast);
   border-color: var(--accent);
-  border-radius: 18px;
-  border-top-right-radius: 4px;
-  box-shadow: 0 4px 10px rgba(255, 56, 92, 0.15);
+  border-bottom-left-radius: 18px;
+  border-bottom-right-radius: 6px;
 }
 
-.senderLabel {
+/* Bloco de mensagens seguidas do mesmo remetente: os cantos "colam" entre si. */
+.bubbleGroupedTop {
+  border-top-left-radius: 6px;
+}
+
+.bubbleGroupedBottom {
+  border-bottom-left-radius: 6px;
+}
+
+.bubbleMine.bubbleGroupedTop {
+  border-top-left-radius: 18px;
+  border-top-right-radius: 6px;
+}
+
+.bubbleMine.bubbleGroupedBottom {
+  border-bottom-left-radius: 18px;
+  border-bottom-right-radius: 6px;
+}
+
+.bubbleFailed {
+  opacity: 0.6;
+}
+
+.senderLabel,
+.senderLabelOutside {
   font-size: 11px;
   font-weight: 700;
   opacity: 0.8;
-  margin: 0 0 4px;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+  margin: 0 0 2px;
 }
 
-.typeBadge {
-  display: inline-block;
-  font-size: 9px;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  opacity: 0.8;
-  margin: 0 0 6px;
-  background: rgba(255, 255, 255, 0.2);
-  padding: 2px 6px;
-  border-radius: 4px;
+.senderLabelOutside {
+  color: var(--muted);
+  margin: 0 4px 4px;
 }
 
 .content {
   font-size: 14px;
-  font-weight: 500;
   margin: 0;
-  line-height: 1.5;
+  line-height: 1.45;
   white-space: pre-wrap;
-  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .time {
-  font-size: 10px;
+  font-size: 11px;
   opacity: 0.7;
-  margin: 6px 0 0;
+  margin: 2px 0 0;
   text-align: right;
+}
+
+.failedRow {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--error);
   font-weight: 600;
 }
+
+.retryLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--error);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.jumpButton {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 700;
+  font-family: inherit;
+  box-shadow: var(--shadow-lg);
+  cursor: pointer;
+}
+
+/* ─── CARDS (RESERVA, PROPOSTA, NEGOCIAÇÃO) ─────────────────────────────── */
+/* Cards ficam fora da bolha colorida: fundo neutro em qualquer lado, pra os botões de ação e os
+   status (verde/vermelho) terem contraste — dentro da bolha rosa eles ficavam ilegíveis. */
+
+.cardWrapper {
+  width: min(88%, 340px);
+}
+
+.messageRowMine .cardWrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: 14px;
+  box-shadow: var(--shadow-sm);
+  color: var(--foreground);
+}
+
+.messageRowMine .card {
+  border-color: var(--accent-light-border);
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.cardIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-md);
+  background: var(--accent-light);
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.cardTitle {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.pill {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.pillOk {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.pillBad {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.pillPending {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.pillMuted {
+  background: var(--hover-bg);
+  color: var(--muted);
+}
+
+.cardValue {
+  font-size: 20px;
+  font-weight: 800;
+  margin: 0 0 4px;
+  letter-spacing: -0.01em;
+}
+
+.cardMeta {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0 0 2px;
+  line-height: 1.45;
+}
+
+.cardHint {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 10px 0 0;
+  font-style: italic;
+}
+
+.cardTime {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 4px 4px 0;
+}
+
+.messageRowMine .cardTime {
+  text-align: right;
+}
+
+.dateRange {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+
+.dateRange > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+}
+
+.dateRange > div + div {
+  border-left: 1px solid var(--border);
+}
+
+.dateLabel {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.dateValue {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.cardActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.approveButton,
+.rejectButton,
+.counterButton {
+  flex: 1;
+  min-width: 88px;
+  height: 36px;
+  border-radius: var(--radius-full);
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.approveButton {
+  border: none;
+  background: var(--success);
+  color: #fff;
+}
+
+.approveButton:hover:not(:disabled) {
+  background: #15803d;
+}
+
+.rejectButton {
+  border: 1.5px solid var(--border);
+  background: var(--card-bg);
+  color: var(--error);
+}
+
+.rejectButton:hover:not(:disabled) {
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+.counterButton {
+  border: 1.5px solid var(--border);
+  background: var(--card-bg);
+  color: var(--foreground);
+}
+
+.counterButton:hover:not(:disabled) {
+  background: var(--hover-bg);
+}
+
+.approveButton:disabled,
+.rejectButton:disabled,
+.counterButton:disabled,
+.offerButton:disabled,
+.sendButton:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.negotiationHistory {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.negotiationHistory summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--foreground);
+}
+
+.negotiationHistory ol {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.negotiationHistory li {
+  margin-bottom: 2px;
+}
+
+/* ─── COMPOSIÇÃO ────────────────────────────────────────────────────────── */
 
 .commandMenuWrapper {
   position: relative;
   flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  background: var(--card-bg);
 }
 
 .commandMenu {
   position: absolute;
   bottom: 100%;
-  left: 20px;
-  right: 20px;
+  left: 12px;
+  right: 12px;
   margin-bottom: 8px;
   background: var(--card-bg);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
   overflow: hidden;
   z-index: 10;
 }
@@ -217,7 +645,7 @@
 
 .commandMenuItem:hover,
 .commandMenuItemActive {
-  background: rgba(255, 56, 92, 0.08);
+  background: var(--accent-light);
 }
 
 .commandMenuTrigger {
@@ -244,29 +672,32 @@
 
 .inputRow {
   display: flex;
-  gap: 10px;
-  padding: 14px 20px;
-  border-top: 1px solid var(--border);
-  flex-shrink: 0;
-  background: var(--card-bg);
+  align-items: flex-end;
+  gap: 8px;
+  padding: 10px 12px 4px;
 }
 
 .input {
   flex: 1;
+  resize: none;
+  min-height: 42px;
+  max-height: 132px;
   border: 1.5px solid var(--border);
-  border-radius: var(--radius-full);
-  padding: 10px 18px;
+  border-radius: 21px;
+  padding: 10px 16px;
   font-size: 14px;
-  background: var(--background);
+  line-height: 1.4;
+  background: var(--hover-bg);
   color: var(--foreground);
   font-family: inherit;
   transition: var(--transition);
+  overflow-y: auto;
 }
 
 .input:focus {
   outline: none;
   border-color: var(--accent);
-  background: #ffffff;
+  background: var(--card-bg);
   box-shadow: 0 0 0 4px rgba(255, 56, 92, 0.1);
 }
 
@@ -274,8 +705,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: 42px;
+  height: 42px;
   border-radius: var(--radius-full);
   border: none;
   background: var(--accent);
@@ -283,13 +714,17 @@
   cursor: pointer;
   flex-shrink: 0;
   transition: var(--transition);
-  box-shadow: 0 4px 10px rgba(255, 56, 92, 0.2);
 }
 
-.sendButton:hover {
+.sendButton:hover:not(:disabled) {
   background: var(--accent-hover);
-  box-shadow: 0 6px 14px rgba(255, 56, 92, 0.3);
-  transform: translateY(-0.5px);
+}
+
+.inputHint {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 0;
+  padding: 0 16px 10px 28px;
 }
 
 .closedNotice {
@@ -300,187 +735,26 @@
   color: var(--muted);
   border-top: 1px solid var(--border);
   flex-shrink: 0;
-  background: #f8fafc;
+  background: var(--surface-subtle);
+  margin: 0;
 }
 
 .sendError {
-  padding: 0 20px 14px;
+  padding: 8px 16px 0;
+  margin: 0;
   color: var(--error);
   font-size: 12px;
   font-weight: 600;
   flex-shrink: 0;
 }
 
-/* ─── PROPOSTA / RESERVA — CARDS ESPECIAIS NO CHAT ────────────────────────── */
-
-.offerButton {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 32px;
-  padding: 0 12px;
-  border-radius: var(--radius-full);
-  border: none;
-  background: var(--accent);
-  color: var(--accent-contrast);
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: var(--transition);
-  white-space: nowrap;
+@media (hover: none) {
+  .inputHint {
+    display: none;
+  }
 }
 
-.offerButton:hover {
-  background: var(--accent-hover);
-}
-
-.requestCard {
-  min-width: 180px;
-}
-
-.requestTitle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  font-weight: 800;
-  margin: 0 0 8px;
-}
-
-.requestLine {
-  font-size: 13px;
-  font-weight: 500;
-  margin: 0 0 4px;
-}
-
-.requestStatusApproved {
-  font-size: 12px;
-  font-weight: 800;
-  color: #10b981;
-  margin: 6px 0 0;
-}
-
-.bubbleMine .requestStatusApproved {
-  color: #d1fae5;
-}
-
-.requestStatusRejected {
-  font-size: 12px;
-  font-weight: 800;
-  color: #ef4444;
-  margin: 6px 0 0;
-}
-
-.bubbleMine .requestStatusRejected {
-  color: #fecaca;
-}
-
-.requestActions {
-  display: flex;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.approveButton,
-.rejectButton {
-  border: none;
-  border-radius: var(--radius-md);
-  padding: 6px 12px;
-  font-size: 12px;
-  font-weight: 700;
-  color: #fff;
-  cursor: pointer;
-  transition: var(--transition);
-}
-
-.approveButton {
-  background: #10b981;
-}
-
-.approveButton:hover {
-  background: #0d9c6f;
-}
-
-.rejectButton {
-  background: #ef4444;
-}
-
-.rejectButton:hover {
-  background: #dc2626;
-}
-
-.approveButton:disabled,
-.rejectButton:disabled,
-.counterButton:disabled,
-.offerButton:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-/* ─── NEGOCIAÇÃO DE VALOR ─────────────────────────────────────────────────── */
-
-.negotiationValue {
-  font-size: 18px;
-  font-weight: 800;
-  margin: 0 0 4px;
-}
-
-.negotiationMeta {
-  font-size: 12px;
-  font-weight: 500;
-  opacity: 0.8;
-  margin: 0 0 2px;
-}
-
-.negotiationStatusMuted {
-  font-size: 12px;
-  font-weight: 700;
-  opacity: 0.75;
-  margin: 6px 0 0;
-}
-
-.counterButton {
-  border: 1px solid currentColor;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: inherit;
-  padding: 5px 12px;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: var(--transition);
-}
-
-.counterButton:hover:not(:disabled) {
-  background: rgba(127, 127, 127, 0.12);
-}
-
-.negotiationHistory {
-  margin-top: 10px;
-  font-size: 12px;
-}
-
-.negotiationHistory summary {
-  cursor: pointer;
-  font-weight: 700;
-}
-
-.negotiationHistory ol {
-  margin: 6px 0 0;
-  padding-left: 18px;
-}
-
-.negotiationHistory li {
-  margin-bottom: 2px;
-}
-
-.modalHint {
-  font-size: 13px;
-  color: var(--muted);
-  margin: 0 0 8px;
-}
-
-/* ─── MODAL DE PROPOSTA ───────────────────────────────────────────────────── */
+/* ─── MODAL DE PROPOSTA ─────────────────────────────────────────────────── */
 
 .modalOverlay {
   position: fixed;
@@ -489,33 +763,40 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
-  z-index: 50;
+  padding: 16px;
+  z-index: 10000;
 }
 
 .modalContent {
   background: var(--card-bg);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-xl);
   padding: 24px;
   width: 100%;
-  max-width: 380px;
-  box-shadow: var(--shadow-md);
+  max-width: 400px;
+  box-shadow: var(--shadow-lg);
 }
 
 .modalTitle {
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 800;
   color: var(--foreground);
-  margin: 0 0 16px;
+  margin: 0 0 12px;
+}
+
+.modalHint {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0 0 8px;
 }
 
 .modalLabel {
+  display: block;
   font-size: 12px;
   font-weight: 700;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  margin: 0 0 6px;
+  margin: 12px 0 6px;
 }
 
 .modalInput {
@@ -523,11 +804,12 @@
   border: 1.5px solid var(--border);
   border-radius: var(--radius-md);
   padding: 10px 14px;
-  font-size: 14px;
-  background: var(--background);
+  font-size: 16px;
+  font-weight: 600;
+  background: var(--input-bg);
   color: var(--foreground);
   font-family: inherit;
-  margin-bottom: 16px;
+  margin-bottom: 8px;
 }
 
 .modalInput:focus {
@@ -545,12 +827,13 @@
 
 .methodBadge {
   border: 1.5px solid var(--border);
-  background: var(--background);
+  background: var(--card-bg);
   color: var(--foreground);
   border-radius: var(--radius-full);
   padding: 6px 12px;
   font-size: 12px;
   font-weight: 700;
+  font-family: inherit;
   cursor: pointer;
   transition: var(--transition);
 }
@@ -564,22 +847,24 @@
 .modalActions {
   display: flex;
   gap: 10px;
+  margin-top: 16px;
 }
 
 .modalCancelButton,
 .modalSubmitButton {
   flex: 1;
   height: 42px;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-full);
   border: none;
   font-size: 14px;
   font-weight: 700;
+  font-family: inherit;
   cursor: pointer;
   transition: var(--transition);
 }
 
 .modalCancelButton {
-  background: var(--background);
+  background: var(--card-bg);
   color: var(--muted);
   border: 1.5px solid var(--border);
 }
@@ -597,4 +882,10 @@
 .modalSubmitButton:disabled {
   opacity: 0.6;
   cursor: default;
+}
+
+/* Três ações (aceitar, recusar, contrapropor): a terceira vai pra linha de baixo, inteira — lado a
+   lado as três ficavam espremidas na largura do card. */
+.cardActions > :nth-child(3) {
+  flex-basis: 100%;
 }

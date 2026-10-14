@@ -7,6 +7,52 @@ import { ensureLead, getCurrentAssignment, canManageListingConversation, closeLe
 import { canManageOrgListing } from './listings.controller.js';
 import { closeNegotiationsForBooking } from '../lib/negotiations.js';
 
+const senderSelect = { select: { id: true, name: true, avatar: true } } as const;
+
+/** Emite pra sala de cada usuário (ver socket.ts); no-op se o socket não estiver inicializado. */
+function emitToRooms(userIds: Iterable<string>, event: string, payload: unknown) {
+  try {
+    const io = getIO();
+    for (const id of new Set(userIds)) io.to(`room_${id}`).emit(event, payload);
+  } catch {}
+}
+
+/** Conversa do hóspede sobre o imóvel — busca só pelo hóspede, igual à criação da reserva. */
+function findGuestConversation(listingId: string, guestId: string) {
+  return prisma.conversation.findFirst({
+    where: { propertyId: listingId, participants: { some: { id: guestId } } },
+    include: { participants: { select: { id: true } } },
+  });
+}
+
+/**
+ * Fecha o card da solicitação (BOOKING_REQUEST → `resolvedType`), avisa as duas telas e posta a
+ * mensagem de texto do desfecho. Usado por aprovar, recusar e cancelar.
+ */
+async function resolveBookingInChat(
+  booking: { id: string; listingId: string; userId: string },
+  actorId: string,
+  resolvedType: 'BOOKING_APPROVED' | 'BOOKING_REJECTED' | 'BOOKING_CANCELLED',
+  text: string
+) {
+  const conversation = await findGuestConversation(booking.listingId, booking.userId);
+  if (!conversation) return;
+
+  await prisma.message.updateMany({
+    where: { conversationId: conversation.id, type: 'BOOKING_REQUEST', metadata: { contains: booking.id } },
+    data: { type: resolvedType },
+  });
+  await emitBookingCardUpdates(conversation.id, booking.id, resolvedType);
+
+  const message = await prisma.message.create({
+    data: { content: text, type: 'TEXT', senderId: actorId, conversationId: conversation.id },
+    include: { sender: senderSelect },
+  });
+  await prisma.conversation.update({ where: { id: conversation.id }, data: { updatedAt: new Date() } });
+
+  emitToRooms([...conversation.participants.map((p) => p.id), actorId], 'receiveMessage', message);
+}
+
 export async function createBooking(request: FastifyRequest, reply: FastifyReply) {
   const { id: userId, role } = request.user as { id: string; role: string };
   if (role === 'ADMIN') {
@@ -96,8 +142,6 @@ export async function createBooking(request: FastifyRequest, reply: FastifyReply
       });
     }, { isolationLevel: 'Serializable' });
 
-    let conversation;
-
     // Contato da reserva: dono, na pessoa física; responsável atual do Lead, na organização
     // (seção 108/146 da spec — não mais `ownerId ?? agentId`, que ficava travado no criador do
     // imóvel e nunca acompanhava reatribuição do Lead no CRM).
@@ -117,58 +161,55 @@ export async function createBooking(request: FastifyRequest, reply: FastifyReply
         message: `Uma nova solicitação para "${listing.name}" de ${new Date(startDate).toLocaleDateString()} a ${new Date(endDate).toLocaleDateString()}.`,
         type: 'BOOKING',
       });
+    }
 
-      // Find or create conversation between guest and host — busca só pelo hóspede (`userId`), não
-      // pelo par [userId, contactId]: em imóvel de organização o responsável muda conforme o Lead
-      // é (re)atribuído no CRM (ver `assignLead`/`syncConversationParticipant` em lib/leads.ts),
-      // então travar a busca no `contactId` de hoje deixaria de achar a conversa já aberta assim
-      // que o corretor responsável mudasse, e duplicaria conversa.
-      conversation = await prisma.conversation.findFirst({
-        where: {
-          propertyId: listingId,
-          participants: { some: { id: userId } }
-        }
-      });
+    // A conversa e o card da solicitação existem SEMPRE — antes, imóvel de organização com Lead
+    // ainda sem corretor atribuído ficava sem conversa e sem card (a reserva existia "invisível" no
+    // chat). Sem responsável, a conversa nasce só com o hóspede e `syncConversationParticipant`
+    // (lib/leads.ts) adiciona o corretor quando o Lead for atribuído — ele vê o card ao entrar.
+    //
+    // Busca só pelo hóspede (`userId`), não pelo par [userId, contactId]: em imóvel de organização
+    // o responsável muda conforme o Lead é (re)atribuído no CRM, então travar a busca no
+    // `contactId` de hoje deixaria de achar a conversa já aberta e duplicaria conversa.
+    let conversation = await prisma.conversation.findFirst({
+      where: {
+        propertyId: listingId,
+        participants: { some: { id: userId } }
+      },
+      include: { participants: { select: { id: true } } },
+    });
 
-      if (!conversation) {
-        conversation = await prisma.conversation.create({
-          data: {
-            propertyId: listingId,
-            leadId,
-            participants: {
-              connect: [{ id: userId }, { id: contactId }]
-            }
-          }
-        });
-      }
-
-      // Create Booking Request Message
-      const message = await prisma.message.create({
+    if (!conversation) {
+      const participantIds = contactId && contactId !== userId ? [userId, contactId] : [userId];
+      conversation = await prisma.conversation.create({
         data: {
-          content: `Solicitação de Reserva: ${new Date(startDate).toLocaleDateString()} até ${new Date(endDate).toLocaleDateString()}`,
-          type: 'BOOKING_REQUEST',
-          metadata: JSON.stringify({ bookingId: booking.id, startDate, endDate }),
-          senderId: userId,
-          conversationId: conversation.id
+          propertyId: listingId,
+          leadId,
+          participants: { connect: participantIds.map((id) => ({ id })) },
         },
-        include: { sender: { select: { id: true, name: true, avatar: true } } }
-      });
-
-      // Emit socket
-      try {
-        const io = getIO();
-        io.to(`room_${contactId}`).emit('receiveMessage', message);
-        io.to(`room_${userId}`).emit('receiveMessage', message); // also to self, though maybe not needed if it's sent locally, but it's fine
-      } catch(e) {}
-
-      // Update conversation timestamp
-      await prisma.conversation.update({
-        where: { id: conversation.id },
-        data: { updatedAt: new Date() }
+        include: { participants: { select: { id: true } } },
       });
     }
 
-    return reply.status(201).send({ booking, conversationId: conversation?.id });
+    const message = await prisma.message.create({
+      data: {
+        content: `Solicitação de Reserva: ${new Date(startDate).toLocaleDateString()} até ${new Date(endDate).toLocaleDateString()}`,
+        type: 'BOOKING_REQUEST',
+        metadata: JSON.stringify({ bookingId: booking.id, startDate, endDate }),
+        senderId: userId,
+        conversationId: conversation.id
+      },
+      include: { sender: { select: { id: true, name: true, avatar: true } } }
+    });
+
+    await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { updatedAt: new Date() }
+    });
+
+    emitToRooms(conversation.participants.map((p) => p.id), 'receiveMessage', message);
+
+    return reply.status(201).send({ booking, conversationId: conversation.id });
   } catch (error) {
     if (error instanceof Error && error.message === 'OVERLAP') {
       return reply.status(400).send({ error: 'O imóvel já está reservado neste período.' });
@@ -234,11 +275,38 @@ export async function approveBookingCore(userId: string, bookingId: string): Pro
   if (!(await canManageListingConversation(userId, booking.listing, [booking.userId]))) {
     return { status: 403, body: { error: 'Sem permissão.' } };
   }
+  // Antes não checava: um card antigo (ou o comando /aprovar) confirmava reserva já cancelada.
+  if (booking.status !== 'PENDING') {
+    return { status: 409, body: { error: 'Esta reserva não está mais pendente.' } };
+  }
 
-  const updated = await prisma.booking.update({
-    where: { id: bookingId },
-    data: { status: 'CONFIRMED' }
-  });
+  // Mesma checagem de conflito da criação/aceite de negociação, atômica com a confirmação.
+  let updated;
+  try {
+    updated = await prisma.$transaction(async (tx) => {
+      const overlapping = await tx.booking.count({
+        where: {
+          listingId: booking.listingId,
+          status: 'CONFIRMED',
+          id: { not: booking.id },
+          startDate: { lte: booking.endDate },
+          endDate: { gte: booking.startDate },
+        },
+      });
+      if (overlapping > 0) throw new Error('OVERLAP');
+      const result = await tx.booking.updateMany({ where: { id: bookingId, status: 'PENDING' }, data: { status: 'CONFIRMED' } });
+      if (result.count === 0) throw new Error('STALE');
+      return tx.booking.findUniqueOrThrow({ where: { id: bookingId } });
+    }, { isolationLevel: 'Serializable' });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'OVERLAP') {
+      return { status: 400, body: { error: 'As datas desta reserva já foram ocupadas por outra reserva confirmada.' } };
+    }
+    if (error instanceof Error && error.message === 'STALE') {
+      return { status: 409, body: { error: 'Esta reserva não está mais pendente.' } };
+    }
+    throw error;
+  }
   await closeNegotiationsForBooking(bookingId);
 
   try {
@@ -254,39 +322,12 @@ export async function approveBookingCore(userId: string, bookingId: string): Pro
     type: 'BOOKING',
   });
 
-  const conversation = await prisma.conversation.findFirst({
-    where: {
-      propertyId: booking.listingId,
-      // Só pelo hóspede (igual à criação): com `every` em [hóspede, quem aprova] a conversa não
-      // era achada depois de o Lead ser reatribuído a outro corretor.
-      participants: { some: { id: booking.userId } }
-    }
-  });
-
-  if (conversation) {
-    await prisma.message.updateMany({
-      where: { conversationId: conversation.id, type: 'BOOKING_REQUEST', metadata: { contains: bookingId } },
-      data: { type: 'BOOKING_APPROVED' }
-    });
-    await emitBookingCardUpdates(conversation.id, bookingId, 'BOOKING_APPROVED');
-
-    const message = await prisma.message.create({
-      data: {
-        content: `✅ O anfitrião aprovou sua solicitação de reserva para o período de ${new Date(booking.startDate).toLocaleDateString()} a ${new Date(booking.endDate).toLocaleDateString()}.`,
-        type: 'TEXT',
-        senderId: userId,
-        conversationId: conversation.id
-      },
-      include: { sender: { select: { id: true, name: true, avatar: true } } }
-    });
-    await prisma.conversation.update({ where: { id: conversation.id }, data: { updatedAt: new Date() } });
-
-    try {
-      const io = getIO();
-      io.to(`room_${booking.userId}`).emit('receiveMessage', message);
-      io.to(`room_${userId}`).emit('receiveMessage', message);
-    } catch(e) {}
-  }
+  await resolveBookingInChat(
+    booking,
+    userId,
+    'BOOKING_APPROVED',
+    `✅ O anfitrião aprovou sua solicitação de reserva para o período de ${new Date(booking.startDate).toLocaleDateString()} a ${new Date(booking.endDate).toLocaleDateString()}.`
+  );
 
   return { status: 200, body: updated };
 }
@@ -303,10 +344,11 @@ export async function rejectBookingCore(userId: string, bookingId: string): Prom
     return { status: 403, body: { error: 'Sem permissão.' } };
   }
 
-  const updated = await prisma.booking.update({
-    where: { id: bookingId },
-    data: { status: 'REJECTED' }
-  });
+  const result = await prisma.booking.updateMany({ where: { id: bookingId, status: 'PENDING' }, data: { status: 'REJECTED' } });
+  if (result.count === 0) {
+    return { status: 409, body: { error: 'Esta reserva não está mais pendente.' } };
+  }
+  const updated = await prisma.booking.findUniqueOrThrow({ where: { id: bookingId } });
   await closeNegotiationsForBooking(bookingId);
 
   await sendNotification({
@@ -316,39 +358,7 @@ export async function rejectBookingCore(userId: string, bookingId: string): Prom
     type: 'SYSTEM',
   });
 
-  const conversation = await prisma.conversation.findFirst({
-    where: {
-      propertyId: booking.listingId,
-      // Só pelo hóspede (igual à criação): com `every` em [hóspede, quem aprova] a conversa não
-      // era achada depois de o Lead ser reatribuído a outro corretor.
-      participants: { some: { id: booking.userId } }
-    }
-  });
-
-  if (conversation) {
-    await prisma.message.updateMany({
-      where: { conversationId: conversation.id, type: 'BOOKING_REQUEST', metadata: { contains: bookingId } },
-      data: { type: 'BOOKING_REJECTED' }
-    });
-    await emitBookingCardUpdates(conversation.id, bookingId, 'BOOKING_REJECTED');
-
-    const message = await prisma.message.create({
-      data: {
-        content: `❌ O anfitrião recusou a solicitação de reserva.`,
-        type: 'TEXT',
-        senderId: userId,
-        conversationId: conversation.id
-      },
-      include: { sender: { select: { id: true, name: true, avatar: true } } }
-    });
-    await prisma.conversation.update({ where: { id: conversation.id }, data: { updatedAt: new Date() } });
-
-    try {
-      const io = getIO();
-      io.to(`room_${booking.userId}`).emit('receiveMessage', message);
-      io.to(`room_${userId}`).emit('receiveMessage', message);
-    } catch(e) {}
-  }
+  await resolveBookingInChat(booking, userId, 'BOOKING_REJECTED', `❌ O anfitrião recusou a solicitação de reserva.`);
 
   return { status: 200, body: updated };
 }
@@ -360,6 +370,7 @@ export async function approveBooking(request: FastifyRequest, reply: FastifyRepl
     const { status, body } = await approveBookingCore(user.id, id);
     return reply.status(status).send(body);
   } catch (error) {
+    console.error('Approve Booking Error:', error);
     return reply.status(500).send({ error: 'Erro ao aprovar reserva.' });
   }
 }
@@ -371,6 +382,7 @@ export async function rejectBooking(request: FastifyRequest, reply: FastifyReply
     const { status, body } = await rejectBookingCore(user.id, id);
     return reply.status(status).send(body);
   } catch (error) {
+    console.error('Reject Booking Error:', error);
     return reply.status(500).send({ error: 'Erro ao recusar reserva.' });
   }
 }
@@ -386,7 +398,10 @@ export async function cancelBooking(request: FastifyRequest, reply: FastifyReply
     });
 
     if (!booking) return reply.status(404).send({ error: 'Reserva não encontrada.' });
-    if (booking.userId !== user.id && booking.listing.ownerId !== user.id) {
+    const isGuest = booking.userId === user.id;
+    // Lado do anúncio: dono (pessoa física) ou quem gerencia a conversa na organização — antes só
+    // `ownerId`, então imóvel de organização (que nunca tem `ownerId`) não podia cancelar.
+    if (!isGuest && !(await canManageListingConversation(user.id, booking.listing, [booking.userId]))) {
       return reply.status(403).send({ error: 'Sem permissão.' });
     }
 
@@ -400,50 +415,30 @@ export async function cancelBooking(request: FastifyRequest, reply: FastifyReply
     });
     await closeNegotiationsForBooking(id);
 
-    const targetUserId = booking.userId === user.id ? booking.listing.ownerId : booking.userId;
-    const isGuest = booking.userId === user.id;
+    // Notifica o outro lado: o hóspede, ou os outros participantes da conversa (o dono, ou o
+    // corretor responsável na organização).
+    const conversation = await findGuestConversation(booking.listingId, booking.userId);
+    const targetUserIds = isGuest
+      ? (conversation?.participants.map((p) => p.id).filter((pid) => pid !== user.id) ??
+          (booking.listing.ownerId ? [booking.listing.ownerId] : []))
+      : [booking.userId];
 
-    if (targetUserId) {
+    for (const targetUserId of new Set(targetUserIds)) {
       await sendNotification({
         userId: targetUserId,
         title: 'Reserva Cancelada',
-        message: isGuest 
+        message: isGuest
           ? `O hóspede cancelou a reserva para "${booking.listing.name}".`
           : `O anfitrião cancelou sua reserva para "${booking.listing.name}".`,
         type: 'SYSTEM',
       });
     }
 
-    if (booking.listing.ownerId) {
-      const conversation = await prisma.conversation.findFirst({
-        where: {
-          propertyId: booking.listingId,
-          participants: { every: { id: { in: [booking.userId, booking.listing.ownerId] } } }
-        }
-      });
-
-      if (conversation) {
-        const message = await prisma.message.create({
-          data: {
-            content: `🚫 ${isGuest ? 'O hóspede' : 'O anfitrião'} cancelou a reserva.`,
-            type: 'TEXT',
-            senderId: user.id,
-            conversationId: conversation.id
-          },
-          include: { sender: { select: { id: true, name: true, avatar: true } } }
-        });
-        await prisma.conversation.update({ where: { id: conversation.id }, data: { updatedAt: new Date() } });
-
-        try {
-          const io = getIO();
-          io.to(`room_${booking.userId}`).emit('receiveMessage', message);
-          io.to(`room_${booking.listing.ownerId}`).emit('receiveMessage', message);
-        } catch(e) {}
-      }
-    }
+    await resolveBookingInChat(booking, user.id, 'BOOKING_CANCELLED', `🚫 ${isGuest ? 'O hóspede' : 'O anfitrião'} cancelou a reserva.`);
 
     return reply.send(updated);
   } catch (error) {
+    console.error('Cancel Booking Error:', error);
     return reply.status(500).send({ error: 'Erro ao cancelar reserva.' });
   }
 }

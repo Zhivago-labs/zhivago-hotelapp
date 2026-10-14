@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, TouchableOpacity, Image, StyleSheet, ActivityIndicator, TextInput } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
+import { useChat } from '@/contexts/ChatContext';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 
@@ -14,6 +15,7 @@ export default function InboxScreen() {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
   const { token, user } = useAuth();
+  const { socket } = useChat();
 
   const fetchConversations = async () => {
     try {
@@ -37,7 +39,17 @@ export default function InboxScreen() {
   useFocusEffect(
     React.useCallback(() => {
       fetchConversations();
-    }, [token])
+      // Enquanto a lista está visível, mensagem nova (ou reconexão do socket) atualiza a ordem, a
+      // prévia e os não lidos — antes só atualizava ao sair e voltar pra aba.
+      if (!socket) return;
+      const refresh = () => fetchConversations();
+      socket.on('receiveMessage', refresh);
+      socket.on('connect', refresh);
+      return () => {
+        socket.off('receiveMessage', refresh);
+        socket.off('connect', refresh);
+      };
+    }, [token, socket])
   );
 
   useEffect(() => {
