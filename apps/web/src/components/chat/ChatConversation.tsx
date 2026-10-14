@@ -5,7 +5,14 @@ import Link from "next/link";
 import { Flag, Lock, Unlock, Send, Handshake, CalendarRange, WifiOff, RotateCcw, ArrowDown } from "lucide-react";
 import type { Negotiation, NegotiationRound } from "@zhivago/shared";
 import { useChatSocket } from "./ChatSocketProvider";
-import { NegotiationModal, NegotiationRoundCard } from "./NegotiationWidgets";
+import {
+  deltaText,
+  formatBRL,
+  NegotiationModal,
+  NegotiationRoundCard,
+  parseProposalArgument,
+  PAYMENT_METHODS,
+} from "./NegotiationWidgets";
 import {
   createClientId,
   formatDayLabel,
@@ -41,6 +48,10 @@ const CARD_TYPES = new Set([
 // Mensagens do mesmo remetente com menos que isso de intervalo viram um "bloco" (sem repetir hora).
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
 const SEND_TIMEOUT_MS = 15_000;
+
+// "/proposta 450000 financiamento" e aliases (ver CHAT_COMMANDS em socket.ts); "/negociar" só com valor.
+const PROPOSAL_COMMAND_RE =
+  /^(\/(?:proposta|propor|oferta|ofertar|contraproposta|contrapropor|contra)(?=\s|$)|\/(?:negociar|negocia[çc][ãa]o|negociando)(?=\s+\S))\s*(.*)$/i;
 
 function upsertNegotiation(list: Negotiation[], next: Negotiation): Negotiation[] {
   return list.some((n) => n.id === next.id) ? list.map((n) => (n.id === next.id ? next : n)) : [...list, next];
@@ -140,6 +151,14 @@ export function ChatConversation({ conversation: initialConversation, initialMes
         )
       : [];
   const showCommandMenu = !commandMenuDismissed && !isClosed && isParticipant && matchingCommands.length > 0;
+
+  // Prévia de "/proposta <valor> [forma de pagamento]" enquanto se digita: mostra o valor lido, a
+  // diferença pro anúncio e, na venda, atalhos de forma de pagamento.
+  const proposalMatch = canNegotiate ? input.match(PROPOSAL_COMMAND_RE) : null;
+  const proposalDraft = proposalMatch
+    ? { command: proposalMatch[1]!, parsed: parseProposalArgument(proposalMatch[2] ?? "") }
+    : null;
+  const isSale = conversation.property.operationType === "SALE";
 
   const authHeaders = { Authorization: `Bearer ${token}` };
 
@@ -373,14 +392,21 @@ export function ChatConversation({ conversation: initialConversation, initialMes
   };
 
   const handleSelectCommand = (command: ChatCommand) => {
-    // "/negociar" aceita um valor ("/negociar 450000") — deixa o cursor pronto pra digitá-lo.
-    if (command.trigger === "/negociar") {
-      setInput("/negociar ");
+    // Comando que precisa de valor ("/proposta 450000"): deixa o cursor pronto pra digitá-lo em vez
+    // de enviar sem nada — a prévia abaixo do campo guia o resto.
+    if (command.argument) {
+      setInput(`${command.trigger} `);
       setCommandMenuDismissed(true);
       inputRef.current?.focus();
       return;
     }
     sendContent(command.trigger);
+  };
+
+  const fillPaymentMethod = (method: string) => {
+    if (!proposalDraft) return;
+    setInput(`${proposalDraft.command} ${proposalDraft.parsed.valueText || ""}${proposalDraft.parsed.valueText ? " " : ""}${method}`);
+    inputRef.current?.focus();
   };
 
   const handleInputChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -686,7 +712,7 @@ export function ChatConversation({ conversation: initialConversation, initialMes
               ? "Sua proposta está aguardando resposta."
               : pendingRound
                 ? "Há uma proposta esperando sua resposta."
-                : "Este anúncio aceita negociação de valor."}
+                : "Este anúncio aceita negociação. Use o botão ou digite /proposta."}
           </span>
           <button
             type="button"
@@ -834,6 +860,57 @@ export function ChatConversation({ conversation: initialConversation, initialMes
               ))}
             </div>
           )}
+          {proposalDraft && (
+            <div className={styles.proposalHint}>
+              {proposalDraft.parsed.value === null ? (
+                <p className={styles.proposalHintText}>
+                  Digite o valor{isSale ? " e, se quiser, a forma de pagamento" : ""} — ex.:{" "}
+                  <code>
+                    {proposalDraft.command} 450000{isSale ? " financiamento" : ""}
+                  </code>
+                </p>
+              ) : (
+                <p className={styles.proposalHintText}>
+                  <Handshake size={14} />
+                  {/^\/contra/i.test(proposalDraft.command) || pendingRound ? "Contraproposta" : "Proposta"} de{" "}
+                  <strong>
+                    {formatBRL(proposalDraft.parsed.value)}
+                    {operationType === "MONTHLY_RENT" ? "/mês" : ""}
+                  </strong>
+                  {isSale && proposalDraft.parsed.paymentMethod && <> · {proposalDraft.parsed.paymentMethod}</>}
+                  {operationType !== "DAILY_RENT" && (
+                    <span className={styles.proposalHintMuted}>
+                      {deltaText(proposalDraft.parsed.value, conversation.property.price)}
+                    </span>
+                  )}
+                </p>
+              )}
+              {proposalDraft.parsed.unknownMethod && (
+                <p className={styles.proposalHintError}>
+                  Forma de pagamento não reconhecida: “{proposalDraft.parsed.unknownMethod}”.
+                </p>
+              )}
+              {isSale && (
+                <div className={styles.proposalChips}>
+                  {PAYMENT_METHODS.map((method) => (
+                    <button
+                      key={method}
+                      type="button"
+                      className={`${styles.proposalChip} ${
+                        proposalDraft.parsed.paymentMethod === method ? styles.proposalChipActive : ""
+                      }`}
+                      onClick={() => fillPaymentMethod(method)}
+                    >
+                      {method}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {proposalDraft.parsed.value !== null && !proposalDraft.parsed.unknownMethod && (
+                <p className={styles.proposalHintMuted}>Enter para enviar · a outra parte tem 48h para responder</p>
+              )}
+            </div>
+          )}
           {sendError && <p className={styles.sendError}>{sendError}</p>}
           <form onSubmit={handleSend} className={styles.inputRow}>
             <textarea
@@ -850,7 +927,10 @@ export function ChatConversation({ conversation: initialConversation, initialMes
               <Send size={17} />
             </button>
           </form>
-          <p className={styles.inputHint}>Enter envia · Shift+Enter quebra linha</p>
+          <p className={styles.inputHint}>
+            Enter envia · Shift+Enter quebra linha
+            {conversation.availableCommands.length > 0 && " · digite / para propostas e comandos"}
+          </p>
         </div>
       ) : null}
 

@@ -9,13 +9,23 @@ import { moveLeadToNegotiationFromChatCommand, canManageListingConversation } fr
 let ioInstance: SocketIOServer | null = null;
 
 /**
- * Comandos de texto no chat — mesmo catálogo exposto ao front pelo menu "/" (`GET
- * /conversations/:id/commands`, ver chat.controller.ts). `aprovar`/`recusar` são um fallback pra
- * quando o botão de ação não aparece (ex.: front desatualizado em cache) ou não é clicável por
- * algum motivo. `negociar <valor>` envia uma proposta de valor (lib/negotiations.ts); sem valor,
- * só move o lead pra "Em negociação" no funil. Todos usam a mesma checagem de permissão dos
- * respectivos botões/endpoints, então digitar o comando sem ser quem pode agir simplesmente
- * falha, igual clicar no botão sem permissão falharia.
+ * Comandos de texto no chat — mesmo catálogo exposto ao front pelo menu "/" (`availableCommands` em
+ * `GET /conversations/:id`, ver computeAvailableCommands em chat.controller.ts, que decide QUAIS
+ * mostrar a cada momento). Todos usam a mesma checagem de permissão dos respectivos
+ * botões/endpoints, então digitar o comando sem ser quem pode agir simplesmente falha, igual clicar
+ * no botão sem permissão falharia.
+ *
+ * - `proposta`/`contraproposta <valor> [forma de pagamento]`: rodada de negociação de valor
+ *   (lib/negotiations.ts) — a forma de pagamento só vale pra venda. Antes o único jeito de propor
+ *   por comando era "/negociar <valor>", sem forma de pagamento, e quem tocava no comando no app
+ *   enviava "/negociar" sem valor, que pro cliente só dava erro.
+ * - `aprovar`/`recusar`: reserva ou proposta pendente — fallback de quando o botão não aparece.
+ * - `retirar`: retira a própria proposta que ainda está pendente.
+ * - `negociar`: sem valor, move o lead pra "Em negociação" no funil (lado do anúncio, organização);
+ *   com valor continua funcionando como `proposta` (compatibilidade).
+ *
+ * `argument` diz ao front que o comando precisa de complemento (o menu preenche o comando e espera
+ * o valor, em vez de enviar direto).
  */
 export const CHAT_COMMANDS = [
   {
@@ -33,14 +43,40 @@ export const CHAT_COMMANDS = [
   {
     trigger: '/negociar',
     aliases: ['/negociação', '/negociacao', '/negociando'],
-    label: 'Negociar',
-    description: '"/negociar 450000" envia uma proposta de valor; sem valor, move o lead para "Em negociação"',
+    label: 'Mover para negociação',
+    description: 'Move o lead para "Em negociação" no funil do CRM',
+  },
+  {
+    trigger: '/proposta',
+    aliases: ['/propor', '/oferta', '/ofertar'],
+    label: 'Proposta',
+    description: 'Envia uma proposta de valor',
+    argument: 'valor',
+  },
+  {
+    trigger: '/contraproposta',
+    aliases: ['/contrapropor', '/contra'],
+    label: 'Contraproposta',
+    description: 'Responde a proposta pendente com outro valor',
+    argument: 'valor',
+  },
+  {
+    trigger: '/retirar',
+    aliases: ['/retirar-proposta', '/desistir'],
+    label: 'Retirar proposta',
+    description: 'Retira a sua proposta que ainda está pendente',
   },
 ] as const;
 
-const APPROVE_COMMANDS = new Set<string>([CHAT_COMMANDS[0].trigger, ...CHAT_COMMANDS[0].aliases]);
-const REJECT_COMMANDS = new Set<string>([CHAT_COMMANDS[1].trigger, ...CHAT_COMMANDS[1].aliases]);
-const NEGOTIATE_COMMANDS = new Set<string>([CHAT_COMMANDS[2].trigger, ...CHAT_COMMANDS[2].aliases]);
+const commandSet = (trigger: string) => {
+  const command = CHAT_COMMANDS.find((c) => c.trigger === trigger)!;
+  return new Set<string>([command.trigger, ...command.aliases]);
+};
+const APPROVE_COMMANDS = commandSet('/aprovar');
+const REJECT_COMMANDS = commandSet('/recusar');
+const NEGOTIATE_COMMANDS = commandSet('/negociar');
+const PROPOSAL_COMMANDS = new Set<string>([...commandSet('/proposta'), ...commandSet('/contraproposta')]);
+const WITHDRAW_COMMANDS = commandSet('/retirar');
 
 /**
  * A solicitação mais recente desta conversa que o viewer ainda pode aprovar/recusar: reserva
@@ -90,17 +126,43 @@ export async function findActionablePending(
   return null;
 }
 
+/**
+ * Rodada pendente da negociação aberta desta conversa, e de que lado ela veio em relação ao viewer:
+ * `mine` = proposta pelo lado do viewer (pode retirar), `theirs` = pelo outro lado (pode
+ * contrapropor/aceitar/recusar). Null sem negociação aberta ou sem rodada pendente válida.
+ */
+export async function findPendingRound(
+  conversationId: string,
+  viewerId: string
+): Promise<{ offerId: string; from: 'mine' | 'theirs' } | null> {
+  const negotiation = await prisma.negotiation.findFirst({
+    where: { conversationId, status: 'OPEN' },
+    include: { offers: { where: { status: 'PENDING' }, orderBy: { createdAt: 'desc' }, take: 1 } },
+  });
+  const offer = negotiation?.offers[0];
+  if (!negotiation || !offer) return null;
+  if (offer.expiresAt && offer.expiresAt < new Date()) return null;
+  const proposerIsCustomer = offer.proposedById === negotiation.customerId;
+  const viewerIsCustomer = viewerId === negotiation.customerId;
+  return { offerId: offer.id, from: proposerIsCustomer === viewerIsCustomer ? 'mine' : 'theirs' };
+}
+
 type CommandConversation = {
   id: string;
   property: { id: string; ownerId: string | null; organizationId: string | null };
   participants: { id: string }[];
 };
 
+type CommandResult = { error?: string; success?: boolean };
+
+const resultFrom = ({ status, body }: { status: number; body: unknown }, fallback: string): CommandResult =>
+  status >= 300 ? { error: (body as { error?: string })?.error ?? fallback } : { success: true };
+
 async function handleApproveRejectCommand(
   userId: string,
   conversation: CommandConversation,
   command: 'approve' | 'reject'
-): Promise<{ error?: string; success?: boolean }> {
+): Promise<CommandResult> {
   const canManage = await canManageListingConversation(
     userId,
     conversation.property,
@@ -111,14 +173,11 @@ async function handleApproveRejectCommand(
     return { error: 'Nenhuma solicitação de reserva ou proposta pendente para você responder nesta conversa.' };
   }
 
-  const { status, body } =
+  const result =
     pending.kind === 'booking'
       ? await (command === 'approve' ? approveBookingCore : rejectBookingCore)(userId, pending.id)
       : await respondToRound({ actorId: userId, offerId: pending.id, action: command === 'approve' ? 'ACCEPT' : 'REJECT' });
-  if (status >= 300) {
-    return { error: (body as { error?: string })?.error ?? 'Não foi possível concluir a ação.' };
-  }
-  return { success: true };
+  return resultFrom(result, 'Não foi possível concluir a ação.');
 }
 
 /** "450.000", "450000", "R$ 1.250,50" → número; null se não der pra ler um valor. */
@@ -133,25 +192,71 @@ export function parseMoneyInput(raw: string): number | null {
   return Number.isFinite(value) && value > 0 ? value : null;
 }
 
+// Formas de pagamento aceitas no comando — mesmos rótulos do modal de proposta (web e app).
+const PAYMENT_METHOD_PATTERNS: { label: string; pattern: RegExp }[] = [
+  { label: 'À Vista', pattern: /^(a|à)?\s*vista$|^avista$|^pix$|^dinheiro$/ },
+  { label: 'Financiamento', pattern: /^financ/ },
+  { label: 'Parcelado', pattern: /^parcel/ },
+  { label: 'Carta de Crédito', pattern: /^carta/ },
+];
+
+/**
+ * Argumento de `/proposta`: o primeiro número é o valor e o resto, a forma de pagamento.
+ * "450.000 financiamento", "R$ 450 mil à vista" não (só número), "1.250,50 parcelado".
+ */
+export function parseProposalArgument(raw: string): { value: number | null; paymentMethod: string | null; unknownMethod: string | null } {
+  const match = raw.match(/\d[\d.,]*/);
+  const value = match ? parseMoneyInput(match[0]) : null;
+  const rest = (match ? raw.replace(match[0], ' ') : raw)
+    .replace(/r\$/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
+    .replace(/^(via|no|na|em|com|,|-)\s+/, '');
+  if (!rest) return { value, paymentMethod: null, unknownMethod: null };
+  const method = PAYMENT_METHOD_PATTERNS.find((m) => m.pattern.test(rest));
+  return { value, paymentMethod: method?.label ?? null, unknownMethod: method ? null : rest };
+}
+
+async function handleProposalCommand(userId: string, conversation: CommandConversation, argument: string): Promise<CommandResult> {
+  const { value, paymentMethod, unknownMethod } = parseProposalArgument(argument);
+  if (value === null) {
+    return { error: 'Informe o valor. Exemplo: /proposta 450000 financiamento' };
+  }
+  if (unknownMethod) {
+    return { error: `Forma de pagamento "${unknownMethod}" não reconhecida. Use: à vista, financiamento, parcelado ou carta de crédito.` };
+  }
+  return resultFrom(
+    await proposeRound({ actorId: userId, conversationId: conversation.id, value, paymentMethod }),
+    'Não foi possível enviar a proposta.'
+  );
+}
+
+async function handleWithdrawCommand(userId: string, conversation: CommandConversation): Promise<CommandResult> {
+  const pending = await findPendingRound(conversation.id, userId);
+  if (!pending || pending.from !== 'mine') {
+    return { error: 'Você não tem uma proposta pendente para retirar nesta conversa.' };
+  }
+  return resultFrom(
+    await respondToRound({ actorId: userId, offerId: pending.offerId, action: 'WITHDRAW' }),
+    'Não foi possível retirar a proposta.'
+  );
+}
+
 const NEGOTIATE_ERROR_MESSAGES: Record<string, string> = {
-  NOT_ORG_LISTING: 'Sem valor, este comando só move o lead de imóveis de organização. Para propor um valor: /negociar 450000',
+  NOT_ORG_LISTING: 'Este comando só move o lead de imóveis de organização. Para propor um valor: /proposta 450000',
   NO_LEAD: 'Não existe um Lead de CRM associado a esta conversa.',
   ALREADY_THERE: 'Este lead já está em negociação.',
-  FORBIDDEN: 'Para propor um valor, use "/negociar" seguido do valor, ex.: /negociar 450000',
+  FORBIDDEN: 'Para propor um valor, use /proposta seguido do valor, ex.: /proposta 450000',
 };
 
 async function handleNegotiateCommand(
   userId: string,
   conversation: CommandConversation,
   argument: string
-): Promise<{ error?: string; success?: boolean }> {
-  if (argument) {
-    const value = parseMoneyInput(argument);
-    if (value === null) return { error: 'Valor inválido. Exemplo: /negociar 450000' };
-    const { status, body } = await proposeRound({ actorId: userId, conversationId: conversation.id, value });
-    if (status >= 300) return { error: (body as { error?: string })?.error ?? 'Não foi possível enviar a proposta.' };
-    return { success: true };
-  }
+): Promise<CommandResult> {
+  // Compatibilidade: "/negociar 450000" continua enviando proposta.
+  if (argument) return handleProposalCommand(userId, conversation, argument);
 
   const result = await moveLeadToNegotiationFromChatCommand(
     userId,
@@ -250,10 +355,18 @@ export function setupSocket(io: SocketIOServer) {
           if (callback) callback(result);
           return;
         }
-        // "/negociar" sozinho ou "/negociar <valor>"
+        // Comandos com argumento: "/proposta 450000 financiamento", "/negociar", "/retirar"...
         const [commandWord = '', ...commandArgs] = trimmedContent.split(/\s+/);
-        if (NEGOTIATE_COMMANDS.has(commandWord)) {
-          const result = await handleNegotiateCommand(user.id, conversation, commandArgs.join(' '));
+        const commandArgument = commandArgs.join(' ');
+        const commandHandler = PROPOSAL_COMMANDS.has(commandWord)
+          ? () => handleProposalCommand(user.id, conversation, commandArgument)
+          : WITHDRAW_COMMANDS.has(commandWord)
+            ? () => handleWithdrawCommand(user.id, conversation)
+            : NEGOTIATE_COMMANDS.has(commandWord)
+              ? () => handleNegotiateCommand(user.id, conversation, commandArgument)
+              : null;
+        if (commandHandler) {
+          const result = await commandHandler();
           if (callback) callback(result);
           return;
         }

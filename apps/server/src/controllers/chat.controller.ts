@@ -2,7 +2,7 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { z } from 'zod';
 import { ensureLead, getCurrentAssignment, canManageListingConversation } from '../lib/leads.js';
-import { CHAT_COMMANDS, findActionablePending } from '../socket.js';
+import { CHAT_COMMANDS, findActionablePending, findPendingRound } from '../socket.js';
 
 const LEAD_STATUSES_WITHOUT_NEGOTIATE_COMMAND = new Set(['NEGOTIATION', 'WON', 'LOST']);
 const COMMAND_BY_TRIGGER = Object.fromEntries(CHAT_COMMANDS.map((c) => [c.trigger, c]));
@@ -10,19 +10,21 @@ const COMMAND_BY_TRIGGER = Object.fromEntries(CHAT_COMMANDS.map((c) => [c.trigge
 /**
  * Quais comandos de `/` fazem sentido oferecer agora nesta conversa — usado pelo menu de
  * autocomplete do front (digitar "/" no chat). Mesma fonte de verdade que `socket.ts` realmente
- * executa (`CHAT_COMMANDS`), só decide QUAIS mostrar: aprovar/recusar só com uma solicitação
- * que o viewer ainda pode responder (ver findActionablePending); negociar pra qualquer um dos
- * lados quando o anúncio aceita negociação, ou pro lado do anúncio enquanto o Lead não chegou no
- * fim do funil (o "/negociar" sem valor, que move o Lead).
+ * executa (`CHAT_COMMANDS`), só decide QUAIS mostrar:
+ * - aprovar/recusar: só com uma solicitação que o viewer ainda pode responder (findActionablePending);
+ * - proposta: anúncio aceita negociação e não há rodada pendente (qualquer um dos lados);
+ * - contraproposta: há rodada pendente vinda do OUTRO lado;
+ * - retirar: há rodada pendente vinda do lado do viewer;
+ * - negociar (mover o lead): lado do anúncio, enquanto o Lead não chegou no fim do funil.
  */
 async function computeAvailableCommands(
   viewerId: string,
   canManage: boolean,
   isParticipant: boolean,
-  conversation: { id: string; leadId: string | null },
+  conversation: { id: string; leadId: string | null; isClosed: boolean },
   property: { acceptsNegotiation: boolean; status: string }
 ): Promise<(typeof CHAT_COMMANDS)[number][]> {
-  if (!isParticipant) return [];
+  if (!isParticipant || conversation.isClosed) return [];
 
   const commands: (typeof CHAT_COMMANDS)[number][] = [];
 
@@ -30,14 +32,21 @@ async function computeAvailableCommands(
     commands.push(COMMAND_BY_TRIGGER['/aprovar']!, COMMAND_BY_TRIGGER['/recusar']!);
   }
 
-  let offerNegotiate = property.acceptsNegotiation && property.status === 'APPROVED';
+  if (property.acceptsNegotiation && property.status === 'APPROVED') {
+    const pending = await findPendingRound(conversation.id, viewerId);
+    if (!pending) commands.push(COMMAND_BY_TRIGGER['/proposta']!);
+    else if (pending.from === 'theirs') commands.push(COMMAND_BY_TRIGGER['/contraproposta']!);
+    else commands.push(COMMAND_BY_TRIGGER['/retirar']!);
+  }
+
   // Fonte de verdade única (seção 27 da spec): o Lead da conversa é `conversation.leadId`, não
   // mais um heurístico por listingId+participantes.
-  if (!offerNegotiate && canManage && conversation.leadId) {
+  if (canManage && conversation.leadId) {
     const lead = await prisma.lead.findUnique({ where: { id: conversation.leadId }, select: { status: true } });
-    offerNegotiate = !!lead && !LEAD_STATUSES_WITHOUT_NEGOTIATE_COMMAND.has(lead.status);
+    if (lead && !LEAD_STATUSES_WITHOUT_NEGOTIATE_COMMAND.has(lead.status)) {
+      commands.push(COMMAND_BY_TRIGGER['/negociar']!);
+    }
   }
-  if (offerNegotiate) commands.push(COMMAND_BY_TRIGGER['/negociar']!);
 
   return commands;
 }

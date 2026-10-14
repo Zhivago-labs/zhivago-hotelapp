@@ -37,6 +37,9 @@ export interface ChatCommand {
   aliases: readonly string[];
   label: string;
   description: string;
+  // Presente quando o comando precisa de complemento ("/proposta 450000"): o menu preenche o
+  // comando no campo em vez de enviar direto.
+  argument?: string;
 }
 
 export interface ConversationDetail {

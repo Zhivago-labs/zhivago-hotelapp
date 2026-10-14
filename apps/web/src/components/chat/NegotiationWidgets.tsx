@@ -46,7 +46,38 @@ export function parseMoneyInput(raw: string): number | null {
   return Number.isFinite(value) && value > 0 ? value : null;
 }
 
-function deltaText(value: number, reference: number): string | null {
+// Mesma leitura do backend (parseProposalArgument em socket.ts) — "/proposta 450000 financiamento".
+const PAYMENT_METHOD_PATTERNS: { label: string; pattern: RegExp }[] = [
+  { label: "À Vista", pattern: /^(a|à)?\s*vista$|^avista$|^pix$|^dinheiro$/ },
+  { label: "Financiamento", pattern: /^financ/ },
+  { label: "Parcelado", pattern: /^parcel/ },
+  { label: "Carta de Crédito", pattern: /^carta/ },
+];
+
+export function parseProposalArgument(raw: string): {
+  value: number | null;
+  valueText: string;
+  paymentMethod: string | null;
+  unknownMethod: string | null;
+} {
+  const match = raw.match(/\d[\d.,]*/);
+  const value = match ? parseMoneyInput(match[0]) : null;
+  const rest = (match ? raw.replace(match[0], " ") : raw)
+    .replace(/r\$/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase()
+    .replace(/^(via|no|na|em|com|,|-)\s+/, "");
+  const method = rest ? PAYMENT_METHOD_PATTERNS.find((m) => m.pattern.test(rest)) : undefined;
+  return {
+    value,
+    valueText: match?.[0] ?? "",
+    paymentMethod: method?.label ?? null,
+    unknownMethod: rest && !method ? rest : null,
+  };
+}
+
+export function deltaText(value: number, reference: number): string | null {
   if (!reference) return null;
   const pct = ((value - reference) / reference) * 100;
   if (Math.abs(pct) < 0.05) return "igual ao anúncio";

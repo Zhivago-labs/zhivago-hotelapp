@@ -42,6 +42,41 @@ function mergeById(prev: any[], incoming: any[]): any[] {
   return [...byId.values()].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 }
 
+// "/proposta 450000 financiamento" e aliases (ver CHAT_COMMANDS no backend, socket.ts); "/negociar" só com valor.
+const PROPOSAL_COMMAND_RE =
+  /^(\/(?:proposta|propor|oferta|ofertar|contraproposta|contrapropor|contra)(?=\s|$)|\/(?:negociar|negocia[çc][ãa]o|negociando)(?=\s+\S))\s*(.*)$/i;
+
+const PAYMENT_METHOD_PATTERNS: { label: string; pattern: RegExp }[] = [
+  { label: 'À Vista', pattern: /^(a|à)?\s*vista$|^avista$|^pix$|^dinheiro$/ },
+  { label: 'Financiamento', pattern: /^financ/ },
+  { label: 'Parcelado', pattern: /^parcel/ },
+  { label: 'Carta de Crédito', pattern: /^carta/ },
+];
+
+/** Mesma leitura do backend (parseProposalArgument em socket.ts): valor + forma de pagamento opcional. */
+function parseProposalArgument(raw: string) {
+  const match = raw.match(/\d[\d.,]*/);
+  let value: number | null = null;
+  if (match) {
+    const cleaned = match[0];
+    const normalized = cleaned.includes(',')
+      ? cleaned.replace(/\./g, '').replace(',', '.')
+      : /^\d{1,3}(\.\d{3})+$/.test(cleaned)
+        ? cleaned.replace(/\./g, '')
+        : cleaned;
+    const parsed = Number(normalized);
+    value = Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }
+  const rest = (match ? raw.replace(match[0], ' ') : raw)
+    .replace(/r\$/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
+    .replace(/^(via|no|na|em|com|,|-)\s+/, '');
+  const method = rest ? PAYMENT_METHOD_PATTERNS.find((m) => m.pattern.test(rest)) : undefined;
+  return { value, valueText: match?.[0] ?? '', paymentMethod: method?.label ?? null };
+}
+
 function upsertNegotiation(list: Negotiation[], next: Negotiation): Negotiation[] {
   return list.some((n) => n.id === next.id) ? list.map((n) => (n.id === next.id ? next : n)) : [...list, next];
 }
@@ -58,7 +93,7 @@ export default function ChatScreen() {
   const [loading, setLoading] = useState(true);
   const [property, setProperty] = useState<any>(null);
   const [canManage, setCanManage] = useState(false);
-  const [availableCommands, setAvailableCommands] = useState<{ trigger: string; aliases: string[]; label: string; description: string }[]>([]);
+  const [availableCommands, setAvailableCommands] = useState<{ trigger: string; aliases: string[]; label: string; description: string; argument?: string }[]>([]);
   const [isParticipant, setIsParticipant] = useState(false);
   const [isClosed, setIsClosed] = useState(false);
   const [isReported, setIsReported] = useState(false);
@@ -302,6 +337,13 @@ export default function ChatScreen() {
         (cmd) => cmd.trigger.startsWith(slashQuery) || cmd.aliases.some((alias) => alias.startsWith(slashQuery))
       )
     : [];
+
+  // Prévia de "/proposta <valor> [forma de pagamento]" — mesma leitura do backend.
+  const isSale = property?.operationType === 'SALE';
+  const proposalMatch = canNegotiate ? input.match(PROPOSAL_COMMAND_RE) : null;
+  const proposalDraft = proposalMatch
+    ? { command: proposalMatch[1]!, ...parseProposalArgument(proposalMatch[2] ?? '') }
+    : null;
 
   const handleReport = () => {
     Alert.alert(
@@ -712,13 +754,39 @@ export default function ChatScreen() {
         </View>
       ) : isParticipant ? (
         <View>
+          {proposalDraft && (
+            <View style={styles.proposalHint}>
+              <Text style={styles.proposalHintText}>
+                {proposalDraft.value === null
+                  ? `Digite o valor${isSale ? ' e, se quiser, a forma de pagamento' : ''} — ex.: ${proposalDraft.command} 450000${isSale ? ' financiamento' : ''}`
+                  : `${pendingRound ? 'Contraproposta' : 'Proposta'} de ${formatBRL(proposalDraft.value)}${property?.operationType === 'MONTHLY_RENT' ? '/mês' : ''}${isSale && proposalDraft.paymentMethod ? ` · ${proposalDraft.paymentMethod}` : ''}`}
+              </Text>
+              {isSale && (
+                <View style={styles.paymentMethodsRow}>
+                  {PAYMENT_METHODS.map((method) => (
+                    <TouchableOpacity
+                      key={method}
+                      style={[styles.methodBadge, proposalDraft.paymentMethod === method && styles.methodBadgeSelected]}
+                      onPress={() => setInput(`${proposalDraft.command} ${proposalDraft.valueText}${proposalDraft.valueText ? ' ' : ''}${method}`)}
+                    >
+                      <Text style={[styles.methodBadgeText, proposalDraft.paymentMethod === method && styles.methodBadgeTextSelected]}>
+                        {method}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </View>
+          )}
           {matchingCommands.length > 0 && (
             <View style={styles.commandMenu}>
               {matchingCommands.map((command) => (
                 <TouchableOpacity
                   key={command.trigger}
                   style={styles.commandMenuItem}
-                  onPress={() => sendContent(command.trigger)}
+                  // Comando que precisa de valor ("/proposta 450000") preenche o campo em vez de
+                  // enviar vazio — antes tocar em "/negociar" mandava sem valor e dava erro.
+                  onPress={() => (command.argument ? setInput(`${command.trigger} `) : sendContent(command.trigger))}
                 >
                   <Text style={styles.commandMenuTrigger}>{command.trigger}</Text>
                   <Text style={styles.commandMenuLabel}>{command.label}</Text>
@@ -893,6 +961,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  proposalHint: {
+    backgroundColor: '#EEF2FF',
+    borderTopWidth: 1,
+    borderTopColor: '#E0E7FF',
+    paddingHorizontal: 16,
+    paddingTop: 10,
+  },
+  proposalHintText: { fontSize: 13, color: '#1E293B', marginBottom: 8 },
   commandMenu: {
     backgroundColor: 'white',
     borderTopWidth: 1,

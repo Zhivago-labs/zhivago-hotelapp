@@ -889,3 +889,82 @@
 .cardActions > :nth-child(3) {
   flex-basis: 100%;
 }
+
+/* ─── PRÉVIA DE "/proposta <valor>" ─────────────────────────────────────── */
+
+.proposalHint {
+  margin: 10px 12px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--accent-light-border);
+  background: var(--accent-light);
+  border-radius: var(--radius-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.proposalHintText {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--foreground);
+}
+
+.proposalHintText svg {
+  color: var(--accent);
+}
+
+.proposalHintText code {
+  font-family: inherit;
+  font-weight: 700;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+}
+
+.proposalHintMuted {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.proposalHintError {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--error);
+}
+
+.proposalChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.proposalChip {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: var(--radius-full);
+  border: 1.5px solid var(--border);
+  background: var(--card-bg);
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.proposalChip:hover {
+  border-color: var(--accent);
+}
+
+.proposalChipActive {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
