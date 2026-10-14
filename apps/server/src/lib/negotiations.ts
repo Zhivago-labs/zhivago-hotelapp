@@ -231,13 +231,25 @@ export async function proposeRound({
     where: { id: conversation.propertyId },
     omit: { minNegotiablePrice: false },
   });
-  if (!listing.acceptsNegotiation) return fail(400, 'Este anúncio não aceita negociação de valor.');
   if (listing.status !== 'APPROVED') return fail(400, 'Este anúncio não está disponível para negociação.');
 
   const customerId = await resolveCustomerId(conversation);
   if (!customerId) return fail(400, 'Não foi possível identificar o cliente desta conversa.');
   const side = await resolveSide(actorId, customerId, listing);
   if (!side) return fail(403, 'Sem permissão para negociar nesta conversa.');
+
+  // Anúncio que NÃO aceita negociação: o cliente não propõe outro valor, mas na venda ainda pode
+  // fechar — comprar pelo valor anunciado ("/comprar") ou aceitar uma oferta do anunciante
+  // ("/venda", qualquer valor: quem define o preço é ele). Aluguel continua sem rodadas.
+  if (!listing.acceptsNegotiation) {
+    if (listing.operationType !== 'SALE') return fail(400, 'Este anúncio não aceita negociação de valor.');
+    if (side === 'CUSTOMER' && Math.abs(value - listing.price) > 0.005) {
+      return fail(
+        400,
+        `Este anúncio não aceita negociação de valor. Você pode comprar pelo valor anunciado (${formatBRL(listing.price)}) com /comprar.`
+      );
+    }
+  }
 
   const unit = UNIT_BY_OPERATION[listing.operationType] ?? 'TOTAL';
   const participantIds = conversation.participants.map((p) => p.id);

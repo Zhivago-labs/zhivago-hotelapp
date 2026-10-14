@@ -93,6 +93,9 @@ interface RoundCardProps {
   viewerId: string;
   viewerSide: NegotiationSide;
   canAct: boolean;
+  // Contraproposta só quando o anúncio aceita negociação (ou o viewer é o anunciante) — na venda
+  // sem negociação o comprador só pode comprar ou recusar a oferta.
+  canCounter?: boolean;
   onAction: (roundId: string, action: "accept" | "reject" | "withdraw") => Promise<void>;
   onCounter: (negotiation: Negotiation, round: NegotiationRound) => void;
 }
@@ -104,6 +107,7 @@ export function NegotiationRoundCard({
   viewerId,
   viewerSide,
   canAct,
+  canCounter = true,
   onAction,
   onCounter,
 }: RoundCardProps) {
@@ -137,6 +141,17 @@ export function NegotiationRoundCard({
         ? styles.pillBad
         : styles.pillMuted;
 
+  // Venda: a 1ª oferta do anunciante é uma "Oferta de venda" e, pro comprador, aceitar = comprar.
+  const isSale = negotiation.operationType === "SALE";
+  const title = round.previousOfferId
+    ? "Contraproposta"
+    : isSale && round.side === "LISTING"
+      ? "Oferta de venda"
+      : isSale && round.value === negotiation.referencePrice
+        ? "Compra pelo valor anunciado"
+        : "Proposta de valor";
+  const acceptLabel = isSale && viewerSide === "CUSTOMER" ? "Comprar" : "Aceitar";
+
   const run = async (action: "accept" | "reject" | "withdraw") => {
     setBusy(true);
     try {
@@ -152,7 +167,7 @@ export function NegotiationRoundCard({
         <span className={styles.cardIcon}>
           <Handshake size={15} />
         </span>
-        <span className={styles.cardTitle}>{round.previousOfferId ? "Contraproposta" : "Proposta de valor"}</span>
+        <span className={styles.cardTitle}>{title}</span>
         <span className={`${styles.pill} ${pillClass}`}>{isPending ? "Pendente" : status?.pill ?? round.status}</span>
       </div>
       <p className={styles.cardValue}>
@@ -176,19 +191,21 @@ export function NegotiationRoundCard({
       {isPending && canAct && fromOtherSide && (
         <div className={styles.cardActions}>
           <button type="button" className={styles.approveButton} disabled={busy} onClick={() => run("accept")}>
-            Aceitar
+            {acceptLabel}
           </button>
           <button type="button" className={styles.rejectButton} disabled={busy} onClick={() => run("reject")}>
             Recusar
           </button>
-          <button
-            type="button"
-            className={styles.counterButton}
-            disabled={busy}
-            onClick={() => onCounter(negotiation, round)}
-          >
-            Contrapropor
-          </button>
+          {canCounter && (
+            <button
+              type="button"
+              className={styles.counterButton}
+              disabled={busy}
+              onClick={() => onCounter(negotiation, round)}
+            >
+              Contrapropor
+            </button>
+          )}
         </div>
       )}
       {isPending && canAct && !fromOtherSide && (
@@ -217,23 +234,47 @@ export function NegotiationRoundCard({
   );
 }
 
+/**
+ * - `propose`: proposta nova (ou contraproposta, com `counterTo`);
+ * - `sale`: oferta de venda do anunciante — valor do anúncio já preenchido, editável;
+ * - `buy`: comprador fecha pelo valor anunciado — valor fixo, só escolhe a forma de pagamento.
+ */
+export type NegotiationModalMode = "propose" | "sale" | "buy";
+
+const MODAL_TEXT: Record<NegotiationModalMode, { title: string; submit: string }> = {
+  propose: { title: "Negociar valor", submit: "Enviar proposta" },
+  sale: { title: "Oferta de venda", submit: "Enviar oferta" },
+  buy: { title: "Comprar pelo valor anunciado", submit: "Confirmar compra" },
+};
+
 interface ModalProps {
   operationType: ListingOperationType;
   listingPrice: number;
   counterTo: { negotiation: Negotiation; round: NegotiationRound } | null;
+  mode?: NegotiationModalMode;
   onClose: () => void;
   onSubmit: (value: number, paymentMethod: string | null) => Promise<string | null>;
 }
 
-export function NegotiationModal({ operationType, listingPrice, counterTo, onClose, onSubmit }: ModalProps) {
-  const [rawValue, setRawValue] = useState("");
+export function NegotiationModal({
+  operationType,
+  listingPrice,
+  counterTo,
+  mode = "propose",
+  onClose,
+  onSubmit,
+}: ModalProps) {
+  const [rawValue, setRawValue] = useState(
+    mode === "sale" ? listingPrice.toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : ""
+  );
   const [paymentMethod, setPaymentMethod] = useState(counterTo?.round.paymentMethod ?? PAYMENT_METHODS[0]!);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const text = counterTo ? { title: "Enviar contraproposta", submit: "Enviar contraproposta" } : MODAL_TEXT[mode];
 
   // Na diária a referência é o total da reserva, que só o backend conhece antes da 1ª rodada.
   const reference = counterTo?.negotiation.referencePrice ?? (operationType === "DAILY_RENT" ? null : listingPrice);
-  const parsed = parseMoneyInput(rawValue);
+  const parsed = mode === "buy" ? listingPrice : parseMoneyInput(rawValue);
   const delta = parsed !== null && reference ? deltaText(parsed, reference) : null;
 
   const submit = async () => {
@@ -251,7 +292,7 @@ export function NegotiationModal({ operationType, listingPrice, counterTo, onClo
   return (
     <div className={styles.modalOverlay} onClick={() => !submitting && onClose()}>
       <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-        <p className={styles.modalTitle}>{counterTo ? "Enviar contraproposta" : "Negociar valor"}</p>
+        <p className={styles.modalTitle}>{text.title}</p>
 
         {counterTo && (
           <p className={styles.modalHint}>
@@ -259,26 +300,40 @@ export function NegotiationModal({ operationType, listingPrice, counterTo, onClo
             {unitSuffix(counterTo.round)}
           </p>
         )}
-        {reference !== null ? (
-          <p className={styles.modalHint}>Valor do anúncio: {formatBRL(reference)}</p>
-        ) : (
-          <p className={styles.modalHint}>O valor proposto é o total da sua reserva pendente.</p>
-        )}
 
-        <label className={styles.modalLabel} htmlFor="negotiationValue">
-          {VALUE_LABEL[operationType]}
-        </label>
-        <input
-          id="negotiationValue"
-          type="text"
-          inputMode="decimal"
-          placeholder="Ex: 350.000"
-          value={rawValue}
-          onChange={(e) => setRawValue(e.target.value)}
-          className={styles.modalInput}
-          autoFocus
-        />
-        {delta && <p className={styles.modalHint}>{delta}</p>}
+        {mode === "buy" ? (
+          <>
+            <p className={styles.modalLabel}>Valor anunciado</p>
+            <p className={styles.modalFixedValue}>{formatBRL(listingPrice)}</p>
+            <p className={styles.modalHint}>
+              Você confirma o interesse em comprar por esse valor. O anunciante tem 48h para aceitar — se aceitar, o
+              imóvel é marcado como vendido.
+            </p>
+          </>
+        ) : (
+          <>
+            {reference !== null ? (
+              <p className={styles.modalHint}>Valor do anúncio: {formatBRL(reference)}</p>
+            ) : (
+              <p className={styles.modalHint}>O valor proposto é o total da sua reserva pendente.</p>
+            )}
+
+            <label className={styles.modalLabel} htmlFor="negotiationValue">
+              {VALUE_LABEL[operationType]}
+            </label>
+            <input
+              id="negotiationValue"
+              type="text"
+              inputMode="decimal"
+              placeholder="Ex: 350.000"
+              value={rawValue}
+              onChange={(e) => setRawValue(e.target.value)}
+              className={styles.modalInput}
+              autoFocus
+            />
+            {delta && <p className={styles.modalHint}>{delta}</p>}
+          </>
+        )}
 
         {operationType === "SALE" && (
           <>
@@ -298,7 +353,7 @@ export function NegotiationModal({ operationType, listingPrice, counterTo, onClo
           </>
         )}
 
-        <p className={styles.modalHint}>A outra parte tem 48h para responder.</p>
+        {mode !== "buy" && <p className={styles.modalHint}>A outra parte tem 48h para responder.</p>}
         {error && <p className={styles.sendError}>{error}</p>}
 
         <div className={styles.modalActions}>
@@ -306,7 +361,7 @@ export function NegotiationModal({ operationType, listingPrice, counterTo, onClo
             Cancelar
           </button>
           <button type="button" className={styles.modalSubmitButton} onClick={submit} disabled={submitting}>
-            {submitting ? "Enviando…" : counterTo ? "Enviar contraproposta" : "Enviar proposta"}
+            {submitting ? "Enviando…" : text.submit}
           </button>
         </div>
       </div>

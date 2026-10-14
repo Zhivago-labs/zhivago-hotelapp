@@ -968,3 +968,106 @@
   border-color: var(--accent);
   color: var(--accent-contrast);
 }
+
+/* ─── AUTOCOMPLETE NO CAMPO ─────────────────────────────────────────────── */
+
+.inputWrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+
+.inputWrap .input {
+  width: 100%;
+}
+
+/* Mesmo box do textarea (borda + padding + fonte) pra o texto-fantasma cair exatamente depois do
+   que foi digitado. */
+.inputGhost {
+  position: absolute;
+  inset: 0;
+  padding: 11.5px 17.5px;
+  font-size: 14px;
+  line-height: 1.4;
+  font-family: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.inputGhostTyped {
+  color: transparent;
+}
+
+.inputGhostSuggestion {
+  color: var(--muted);
+  opacity: 0.75;
+}
+
+.inputGhostKey {
+  margin-left: 8px;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0 5px;
+  background: var(--card-bg);
+  vertical-align: 1px;
+}
+
+.negotiateActions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.offerButtonSecondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: var(--radius-full);
+  border: 1.5px solid var(--accent);
+  background: var(--card-bg);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: var(--transition);
+}
+
+.offerButtonSecondary:hover {
+  background: var(--accent-light);
+}
+
+.modalFixedValue {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--foreground);
+  margin: 0 0 8px;
+}
+
+@media (max-width: 420px) {
+  .negotiateBar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .negotiateActions > button {
+    flex: 1;
+    justify-content: center;
+  }
+}
+
+.commandMenuArg {
+  font-weight: 500;
+  color: var(--muted);
+}

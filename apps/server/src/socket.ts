@@ -23,6 +23,8 @@ let ioInstance: SocketIOServer | null = null;
  * - `retirar`: retira a própria proposta que ainda está pendente.
  * - `negociar`: sem valor, move o lead pra "Em negociação" no funil (lado do anúncio, organização);
  *   com valor continua funcionando como `proposta` (compatibilidade).
+ * - `venda [valor]` (anunciante) / `comprar` (comprador): só venda. Fecham negócio mesmo quando o
+ *   anúncio não aceita negociação — oferta do anunciante, ou compra pelo valor anunciado.
  *
  * `argument` diz ao front que o comando precisa de complemento (o menu preenche o comando e espera
  * o valor, em vez de enviar direto).
@@ -66,6 +68,20 @@ export const CHAT_COMMANDS = [
     label: 'Retirar proposta',
     description: 'Retira a sua proposta que ainda está pendente',
   },
+  {
+    trigger: '/venda',
+    aliases: ['/vender', '/ofertar-venda'],
+    label: 'Oferta de venda',
+    description: 'Oferece o imóvel ao comprador — sem valor, usa o preço do anúncio',
+    argument: 'valor (opcional)',
+  },
+  {
+    trigger: '/comprar',
+    aliases: ['/compra', '/quero-comprar'],
+    label: 'Comprar',
+    description: 'Manifesta a compra pelo valor anunciado',
+    argument: 'forma de pagamento (opcional)',
+  },
 ] as const;
 
 const commandSet = (trigger: string) => {
@@ -77,6 +93,8 @@ const REJECT_COMMANDS = commandSet('/recusar');
 const NEGOTIATE_COMMANDS = commandSet('/negociar');
 const PROPOSAL_COMMANDS = new Set<string>([...commandSet('/proposta'), ...commandSet('/contraproposta')]);
 const WITHDRAW_COMMANDS = commandSet('/retirar');
+const SALE_OFFER_COMMANDS = commandSet('/venda');
+const BUY_COMMANDS = commandSet('/comprar');
 
 /**
  * A solicitação mais recente desta conversa que o viewer ainda pode aprovar/recusar: reserva
@@ -232,6 +250,71 @@ async function handleProposalCommand(userId: string, conversation: CommandConver
   );
 }
 
+/** Venda aprovada desta conversa + se o viewer é o lado do anúncio — base de /venda e /comprar. */
+async function loadSaleContext(userId: string, conversation: CommandConversation) {
+  const listing = await prisma.listing.findUnique({
+    where: { id: conversation.property.id },
+    select: { price: true, operationType: true, status: true },
+  });
+  const canManage = await canManageListingConversation(
+    userId,
+    conversation.property,
+    conversation.participants.map((p) => p.id)
+  );
+  return { listing, canManage };
+}
+
+const formatPrice = (value: number) =>
+  value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 2 });
+
+/**
+ * "/venda [valor] [forma]" — o anunciante oferece o imóvel ao comprador (vira um card "Oferta de
+ * venda" com Comprar/Recusar do lado do comprador). Sem valor, usa o preço do anúncio. Funciona
+ * mesmo em anúncio que não aceita negociação: quem define o preço é o próprio anunciante.
+ */
+async function handleSaleOfferCommand(userId: string, conversation: CommandConversation, argument: string): Promise<CommandResult> {
+  const { listing, canManage } = await loadSaleContext(userId, conversation);
+  if (!listing || listing.operationType !== 'SALE') return { error: 'O comando /venda é só para imóveis à venda.' };
+  if (!canManage) return { error: 'Só o anunciante pode enviar uma oferta de venda. Para comprar, use /comprar.' };
+
+  const { value, paymentMethod, unknownMethod } = parseProposalArgument(argument);
+  if (unknownMethod) {
+    return { error: `Forma de pagamento "${unknownMethod}" não reconhecida. Use: à vista, financiamento, parcelado ou carta de crédito.` };
+  }
+  return resultFrom(
+    await proposeRound({ actorId: userId, conversationId: conversation.id, value: value ?? listing.price, paymentMethod }),
+    'Não foi possível enviar a oferta de venda.'
+  );
+}
+
+/**
+ * "/comprar [forma]" — o comprador fecha pelo valor anunciado. É o caminho quando o anúncio não
+ * aceita negociação de valor; com uma oferta do anunciante pendente, o certo é aceitá-la.
+ */
+async function handleBuyCommand(userId: string, conversation: CommandConversation, argument: string): Promise<CommandResult> {
+  const { listing, canManage } = await loadSaleContext(userId, conversation);
+  if (!listing || listing.operationType !== 'SALE') return { error: 'O comando /comprar é só para imóveis à venda.' };
+  if (canManage) return { error: 'Você é o anunciante deste imóvel. Para oferecê-lo ao comprador, use /venda.' };
+
+  const pending = await findPendingRound(conversation.id, userId);
+  if (pending?.from === 'theirs') {
+    const offer = await prisma.offer.findUnique({ where: { id: pending.offerId }, select: { value: true } });
+    return { error: `Há uma oferta pendente de ${formatPrice(offer?.value ?? listing.price)}. Para comprar por esse valor, use /aceitar.` };
+  }
+
+  const { value, paymentMethod, unknownMethod } = parseProposalArgument(argument);
+  if (value !== null && Math.abs(value - listing.price) > 0.005) {
+    return { error: `/comprar usa o valor anunciado (${formatPrice(listing.price)}). Para propor outro valor, use /proposta.` };
+  }
+  if (unknownMethod) {
+    return { error: `Forma de pagamento "${unknownMethod}" não reconhecida. Use: à vista, financiamento, parcelado ou carta de crédito.` };
+  }
+  return resultFrom(
+    await proposeRound({ actorId: userId, conversationId: conversation.id, value: listing.price, paymentMethod }),
+    'Não foi possível registrar a compra.'
+  );
+}
+
 async function handleWithdrawCommand(userId: string, conversation: CommandConversation): Promise<CommandResult> {
   const pending = await findPendingRound(conversation.id, userId);
   if (!pending || pending.from !== 'mine') {
@@ -362,9 +445,13 @@ export function setupSocket(io: SocketIOServer) {
           ? () => handleProposalCommand(user.id, conversation, commandArgument)
           : WITHDRAW_COMMANDS.has(commandWord)
             ? () => handleWithdrawCommand(user.id, conversation)
-            : NEGOTIATE_COMMANDS.has(commandWord)
-              ? () => handleNegotiateCommand(user.id, conversation, commandArgument)
-              : null;
+            : SALE_OFFER_COMMANDS.has(commandWord)
+              ? () => handleSaleOfferCommand(user.id, conversation, commandArgument)
+              : BUY_COMMANDS.has(commandWord)
+                ? () => handleBuyCommand(user.id, conversation, commandArgument)
+                : NEGOTIATE_COMMANDS.has(commandWord)
+                  ? () => handleNegotiateCommand(user.id, conversation, commandArgument)
+                  : null;
         if (commandHandler) {
           const result = await commandHandler();
           if (callback) callback(result);

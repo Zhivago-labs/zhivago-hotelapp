@@ -44,7 +44,9 @@ function mergeById(prev: any[], incoming: any[]): any[] {
 
 // "/proposta 450000 financiamento" e aliases (ver CHAT_COMMANDS no backend, socket.ts); "/negociar" só com valor.
 const PROPOSAL_COMMAND_RE =
-  /^(\/(?:proposta|propor|oferta|ofertar|contraproposta|contrapropor|contra)(?=\s|$)|\/(?:negociar|negocia[çc][ãa]o|negociando)(?=\s+\S))\s*(.*)$/i;
+  /^(\/(?:proposta|propor|oferta|ofertar|contraproposta|contrapropor|contra|venda|vender|ofertar-venda|comprar|compra|quero-comprar)(?=\s|$)|\/(?:negociar|negocia[çc][ãa]o|negociando)(?=\s+\S))\s*(.*)$/i;
+const SALE_OFFER_RE = /^\/(venda|vender|ofertar-venda)$/i;
+const BUY_RE = /^\/(comprar|compra|quero-comprar)$/i;
 
 const PAYMENT_METHOD_PATTERNS: { label: string; pattern: RegExp }[] = [
   { label: 'À Vista', pattern: /^(a|à)?\s*vista$|^avista$|^pix$|^dinheiro$/ },
@@ -102,6 +104,7 @@ export default function ChatScreen() {
   const [negotiations, setNegotiations] = useState<Negotiation[]>([]);
   const [isOfferModalVisible, setIsOfferModalVisible] = useState(false);
   const [counterTo, setCounterTo] = useState<NegotiationRound | null>(null);
+  const [offerMode, setOfferMode] = useState<'propose' | 'sale' | 'buy'>('propose');
   const [offerValue, setOfferValue] = useState('');
   const [offerPaymentMethod, setOfferPaymentMethod] = useState('À Vista');
   const [isSubmittingOffer, setIsSubmittingOffer] = useState(false);
@@ -115,6 +118,10 @@ export default function ChatScreen() {
   const waitingOnOther = !!pendingRound && pendingRound.side === viewerSide;
   const canNegotiate =
     !!property && isParticipant && !isClosed && property.acceptsNegotiation && property.status === 'APPROVED';
+  // Venda dá pra fechar mesmo sem negociação: anunciante oferece (/venda), comprador compra pelo
+  // valor anunciado (/comprar). Contraproposta só se o anúncio aceitar negociar (ou pro anunciante).
+  const canCloseSale = !!property && isParticipant && !isClosed && property.operationType === 'SALE' && property.status === 'APPROVED';
+  const canCounter = !!property?.acceptsNegotiation || canManage;
 
   const markAsRead = useCallback(async () => {
     try {
@@ -225,15 +232,18 @@ export default function ChatScreen() {
     };
   }, [socket, id, user?.id, markAsRead, loadConversation, fetchMessagesAndConversation]);
 
-  const openOfferModal = (round: NegotiationRound | null) => {
+  // 'sale' = oferta de venda do anunciante (valor do anúncio pré-preenchido); 'buy' = compra pelo
+  // valor anunciado (valor fixo).
+  const openOfferModal = (round: NegotiationRound | null, mode: 'propose' | 'sale' | 'buy' = 'propose') => {
     setCounterTo(round);
-    setOfferValue('');
+    setOfferMode(round ? 'propose' : mode);
+    setOfferValue(mode === 'sale' && property ? String(Math.round(property.price)) : '');
     setOfferPaymentMethod(round?.paymentMethod ?? PAYMENT_METHODS[0]!);
     setIsOfferModalVisible(true);
   };
 
   const sendOffer = async () => {
-    const rawVal = parseFloat(offerValue.replace(/[^0-9]/g, ''));
+    const rawVal = offerMode === 'buy' ? Number(property?.price) : parseFloat(offerValue.replace(/[^0-9]/g, ''));
     if (isNaN(rawVal) || rawVal <= 0) {
       Alert.alert('Valor inválido', 'Digite um valor de proposta válido maior que zero.');
       return;
@@ -293,10 +303,19 @@ export default function ChatScreen() {
   };
 
   const confirmAccept = (roundId: string) => {
-    Alert.alert('Aceitar proposta', 'O valor passa a valer como acordado. Deseja aceitar?', [
-      { text: 'Cancelar', style: 'cancel' },
-      { text: 'Aceitar', onPress: () => respondToRound(roundId, 'accept') },
-    ]);
+    const round = negotiations.flatMap((n) => n.rounds).find((r) => r.id === roundId);
+    const isSaleDeal = property?.operationType === 'SALE' && round;
+    const buying = isSaleDeal && viewerSide === 'CUSTOMER';
+    Alert.alert(
+      buying ? 'Confirmar compra' : 'Aceitar proposta',
+      isSaleDeal
+        ? `${buying ? 'Comprar' : 'Vender'} por ${formatBRL(round.value)}? O imóvel será marcado como vendido.`
+        : 'O valor passa a valer como acordado. Deseja aceitar?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: buying ? 'Comprar' : 'Aceitar', onPress: () => respondToRound(roundId, 'accept') },
+      ]
+    );
   };
 
   const sendContent = (content: string) => {
@@ -340,10 +359,23 @@ export default function ChatScreen() {
 
   // Prévia de "/proposta <valor> [forma de pagamento]" — mesma leitura do backend.
   const isSale = property?.operationType === 'SALE';
-  const proposalMatch = canNegotiate ? input.match(PROPOSAL_COMMAND_RE) : null;
+  const proposalMatch = canNegotiate || canCloseSale ? input.match(PROPOSAL_COMMAND_RE) : null;
   const proposalDraft = proposalMatch
-    ? { command: proposalMatch[1]!, ...parseProposalArgument(proposalMatch[2] ?? '') }
+    ? {
+        command: proposalMatch[1]!,
+        kind: SALE_OFFER_RE.test(proposalMatch[1]!) ? 'sale' : BUY_RE.test(proposalMatch[1]!) ? 'buy' : 'propose',
+        ...parseProposalArgument(proposalMatch[2] ?? ''),
+      }
     : null;
+  const proposalHintText = !proposalDraft
+    ? ''
+    : proposalDraft.kind === 'buy'
+      ? `Compra pelo valor anunciado de ${formatBRL(Number(property?.price))}${proposalDraft.paymentMethod ? ` · ${proposalDraft.paymentMethod}` : ''}`
+      : proposalDraft.kind === 'sale'
+        ? `Oferta de venda de ${formatBRL(proposalDraft.value ?? Number(property?.price))}${proposalDraft.value === null ? ' (valor do anúncio)' : ''}${proposalDraft.paymentMethod ? ` · ${proposalDraft.paymentMethod}` : ''}`
+        : proposalDraft.value === null
+          ? `Digite o valor${isSale ? ' e, se quiser, a forma de pagamento' : ''} — ex.: ${proposalDraft.command} 450000${isSale ? ' financiamento' : ''}`
+          : `${pendingRound ? 'Contraproposta' : 'Proposta'} de ${formatBRL(proposalDraft.value)}${property?.operationType === 'MONTHLY_RENT' ? '/mês' : ''}${isSale && proposalDraft.paymentMethod ? ` · ${proposalDraft.paymentMethod}` : ''}`;
 
   const handleReport = () => {
     Alert.alert(
@@ -429,11 +461,20 @@ export default function ChatScreen() {
     const fromOtherSide = round.side !== viewerSide;
     const canAct = isParticipant && !isAuditor && !isClosed && isPending;
     const busy = busyRoundId === round.id;
+    // Venda: pro comprador, aceitar = comprar.
+    const isSaleRound = negotiation.operationType === 'SALE';
 
     return (
       <View>
         <Text style={[...textStyle, { fontWeight: 'bold', marginBottom: 6 }]}>
-          🤝 {round.previousOfferId ? 'Contraproposta' : 'Proposta de valor'}
+          🤝{' '}
+          {round.previousOfferId
+            ? 'Contraproposta'
+            : isSaleRound && round.side === 'LISTING'
+              ? 'Oferta de venda'
+              : isSaleRound && round.value === negotiation.referencePrice
+                ? 'Compra pelo valor anunciado'
+                : 'Proposta de valor'}
         </Text>
         <Text style={[...textStyle, { fontSize: 18, fontWeight: '800', marginBottom: 4 }]}>
           {formatBRL(round.value)}{suffix}
@@ -466,7 +507,7 @@ export default function ChatScreen() {
               disabled={busy}
               onPress={() => confirmAccept(round.id)}
             >
-              <Text style={styles.actionBtnText}>Aceitar</Text>
+              <Text style={styles.actionBtnText}>{isSaleRound && viewerSide === 'CUSTOMER' ? 'Comprar' : 'Aceitar'}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.actionBtn, { backgroundColor: '#EF4444' }]}
@@ -475,13 +516,15 @@ export default function ChatScreen() {
             >
               <Text style={styles.actionBtnText}>Recusar</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.actionBtn, { backgroundColor: '#4F46E5' }]}
-              disabled={busy}
-              onPress={() => openOfferModal(round)}
-            >
-              <Text style={styles.actionBtnText}>Contrapropor</Text>
-            </TouchableOpacity>
+            {canCounter && (
+              <TouchableOpacity
+                style={[styles.actionBtn, { backgroundColor: '#4F46E5' }]}
+                disabled={busy}
+                onPress={() => openOfferModal(round)}
+              >
+                <Text style={styles.actionBtnText}>Contrapropor</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
         {canAct && !fromOtherSide && (
@@ -526,15 +569,32 @@ export default function ChatScreen() {
           >
             <Text style={styles.viewPropertyText}>Ver</Text>
           </TouchableOpacity>
-          {/* Venda e aluguel (mensal/diária) que aceitam negociação — antes só `category === 'venda'`. */}
-          {canNegotiate && (
+          {/* Negociação: aluguel/venda que aceitam negociar; venda sempre pode fechar (oferta do
+              anunciante ou compra pelo valor anunciado). Rodada do outro lado se responde no card. */}
+          {(canNegotiate || canCloseSale) && !(pendingRound && !waitingOnOther && !canCounter) && (
             <TouchableOpacity
               style={[styles.viewPropertyBtn, { backgroundColor: waitingOnOther ? '#A5B4FC' : '#4F46E5', marginLeft: 8 }]}
               disabled={waitingOnOther}
-              onPress={() => openOfferModal(pendingRound && pendingRound.side !== viewerSide ? pendingRound : null)}
+              onPress={() =>
+                pendingRound
+                  ? openOfferModal(pendingRound.side !== viewerSide ? pendingRound : null)
+                  : canCloseSale && canManage
+                    ? openOfferModal(null, 'sale')
+                    : canCloseSale && !property.acceptsNegotiation
+                      ? openOfferModal(null, 'buy')
+                      : openOfferModal(null)
+              }
             >
               <Text style={[styles.viewPropertyText, { color: 'white' }]}>
-                {waitingOnOther ? 'Aguardando' : pendingRound ? 'Contrapropor' : 'Proposta'}
+                {waitingOnOther
+                  ? 'Aguardando'
+                  : pendingRound
+                    ? 'Contrapropor'
+                    : canCloseSale && canManage
+                      ? 'Oferta de venda'
+                      : canCloseSale && !property.acceptsNegotiation
+                        ? 'Comprar'
+                        : 'Proposta'}
               </Text>
             </TouchableOpacity>
           )}
@@ -757,9 +817,7 @@ export default function ChatScreen() {
           {proposalDraft && (
             <View style={styles.proposalHint}>
               <Text style={styles.proposalHintText}>
-                {proposalDraft.value === null
-                  ? `Digite o valor${isSale ? ' e, se quiser, a forma de pagamento' : ''} — ex.: ${proposalDraft.command} 450000${isSale ? ' financiamento' : ''}`
-                  : `${pendingRound ? 'Contraproposta' : 'Proposta'} de ${formatBRL(proposalDraft.value)}${property?.operationType === 'MONTHLY_RENT' ? '/mês' : ''}${isSale && proposalDraft.paymentMethod ? ` · ${proposalDraft.paymentMethod}` : ''}`}
+                {proposalHintText}
               </Text>
               {isSale && (
                 <View style={styles.paymentMethodsRow}>
@@ -818,30 +876,52 @@ export default function ChatScreen() {
       <Modal visible={isOfferModalVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>{counterTo ? 'Enviar contraproposta' : 'Negociar valor'}</Text>
+            <Text style={styles.modalTitle}>
+              {counterTo
+                ? 'Enviar contraproposta'
+                : offerMode === 'sale'
+                  ? 'Oferta de venda'
+                  : offerMode === 'buy'
+                    ? 'Comprar pelo valor anunciado'
+                    : 'Negociar valor'}
+            </Text>
             {counterTo && (
               <Text style={{ color: '#64748B', textAlign: 'center', marginBottom: 4 }}>
                 Proposta atual: {formatBRL(counterTo.value)}{counterTo.unit === 'MONTHLY' ? '/mês' : ''}
               </Text>
             )}
 
-            <Text style={styles.inputLabel}>
-              {property?.operationType === 'MONTHLY_RENT'
-                ? 'Aluguel mensal (R$)'
-                : property?.operationType === 'DAILY_RENT'
-                  ? 'Valor total da reserva (R$)'
-                  : 'Valor total (R$)'}
-            </Text>
-            <TextInput
-              style={styles.modalInput}
-              placeholder="Ex: 350000"
-              keyboardType="numeric"
-              value={offerValue}
-              onChangeText={setOfferValue}
-            />
-            <Text style={{ color: '#94A3B8', fontSize: 12, marginTop: -8, marginBottom: 12 }}>
-              A outra parte tem 48h para responder.
-            </Text>
+            {offerMode === 'buy' && !counterTo ? (
+              <>
+                <Text style={styles.inputLabel}>Valor anunciado</Text>
+                <Text style={{ fontSize: 22, fontWeight: '800', color: '#0F172A', marginBottom: 8 }}>
+                  {formatBRL(Number(property?.price))}
+                </Text>
+                <Text style={{ color: '#64748B', fontSize: 12, marginBottom: 12 }}>
+                  O anunciante tem 48h para aceitar — se aceitar, o imóvel é marcado como vendido.
+                </Text>
+              </>
+            ) : (
+              <>
+                <Text style={styles.inputLabel}>
+                  {property?.operationType === 'MONTHLY_RENT'
+                    ? 'Aluguel mensal (R$)'
+                    : property?.operationType === 'DAILY_RENT'
+                      ? 'Valor total da reserva (R$)'
+                      : 'Valor total (R$)'}
+                </Text>
+                <TextInput
+                  style={styles.modalInput}
+                  placeholder="Ex: 350000"
+                  keyboardType="numeric"
+                  value={offerValue}
+                  onChangeText={setOfferValue}
+                />
+                <Text style={{ color: '#94A3B8', fontSize: 12, marginTop: -8, marginBottom: 12 }}>
+                  A outra parte tem 48h para responder.
+                </Text>
+              </>
+            )}
 
             {property?.operationType === 'SALE' && (
             <>
@@ -882,7 +962,9 @@ export default function ChatScreen() {
                 {isSubmittingOffer ? (
                   <ActivityIndicator color="white" />
                 ) : (
-                  <Text style={{ color: 'white', fontWeight: 'bold' }}>{counterTo ? 'Enviar contraproposta' : 'Enviar proposta'}</Text>
+                  <Text style={{ color: 'white', fontWeight: 'bold' }}>
+                    {counterTo ? 'Enviar contraproposta' : offerMode === 'sale' ? 'Enviar oferta' : offerMode === 'buy' ? 'Confirmar compra' : 'Enviar proposta'}
+                  </Text>
                 )}
               </TouchableOpacity>
             </View>

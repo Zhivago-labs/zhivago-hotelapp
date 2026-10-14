@@ -12,8 +12,12 @@ const COMMAND_BY_TRIGGER = Object.fromEntries(CHAT_COMMANDS.map((c) => [c.trigge
  * autocomplete do front (digitar "/" no chat). Mesma fonte de verdade que `socket.ts` realmente
  * executa (`CHAT_COMMANDS`), só decide QUAIS mostrar:
  * - aprovar/recusar: só com uma solicitação que o viewer ainda pode responder (findActionablePending);
- * - proposta: anúncio aceita negociação e não há rodada pendente (qualquer um dos lados);
- * - contraproposta: há rodada pendente vinda do OUTRO lado;
+ * - venda (só venda): sem rodada pendente, o anunciante oferece o imóvel; o comprador ganha
+ *   `comprar` (pelo valor anunciado) — os dois mesmo quando o anúncio não aceita negociação;
+ * - proposta: anúncio aceita negociação e não há rodada pendente (na venda, só pro comprador —
+ *   o anunciante usa `venda`);
+ * - contraproposta: há rodada pendente vinda do OUTRO lado e o anúncio aceita negociação (ou o
+ *   viewer é o anunciante);
  * - retirar: há rodada pendente vinda do lado do viewer;
  * - negociar (mover o lead): lado do anúncio, enquanto o Lead não chegou no fim do funil.
  */
@@ -22,7 +26,7 @@ async function computeAvailableCommands(
   canManage: boolean,
   isParticipant: boolean,
   conversation: { id: string; leadId: string | null; isClosed: boolean },
-  property: { acceptsNegotiation: boolean; status: string }
+  property: { acceptsNegotiation: boolean; status: string; operationType: string }
 ): Promise<(typeof CHAT_COMMANDS)[number][]> {
   if (!isParticipant || conversation.isClosed) return [];
 
@@ -32,11 +36,17 @@ async function computeAvailableCommands(
     commands.push(COMMAND_BY_TRIGGER['/aprovar']!, COMMAND_BY_TRIGGER['/recusar']!);
   }
 
-  if (property.acceptsNegotiation && property.status === 'APPROVED') {
+  const isSale = property.operationType === 'SALE';
+  if (property.status === 'APPROVED' && (property.acceptsNegotiation || isSale)) {
     const pending = await findPendingRound(conversation.id, viewerId);
-    if (!pending) commands.push(COMMAND_BY_TRIGGER['/proposta']!);
-    else if (pending.from === 'theirs') commands.push(COMMAND_BY_TRIGGER['/contraproposta']!);
-    else commands.push(COMMAND_BY_TRIGGER['/retirar']!);
+    if (!pending) {
+      if (isSale) commands.push(COMMAND_BY_TRIGGER[canManage ? '/venda' : '/comprar']!);
+      if (property.acceptsNegotiation && !(isSale && canManage)) commands.push(COMMAND_BY_TRIGGER['/proposta']!);
+    } else if (pending.from === 'theirs') {
+      if (property.acceptsNegotiation || canManage) commands.push(COMMAND_BY_TRIGGER['/contraproposta']!);
+    } else {
+      commands.push(COMMAND_BY_TRIGGER['/retirar']!);
+    }
   }
 
   // Fonte de verdade única (seção 27 da spec): o Lead da conversa é `conversation.leadId`, não

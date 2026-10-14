@@ -12,6 +12,7 @@ import {
   NegotiationRoundCard,
   parseProposalArgument,
   PAYMENT_METHODS,
+  type NegotiationModalMode,
 } from "./NegotiationWidgets";
 import {
   createClientId,
@@ -51,7 +52,9 @@ const SEND_TIMEOUT_MS = 15_000;
 
 // "/proposta 450000 financiamento" e aliases (ver CHAT_COMMANDS em socket.ts); "/negociar" só com valor.
 const PROPOSAL_COMMAND_RE =
-  /^(\/(?:proposta|propor|oferta|ofertar|contraproposta|contrapropor|contra)(?=\s|$)|\/(?:negociar|negocia[çc][ãa]o|negociando)(?=\s+\S))\s*(.*)$/i;
+  /^(\/(?:proposta|propor|oferta|ofertar|contraproposta|contrapropor|contra|venda|vender|ofertar-venda|comprar|compra|quero-comprar)(?=\s|$)|\/(?:negociar|negocia[çc][ãa]o|negociando)(?=\s+\S))\s*(.*)$/i;
+const SALE_OFFER_RE = /^\/(venda|vender|ofertar-venda)$/i;
+const BUY_RE = /^\/(comprar|compra|quero-comprar)$/i;
 
 function upsertNegotiation(list: Negotiation[], next: Negotiation): Negotiation[] {
   return list.some((n) => n.id === next.id) ? list.map((n) => (n.id === next.id ? next : n)) : [...list, next];
@@ -109,9 +112,11 @@ export function ChatConversation({ conversation: initialConversation, initialMes
   const [isReported, setIsReported] = useState(initialConversation.isReported);
   const [negotiations, setNegotiations] = useState<Negotiation[]>([]);
   const [busyRequestId, setBusyRequestId] = useState<string | null>(null);
-  // null = fechado; { counterTo: null } = proposta nova; com counterTo = contraproposta.
+  // null = fechado; { counterTo: null } = proposta nova; com counterTo = contraproposta. `mode`
+  // "sale"/"buy" = oferta de venda do anunciante / compra pelo valor anunciado.
   const [negotiationModal, setNegotiationModal] = useState<{
     counterTo: { negotiation: Negotiation; round: NegotiationRound } | null;
+    mode?: NegotiationModalMode;
   } | null>(null);
   const [commandMenuIndex, setCommandMenuIndex] = useState(0);
   const [commandMenuDismissed, setCommandMenuDismissed] = useState(false);
@@ -135,6 +140,12 @@ export function ChatConversation({ conversation: initialConversation, initialMes
   const canActOnNegotiation = isParticipant && !isAuditor && !isClosed;
   const canNegotiate =
     canActOnNegotiation && conversation.property.acceptsNegotiation && conversation.property.status === "APPROVED";
+  const isSale = conversation.property.operationType === "SALE";
+  // Venda dá pra fechar mesmo sem negociação: o anunciante oferece (/venda) e o comprador compra
+  // pelo valor anunciado (/comprar). Contraproposta só se o anúncio aceitar negociar (ou pro
+  // anunciante, que define o preço).
+  const canCloseSale = canActOnNegotiation && isSale && conversation.property.status === "APPROVED";
+  const canCounter = conversation.property.acceptsNegotiation || conversation.canManage;
   const openNegotiation = negotiations.find((n) => n.status === "OPEN");
   const pendingRound = openNegotiation?.rounds.find((r) => r.status === "PENDING");
   const waitingOnOther = !!pendingRound && pendingRound.side === viewerSide;
@@ -154,11 +165,34 @@ export function ChatConversation({ conversation: initialConversation, initialMes
 
   // Prévia de "/proposta <valor> [forma de pagamento]" enquanto se digita: mostra o valor lido, a
   // diferença pro anúncio e, na venda, atalhos de forma de pagamento.
-  const proposalMatch = canNegotiate ? input.match(PROPOSAL_COMMAND_RE) : null;
+  const proposalMatch = canNegotiate || canCloseSale ? input.match(PROPOSAL_COMMAND_RE) : null;
   const proposalDraft = proposalMatch
-    ? { command: proposalMatch[1]!, parsed: parseProposalArgument(proposalMatch[2] ?? "") }
+    ? {
+        command: proposalMatch[1]!,
+        kind: SALE_OFFER_RE.test(proposalMatch[1]!) ? "sale" : BUY_RE.test(proposalMatch[1]!) ? "buy" : "propose",
+        parsed: parseProposalArgument(proposalMatch[2] ?? ""),
+      }
     : null;
-  const isSale = conversation.property.operationType === "SALE";
+  // Forma de pagamento sendo digitada ("/proposta 450000 fin") — vira sugestão em cinza + Tab.
+  const partialMethod = proposalDraft?.parsed.unknownMethod
+    ? PAYMENT_METHODS.find((m) => m.toLowerCase().startsWith(proposalDraft.parsed.unknownMethod!))
+    : undefined;
+
+  /**
+   * Autocomplete: o que falta pra completar o que está sendo digitado — o comando destacado no
+   * menu ("/pro" → "posta") ou a forma de pagamento ("fin" → "anciamento"). Aparece em cinza
+   * dentro do campo e Tab aceita.
+   */
+  const highlightedCommand = showCommandMenu ? matchingCommands[commandMenuIndex] : undefined;
+  const highlightedName = highlightedCommand
+    ? [highlightedCommand.trigger, ...highlightedCommand.aliases].find((name) => name.startsWith(slashQuery ?? ""))
+    : undefined;
+  const ghostSuffix =
+    highlightedName && !input.includes(" ")
+      ? highlightedName.slice(input.length)
+      : isSale && partialMethod && proposalDraft?.parsed.unknownMethod
+        ? partialMethod.slice(proposalDraft.parsed.unknownMethod.length)
+        : "";
 
   const authHeaders = { Authorization: `Bearer ${token}` };
 
@@ -416,8 +450,24 @@ export function ChatConversation({ conversation: initialConversation, initialMes
     if (!value.startsWith("/")) setCommandMenuDismissed(false);
   };
 
+  /** Tab: aceita a sugestão em cinza (comando ou forma de pagamento). */
+  const acceptGhost = (): boolean => {
+    if (!ghostSuffix) return false;
+    if (highlightedCommand && highlightedName && !input.includes(" ")) {
+      setInput(highlightedCommand.argument ? `${highlightedName} ` : highlightedName);
+      if (highlightedCommand.argument) setCommandMenuDismissed(true);
+    } else {
+      setInput(`${input}${ghostSuffix}`);
+    }
+    return true;
+  };
+
   const handleInputKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.nativeEvent.isComposing) return;
+    if (event.key === "Tab" && !event.shiftKey && acceptGhost()) {
+      event.preventDefault();
+      return;
+    }
     if (showCommandMenu) {
       if (event.key === "ArrowDown") {
         event.preventDefault();
@@ -478,7 +528,14 @@ export function ChatConversation({ conversation: initialConversation, initialMes
   };
 
   const handleRoundAction = async (roundId: string, action: "accept" | "reject" | "withdraw") => {
-    if (action === "accept" && !confirm("Aceitar esta proposta? O valor passa a valer como acordado.")) return;
+    if (action === "accept") {
+      const round = negotiations.flatMap((n) => n.rounds).find((r) => r.id === roundId);
+      const message =
+        isSale && round
+          ? `${viewerSide === "CUSTOMER" ? "Confirmar a compra" : "Aceitar a venda"} por ${formatBRL(round.value)}? O imóvel será marcado como vendido.`
+          : "Aceitar esta proposta? O valor passa a valer como acordado.";
+      if (!confirm(message)) return;
+    }
     setActionError(null);
     try {
       const res = await fetch(`${getPublicApiUrl()}/offers/${roundId}/${action}`, {
@@ -498,11 +555,11 @@ export function ChatConversation({ conversation: initialConversation, initialMes
     }
   };
 
-  const openNegotiationModal = () => {
-    if (pendingRound && openNegotiation && pendingRound.side !== viewerSide) {
+  const openNegotiationModal = (mode: NegotiationModalMode = "propose") => {
+    if (mode === "propose" && pendingRound && openNegotiation && pendingRound.side !== viewerSide) {
       setNegotiationModal({ counterTo: { negotiation: openNegotiation, round: pendingRound } });
     } else {
-      setNegotiationModal({ counterTo: null });
+      setNegotiationModal({ counterTo: null, mode });
     }
   };
 
@@ -543,6 +600,7 @@ export function ChatConversation({ conversation: initialConversation, initialMes
           viewerId={currentUser.id}
           viewerSide={viewerSide}
           canAct={canActOnNegotiation}
+          canCounter={canCounter}
           onAction={handleRoundAction}
           onCounter={(negotiation, round) => setNegotiationModal({ counterTo: { negotiation, round } })}
         />
@@ -705,24 +763,61 @@ export function ChatConversation({ conversation: initialConversation, initialMes
         </div>
       </div>
 
-      {canNegotiate && (
+      {(canNegotiate || canCloseSale) && (
         <div className={styles.negotiateBar}>
           <span className={styles.negotiateText}>
             {waitingOnOther
               ? "Sua proposta está aguardando resposta."
               : pendingRound
-                ? "Há uma proposta esperando sua resposta."
-                : "Este anúncio aceita negociação. Use o botão ou digite /proposta."}
+                ? isSale && !conversation.canManage
+                  ? "Há uma oferta esperando sua resposta — compre ou recuse no card."
+                  : "Há uma proposta esperando sua resposta."
+                : isSale && conversation.canManage
+                  ? "Ofereça o imóvel ao comprador — use o botão ou digite /venda."
+                  : isSale && !conversation.property.acceptsNegotiation
+                    ? "Este anúncio não aceita negociação de valor, mas você pode comprar pelo valor anunciado (/comprar)."
+                    : isSale
+                      ? "Faça uma proposta (/proposta) ou compre pelo valor anunciado (/comprar)."
+                      : "Este anúncio aceita negociação. Use o botão ou digite /proposta."}
           </span>
-          <button
-            type="button"
-            onClick={openNegotiationModal}
-            className={styles.offerButton}
-            disabled={waitingOnOther}
-          >
-            <Handshake size={14} />
-            {waitingOnOther ? "Aguardando" : pendingRound ? "Contrapropor" : "Fazer proposta"}
-          </button>
+          <div className={styles.negotiateActions}>
+            {waitingOnOther ? (
+              <button type="button" className={styles.offerButton} disabled>
+                <Handshake size={14} />
+                Aguardando
+              </button>
+            ) : pendingRound ? (
+              canCounter && (
+                <button type="button" onClick={() => openNegotiationModal()} className={styles.offerButton}>
+                  <Handshake size={14} />
+                  Contrapropor
+                </button>
+              )
+            ) : isSale && conversation.canManage ? (
+              <button type="button" onClick={() => openNegotiationModal("sale")} className={styles.offerButton}>
+                <Handshake size={14} />
+                Oferta de venda
+              </button>
+            ) : (
+              <>
+                {canNegotiate && (
+                  <button
+                    type="button"
+                    onClick={() => openNegotiationModal()}
+                    className={isSale ? styles.offerButtonSecondary : styles.offerButton}
+                  >
+                    <Handshake size={14} />
+                    {isSale ? "Proposta" : "Fazer proposta"}
+                  </button>
+                )}
+                {isSale && (
+                  <button type="button" onClick={() => openNegotiationModal("buy")} className={styles.offerButton}>
+                    Quero comprar
+                  </button>
+                )}
+              </>
+            )}
+          </div>
         </div>
       )}
 
@@ -853,7 +948,10 @@ export function ChatConversation({ conversation: initialConversation, initialMes
                   onMouseEnter={() => setCommandMenuIndex(index)}
                   onClick={() => handleSelectCommand(command)}
                 >
-                  <span className={styles.commandMenuTrigger}>{command.trigger}</span>
+                  <span className={styles.commandMenuTrigger}>
+                    {command.trigger}
+                    {command.argument && <span className={styles.commandMenuArg}> {command.argument}</span>}
+                  </span>
                   <span className={styles.commandMenuLabel}>{command.label}</span>
                   <span className={styles.commandMenuDescription}>{command.description}</span>
                 </button>
@@ -862,7 +960,7 @@ export function ChatConversation({ conversation: initialConversation, initialMes
           )}
           {proposalDraft && (
             <div className={styles.proposalHint}>
-              {proposalDraft.parsed.value === null ? (
+              {proposalDraft.kind === "propose" && proposalDraft.parsed.value === null ? (
                 <p className={styles.proposalHintText}>
                   Digite o valor{isSale ? " e, se quiser, a forma de pagamento" : ""} — ex.:{" "}
                   <code>
@@ -872,20 +970,37 @@ export function ChatConversation({ conversation: initialConversation, initialMes
               ) : (
                 <p className={styles.proposalHintText}>
                   <Handshake size={14} />
-                  {/^\/contra/i.test(proposalDraft.command) || pendingRound ? "Contraproposta" : "Proposta"} de{" "}
+                  {proposalDraft.kind === "buy"
+                    ? "Compra pelo valor anunciado de"
+                    : proposalDraft.kind === "sale"
+                      ? `Oferta de venda${proposalDraft.parsed.value === null ? " pelo valor do anúncio" : ""} de`
+                      : /^\/contra/i.test(proposalDraft.command) || pendingRound
+                        ? "Contraproposta de"
+                        : "Proposta de"}{" "}
                   <strong>
-                    {formatBRL(proposalDraft.parsed.value)}
+                    {formatBRL(
+                      proposalDraft.kind === "buy"
+                        ? conversation.property.price
+                        : proposalDraft.parsed.value ?? conversation.property.price
+                    )}
                     {operationType === "MONTHLY_RENT" ? "/mês" : ""}
                   </strong>
                   {isSale && proposalDraft.parsed.paymentMethod && <> · {proposalDraft.parsed.paymentMethod}</>}
-                  {operationType !== "DAILY_RENT" && (
+                  {operationType !== "DAILY_RENT" && proposalDraft.kind !== "buy" && proposalDraft.parsed.value !== null && (
                     <span className={styles.proposalHintMuted}>
                       {deltaText(proposalDraft.parsed.value, conversation.property.price)}
                     </span>
                   )}
                 </p>
               )}
-              {proposalDraft.parsed.unknownMethod && (
+              {proposalDraft.kind === "buy" &&
+                proposalDraft.parsed.value !== null &&
+                proposalDraft.parsed.value !== conversation.property.price && (
+                  <p className={styles.proposalHintError}>
+                    /comprar usa o valor anunciado. Para outro valor, use /proposta.
+                  </p>
+                )}
+              {proposalDraft.parsed.unknownMethod && !partialMethod && (
                 <p className={styles.proposalHintError}>
                   Forma de pagamento não reconhecida: “{proposalDraft.parsed.unknownMethod}”.
                 </p>
@@ -906,23 +1021,33 @@ export function ChatConversation({ conversation: initialConversation, initialMes
                   ))}
                 </div>
               )}
-              {proposalDraft.parsed.value !== null && !proposalDraft.parsed.unknownMethod && (
+              {(proposalDraft.parsed.value !== null || proposalDraft.kind !== "propose") && !proposalDraft.parsed.unknownMethod && (
                 <p className={styles.proposalHintMuted}>Enter para enviar · a outra parte tem 48h para responder</p>
               )}
             </div>
           )}
           {sendError && <p className={styles.sendError}>{sendError}</p>}
           <form onSubmit={handleSend} className={styles.inputRow}>
-            <textarea
-              ref={inputRef}
-              rows={1}
-              value={input}
-              onChange={handleInputChange}
-              onKeyDown={handleInputKeyDown}
-              placeholder={other ? `Mensagem para ${other.name}` : "Escreva uma mensagem"}
-              className={styles.input}
-              aria-label="Mensagem"
-            />
+            <div className={styles.inputWrap}>
+              <textarea
+                ref={inputRef}
+                rows={1}
+                value={input}
+                onChange={handleInputChange}
+                onKeyDown={handleInputKeyDown}
+                placeholder={other ? `Mensagem para ${other.name}` : "Escreva uma mensagem"}
+                className={styles.input}
+                aria-label="Mensagem"
+              />
+              {/* Sugestão do autocomplete em cinza logo depois do texto digitado — Tab aceita. */}
+              {ghostSuffix && (
+                <div className={styles.inputGhost} aria-hidden="true">
+                  <span className={styles.inputGhostTyped}>{input}</span>
+                  <span className={styles.inputGhostSuggestion}>{ghostSuffix}</span>
+                  <kbd className={styles.inputGhostKey}>Tab</kbd>
+                </div>
+              )}
+            </div>
             <button type="submit" className={styles.sendButton} aria-label="Enviar" disabled={!input.trim()}>
               <Send size={17} />
             </button>
@@ -939,6 +1064,7 @@ export function ChatConversation({ conversation: initialConversation, initialMes
           operationType={conversation.property.operationType}
           listingPrice={conversation.property.price}
           counterTo={negotiationModal.counterTo}
+          mode={negotiationModal.mode}
           onClose={() => setNegotiationModal(null)}
           onSubmit={handleSubmitRound}
         />
