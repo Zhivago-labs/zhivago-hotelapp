@@ -25,7 +25,7 @@ apps/web (Netlify — zhivago.com.br / zhivag0.netlify.app — sem mudança, só
 │  caddy (80/443, HTTPS automático) ──► api (apps/server, porta 8080)         │
 │                                         │            │                       │
 │                                         ▼            ▼                       │
-│                              db (postgres:17)   ./uploads (disco)            │
+│                              db (postgres:18)   ./uploads (disco)            │
 └──────────────────────────────────────────────────────────────────────────────┘
         │  backup diário (pg_dump + uploads) via rclone
         ▼
@@ -142,8 +142,8 @@ cd /opt/zhivago/deploy/vps
 docker compose up -d db
 
 # 4.2 Dump do Neon direto da VPS (usar a connection string DIRETA, sem "-pooler").
-#     Confira a versão do Postgres do Neon no painel: o pg_dump precisa ser >= ela (a imagem é 17).
-docker run --rm postgres:17 pg_dump "postgresql://...neon.tech/...?sslmode=require" \
+#     Confira a versão do Postgres do Neon no painel: o pg_dump precisa ser >= ela (o Neon está no 18 e a imagem também).
+docker run --rm postgres:18 pg_dump "postgresql://...neon.tech/...?sslmode=require" \
   -Fc --no-owner --no-acl > backups/neon.dump
 
 # 4.3 Restaurar no Postgres local (a tabela _prisma_migrations vem junto)
@@ -205,7 +205,7 @@ crontab -e
 **Testar a restauração** pelo menos uma vez (backup nunca restaurado não conta como backup):
 
 ```bash
-docker run -d --name restore-test -e POSTGRES_PASSWORD=x postgres:17
+docker run -d --name restore-test -e POSTGRES_PASSWORD=x postgres:18
 docker cp backups/db_<data>.dump restore-test:/tmp/
 docker exec restore-test sh -c 'createdb -U postgres t && pg_restore -U postgres -d t /tmp/db_*.dump'
 docker exec restore-test psql -U postgres -d t -c 'select count(*) from "User"'
