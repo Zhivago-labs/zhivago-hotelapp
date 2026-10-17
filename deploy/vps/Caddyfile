@@ -1,0 +1,6 @@
+# HTTPS automático (Let's Encrypt) pro domínio da API. O reverse_proxy do Caddy já repassa
+# WebSocket (Socket.IO) sem configuração extra e sem timeout de conexão ociosa.
+{$API_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy api:8080
+}

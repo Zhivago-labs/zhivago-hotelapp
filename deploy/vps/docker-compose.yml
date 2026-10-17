@@ -1,0 +1,75 @@
+# Produção do backend na VPS (Hostinger) — ver docs/deploy-vps-hostinger.md.
+# Rodar a partir desta pasta (deploy/vps/): `docker compose up -d --build`.
+# O build usa a raiz do monorepo como contexto (mesmo motivo do Cloud Build: apps/server depende do
+# workspace @zhivago/shared e do package-lock.json compartilhado).
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: '10m'
+    max-file: '5'
+
+services:
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: zhivago
+      POSTGRES_DB: zhivago
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Só no 127.0.0.1 da VPS — nunca 0.0.0.0 (o Docker publica portas por fora do ufw). Pra acessar
+    # do seu PC, use túnel SSH (ver seção 7 do plano).
+    ports:
+      - '127.0.0.1:5432:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U zhivago -d zhivago']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *logging
+
+  api:
+    build:
+      context: ../..
+      dockerfile: apps/server/Dockerfile
+    image: zhivago-server:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      PORT: '8080'
+      # Mesma string nas duas — sem pooler na frente, o Prisma Migrate e o app usam a conexão direta.
+      DATABASE_URL: postgresql://zhivago:${POSTGRES_PASSWORD}@db:5432/zhivago
+      DIRECT_URL: postgresql://zhivago:${POSTGRES_PASSWORD}@db:5432/zhivago
+      # Vazio = uploads vão pro disco (volume abaixo) e são servidos pelo /uploads/ do próprio Fastify.
+      GCS_BUCKET_NAME: ''
+    volumes:
+      - ./uploads:/repo/apps/server/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    logging: *logging
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    environment:
+      API_DOMAIN: ${API_DOMAIN:?defina API_DOMAIN no .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+    logging: *logging
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

@@ -12,3 +12,6 @@ apps/server/.env.*
 apps/web/.next
 apps/web/node_modules
 apps/mobile/node_modules
+deploy/vps/uploads
+deploy/vps/backups
+deploy/vps/.env
