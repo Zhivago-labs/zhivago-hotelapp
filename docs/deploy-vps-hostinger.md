@@ -18,7 +18,7 @@ A ordem das seções é a ordem de execução.
 ## 0. Arquitetura alvo
 
 ```
-apps/web (Netlify — zhivago.com.br / zhivag0.netlify.app — sem mudança, só NEXT_PUBLIC_API_URL)
+apps/web (Netlify — zhivago.com.br / zhivag0.netlify.app — sem mudança, só API_URL + NEXT_PUBLIC_API_URL)
         │
         ▼  https://api.zhivago.com.br
 ┌──────────────── VPS Hostinger (Ubuntu 24.04, Docker Compose) ────────────────┐
@@ -229,7 +229,7 @@ Snapshot semanal da VPS pelo painel da Hostinger é um bônus, não substitui o 
 O Postgres só escuta em `127.0.0.1` da VPS. Túnel SSH:
 
 ```powershell
-ssh -N -L 5434:127.0.0.1:5432 deploy@<ip-da-vps>
+ssh -N -L 5434:127.0.0.1:5432 root@177.7.45.213
 # e conectar em postgresql://zhivago:<senha>@localhost:5434/zhivago (DBeaver, Prisma Studio etc.)
 ```
 
@@ -242,12 +242,12 @@ então os passos são em sequência rápida:
 
 1. [ ] Dump final do Neon + restore na VPS (repetir 4.2–4.3) e reescrever URLs (4.5 — rodar
    `gcloud storage rsync` de novo antes, pra pegar fotos novas).
-2. [ ] Netlify → Site configuration → Environment variables: `NEXT_PUBLIC_API_URL=https://api.zhivago.com.br`
+2. [ ] Netlify → Site configuration → Environment variables: **as duas** `API_URL` (server actions: login, cadastro…) e `NEXT_PUBLIC_API_URL` (navegador) `=https://api.zhivago.com.br`
    → **Trigger deploy** (a Netlify não re-builda sozinha ao trocar env var).
 3. [ ] Testar o fluxo da 4.6 no site de produção.
 4. [ ] Atualizar o `docs/runbook-atualizacoes.md` (seção do backend → seção 10 deste doc).
 
-**Rollback:** voltar o `NEXT_PUBLIC_API_URL` da Netlify pra URL do Cloud Run e re-deployar. Dados criados na
+**Rollback:** voltar `API_URL` e `NEXT_PUBLIC_API_URL` da Netlify pra URL do Cloud Run e re-deployar. Dados criados na
 VPS depois da virada não voltam sozinhos pro Neon — por isso o teste do passo 3 é logo em seguida.
 
 ---

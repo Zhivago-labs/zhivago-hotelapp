@@ -1,155 +1,151 @@
 # Runbook — como atualizar produção (frontend, backend, banco)
 
-Referência rápida pro dia a dia depois que a infra já existe. Pra entender *por que* a infra é assim
-(decisões, contas, custos), veja `docs/deploy-cloud-run-neon.md` — este documento aqui é só "quais comandos
-rodar quando eu mexer em X".
+Referência rápida pro dia a dia. Pra entender *por que* a infra é assim (decisões, migração de 2026-10-17),
+veja `docs/deploy-vps-hostinger.md` — este documento aqui é só "quais comandos rodar quando eu mexer em X".
+
+> Até 2026-10-17 o backend rodava no Google Cloud Run + Neon (`docs/deploy-cloud-run-neon.md`, histórico).
+> Tudo do Google Cloud foi apagado; `cloudbuild.yaml` não é mais usado.
 
 ## 0. Onde cada coisa mora
 
 | Peça | Onde roda | Como atualiza |
 |---|---|---|
-| `apps/web` (Next.js) | Netlify — `https://zhivag0.netlify.app` | push pro branch conectado à Netlify → build e deploy automáticos |
-| `apps/mobile` (Expo) | dispositivo/loja — não tem "produção" hospedada | build via EAS, fora do escopo deste runbook |
-| `apps/server` (Fastify + Prisma + Socket.IO) | Google Cloud Run — serviço `zhivago-server`, projeto `zhivago-backend`, região `southamerica-east1` | `gcloud builds submit` + `gcloud run deploy` (seção 2) |
-| Banco de dados | Neon (Postgres), projeto `zhivago`, branch `production` | `prisma migrate deploy` (seção 3) |
-| Uploads (avatar, fotos de imóvel) | Bucket `gs://zhivago-uploads-648179758872` | não precisa de ação manual — o código já grava lá via `GCS_BUCKET_NAME` |
-| Segredos de produção | Secret Manager do GCP (projeto `zhivago-backend`) | `gcloud secrets versions add` (seção 4) |
+| `apps/web` (Next.js) | Netlify — `https://zhivago.com.br` (e `https://zhivag0.netlify.app`) | push na `main` → build e deploy automáticos |
+| `apps/server` (Fastify + Prisma + Socket.IO) | VPS Hostinger `177.7.45.213`, Docker Compose em `/opt/zhivago/deploy/vps` | `atualizar.sh` na VPS (seção 2) |
+| Banco de dados | Postgres 18 no Docker da própria VPS (serviço `db`) | migrations aplicadas pelo `atualizar.sh` |
+| Uploads (avatar, fotos de imóvel) | Disco da VPS: `/opt/zhivago/deploy/vps/uploads`, servidos em `/uploads/` | nada a fazer |
+| Segredos de produção | `/opt/zhivago/deploy/vps/.env` na VPS (só root lê; nunca vai pro Git) | editar o arquivo + recriar o `api` (seção 4) |
+| HTTPS | Caddy (certificado Let's Encrypt automático) | nada a fazer |
+| Backup | `backup.sh` todo dia 03:00 UTC (cron do root), 14 dias em `deploy/vps/backups` | seção 5 |
+| `apps/mobile` (Expo) | não publicado | quando publicar: `EXPO_PUBLIC_API_URL=https://api.zhivago.com.br` |
 
-URL do backend em produção: `https://zhivago-server-648179758872.southamerica-east1.run.app`
+URL do backend em produção: `https://api.zhivago.com.br` (DNS: registro A `api` → `177.7.45.213` na Netlify).
+
+Acesso à VPS: `ssh root@177.7.45.213` (só por chave — `C:\Users\Fábio de Melo\.ssh\id_ed25519`; sem a chave,
+terminal do navegador no hPanel → VPS → Gerenciar).
 
 ---
 
 ## 1. Atualizar só o frontend (`apps/web`)
 
-Não precisa de nenhum comando especial — a Netlify já está conectada ao repositório (ou ao branch que você
-configurou nela). Basta:
-
-1. Commitar e dar push nas mudanças de `apps/web` pro branch que a Netlify observa.
+1. Commitar e dar push na `main`.
 2. A Netlify builda e publica sozinha. Acompanhe em **app.netlify.com** → o site → **Deploys**.
 
-Só mexa manualmente nas **Environment variables** da Netlify (Site configuration → Environment variables) se
-precisar trocar `API_URL` / `NEXT_PUBLIC_API_URL` (ex.: se um dia o backend mudar de URL) — depois de mudar
-uma env var, sempre dispare **Trigger deploy → Deploy site**, porque a Netlify não re-builda sozinha só por
-causa de uma env var alterada.
+Variáveis de ambiente da Netlify (Site configuration → Environment variables) — o endereço da API está em
+**duas**, e as duas têm que ser iguais:
+
+- `API_URL` — usada no servidor da Netlify (server actions: login, cadastro, etc.);
+- `NEXT_PUBLIC_API_URL` — usada no navegador (anúncios, chat, Socket.IO).
+
+Depois de mudar uma env var, dispare **Trigger deploy → Clear cache and deploy site** — a Netlify não
+re-builda sozinha por causa de env var (na virada, só o "Clear cache" resolveu).
 
 ---
 
 ## 2. Atualizar o backend (`apps/server`)
 
-Sempre que mexer em código de `apps/server` (ou em `packages/shared`, que ele usa), o fluxo é: buildar a
-imagem nova → fazer o Cloud Run apontar pra ela.
-
-```powershell
-# 1) build da imagem via Cloud Build (roda a partir da raiz do monorepo — o cloudbuild.yaml já sabe usar
-#    apps/server/Dockerfile com o contexto certo)
-gcloud builds submit --config=cloudbuild.yaml .
-
-# 2) aponta o Cloud Run pra imagem nova (a tag "latest" é sempre a mais recente buildada acima)
-gcloud run deploy zhivago-server `
-  --image=southamerica-east1-docker.pkg.dev/zhivago-backend/zhivago-server/api:latest `
-  --region=southamerica-east1
-```
-
-Esse segundo comando reaproveita toda a configuração do deploy anterior (env vars, secrets, min/max
-instances, etc.) — só troca a imagem. Não precisa repetir `--set-env-vars`/`--set-secrets` a menos que esteja
-mudando alguma dessas variáveis (aí veja a seção 4).
-
-**Rollback rápido** (se o deploy novo quebrar algo): o Cloud Run guarda as revisões anteriores.
-
-```powershell
-gcloud run revisions list --service=zhivago-server --region=southamerica-east1
-gcloud run services update-traffic zhivago-server --region=southamerica-east1 --to-revisions=<REVISION_ANTIGA>=100
-```
-
-**Ver logs** (útil pra debugar um deploy que deu errado):
-
-```powershell
-gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=zhivago-server" --limit=50 --freshness=1h
-```
-
----
-
-## 3. Mudou o `prisma/schema.prisma`? Rodar a migration em produção
-
-Toda mudança de schema já deveria ter uma migration gerada localmente (`npx prisma migrate dev --name
-<algo>`, contra o Postgres local) e commitada em `apps/server/prisma/migrations/`. Isso é trabalho normal de
-desenvolvimento, sem risco — o passo abaixo é só quando essa migration, já testada localmente, precisa ir pro
-banco real do Neon.
+Depois do push na `main`:
 
 ```bash
-cd apps/server
-DATABASE_URL="<connection string pooled do Neon>" \
-DIRECT_URL="<connection string direct do Neon>" \
-npx prisma migrate deploy
+ssh root@177.7.45.213 /opt/zhivago/deploy/vps/atualizar.sh
 ```
 
-As duas connection strings do Neon (pooled e direct) estão nos segredos `neon-database-url` e
-`neon-direct-url` do Secret Manager (veja como puxar o valor na seção 4 — comando de leitura). **Nunca**
-cole essas strings no `apps/server/.env` local nem troque o `DATABASE_URL`/`DIRECT_URL` de lá — o `.env`
-local deve continuar sempre apontando pro Postgres local de dev.
+O script faz, em ordem:
 
-Depois de rodar, `npx prisma migrate status` (com as mesmas env vars) confirma que "Database schema is up to
-date!".
+1. `git pull` — se nada mudou, ou só mudou coisa fora do backend (ex.: só `apps/web`), para aqui;
+2. backup do banco + uploads (`backup.sh`);
+3. build da imagem nova — **a versão atual continua no ar** durante o build;
+4. `prisma migrate deploy`, se o commit trouxe migration nova;
+5. troca do container (poucos segundos fora do ar) e teste em `https://api.zhivago.com.br/hello` e
+   `/listings`. Se o teste falhar, **volta sozinho pra imagem anterior** e mostra os logs.
 
-⚠️ Isso escreve no banco de produção de verdade — trate como uma ação irreversível (mesmo que Prisma
-Migrate seja desenhado pra ser seguro, sempre existe risco em mudança de schema num banco com dado real).
+`atualizar.sh --forcar` reconstrói mesmo sem commit novo.
+
+⚠️ O rollback automático volta o **código**, não o **banco**: uma migration já aplicada continua aplicada.
+Por isso, migration que apaga/renomeia coluna deve ser feita em duas etapas (código compatível com os dois
+esquemas primeiro, remoção depois). Se precisar desfazer dados, o backup do passo 2 está em
+`deploy/vps/backups/db_<data>.dump` (restauração na seção 5).
+
+**Ver logs:**
+
+```bash
+cd /opt/zhivago/deploy/vps
+docker compose logs --tail 100 api        # últimas linhas
+docker compose logs -f api caddy          # ao vivo (Ctrl+C sai)
+docker compose ps                         # os 3 serviços (db, api, caddy) devem estar "Up"
+```
 
 ---
 
-## 4. Segredos e variáveis de ambiente do Cloud Run
+## 3. Mudou o `prisma/schema.prisma`?
 
-Os segredos (senhas, chaves, connection strings) vivem no **Secret Manager**, não direto no serviço. O
-serviço só referencia a versão mais recente de cada um (`:latest`).
+1. Gerar a migration localmente e commitar em `apps/server/prisma/migrations/` (aqui o `prisma migrate dev`
+   não roda em modo não interativo — escrever o SQL da migration à mão e aplicar no Postgres local com
+   `prisma migrate deploy`).
+2. Testar local.
+3. Push + `atualizar.sh` — ele detecta a pasta de migrations alterada e aplica no banco da VPS antes de
+   trocar o código.
 
-**Ver quais segredos existem:**
-```powershell
-gcloud secrets list
-```
+Conferir depois: `docker compose exec api npx prisma migrate status` → "Database schema is up to date!".
 
-**Ler o valor atual de um segredo** (ex.: pra copiar a connection string do Neon pra rodar uma migration —
-seção 3):
-```powershell
-gcloud secrets versions access latest --secret=neon-database-url
-```
-
-**Atualizar o valor de um segredo** (cria uma nova versão; o Cloud Run já usa `:latest`, então na próxima
-`gcloud run deploy`/`gcloud run services update` ele pega o valor novo — revisões já rodando não atualizam
-sozinhas, precisa de um novo deploy pra pegar o valor novo):
-```powershell
-echo "novo-valor-aqui" | gcloud secrets versions add jwt-secret-prod --data-file=-
-# depois, force o Cloud Run a criar uma revisão nova pra pegar o valor:
-gcloud run services update zhivago-server --region=southamerica-east1 --no-traffic --tag=refresh-secret
-gcloud run services update-traffic zhivago-server --region=southamerica-east1 --to-latest
-```
-
-**Segredos hoje configurados:** `neon-database-url`, `neon-direct-url`, `jwt-secret-prod`, `smtp-user`,
-`smtp-pass`, `vapid-public-key`, `vapid-private-key`.
-
-**Env vars simples (não-secretas) do serviço**, pra referência — mudar uma delas:
-```powershell
-gcloud run services update zhivago-server --region=southamerica-east1 --update-env-vars="NOME=valor"
-```
-Hoje configuradas: `NODE_ENV=production`, `WEB_URL=https://zhivag0.netlify.app`,
-`GCS_BUCKET_NAME=zhivago-uploads-648179758872`, `VAPID_SUBJECT=mailto:fabiodemelo682@gmail.com`,
-`BASE_URL=https://zhivago-server-648179758872.southamerica-east1.run.app`, `SMTP_HOST=smtp.gmail.com`,
-`SMTP_PORT=587`.
+⚠️ Isso escreve no banco de produção de verdade.
 
 ---
 
-## 5. Checklist rápido pra qualquer mudança que toque o backend
+## 4. Segredos e variáveis de ambiente do backend
+
+Ficam todos em `/opt/zhivago/deploy/vps/.env` na VPS (modelo com a lista completa:
+`deploy/vps/.env.example`). Não ficam no Git nem em nenhum outro lugar — o backup diário não inclui esse
+arquivo, então guarde uma cópia num lugar seguro (gerenciador de senhas).
+
+Mudar um valor:
+
+```bash
+cd /opt/zhivago/deploy/vps
+nano .env                                  # editar e salvar (Ctrl+O, Enter, Ctrl+X)
+docker compose up -d api                   # recria o api com o valor novo
+```
+
+Não trocar sem motivo: `JWT_SECRET` diferente desloga todo mundo; `VAPID_*` diferente quebra as inscrições de
+push existentes; `POSTGRES_PASSWORD` **não** muda a senha do banco já criado (só serve na criação).
+
+---
+
+## 5. Backup e restauração
+
+- Automático: `backup.sh` às 03:00 UTC (meia-noite em Brasília), log em `/var/log/zhivago-backup.log`.
+  Guarda 14 dias de `db_<data>.dump` + `uploads_<data>.tar.gz` em `/opt/zhivago/deploy/vps/backups`.
+- Os backups ficam **na própria VPS** (não há destino externo — `BACKUP_REMOTE` vazio). Recomendado ligar
+  também o backup semanal da Hostinger (hPanel → VPS → Backups). Pra mandar pra fora depois: configurar um
+  remote do `rclone` e preencher `BACKUP_REMOTE` no `.env` (ver seção 5 do plano).
+
+Restaurar um dump (⚠️ substitui o banco atual inteiro):
+
+```bash
+cd /opt/zhivago/deploy/vps
+docker compose stop api
+docker compose exec -T db pg_restore -U zhivago -d zhivago --no-owner --no-acl --clean --if-exists \
+  < backups/db_<data>.dump
+docker compose start api
+```
+
+Acessar o banco pelo PC: DBeaver com túnel SSH (aba SSH: `177.7.45.213`, usuário `root`, chave
+`id_ed25519`; aba Main: `localhost:5432`, banco e usuário `zhivago`, senha = `POSTGRES_PASSWORD` do `.env`).
+
+---
+
+## 6. Checklist rápido pra qualquer mudança que toque o backend
 
 1. Testar local primeiro (Postgres local, `.env` local) — `npm run dev` em `apps/server`.
-2. Se mudou `prisma/schema.prisma`: gerar a migration local (`prisma migrate dev`), testar, commitar.
-3. Rodar `npm run build` local pra garantir que o `tsc` não quebrou (pega erro de tipo antes do Cloud Build).
-4. Se tem migration nova: aplicar no Neon (seção 3) **antes** de fazer deploy do código que depende dela.
-5. Build + deploy no Cloud Run (seção 2).
-6. Testar a URL de produção (`curl .../hello`, um fluxo real pelo site) antes de considerar terminado.
+2. Se mudou o schema: migration local (seção 3), testar, commitar.
+3. `npm run build` local pra garantir que o `tsc` não quebrou.
+4. Push + `atualizar.sh` (seção 2) — tem que terminar em "OK: backend atualizado e respondendo."
+5. Testar um fluxo real pelo site (login, anúncio, chat) antes de considerar terminado.
 
 ---
 
-## 6. Coisas que só o usuário pode fazer (não automatizável por aqui)
+## 7. Coisas que só o usuário pode fazer
 
-- Trocar segredo/senha externo de verdade (ex.: gerar uma nova senha de app do Gmail) — precisa de login
-  pessoal na conta.
-- Qualquer mudança de faturamento/plano no GCP ou no Neon.
-- Mudar o domínio/DNS do site na Netlify.
+- Trocar segredo/senha externo de verdade (ex.: nova senha de app do Gmail) — login pessoal na conta.
+- Plano/faturamento da Hostinger, Netlify e Neon (o Neon ficou parado como cópia fria até ~17/11/2026).
+- DNS do domínio (Netlify → Domains → zhivago.com.br).
