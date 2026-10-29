@@ -8,7 +8,7 @@ export type AccountType = 'INDIVIDUAL' | 'AGENCY';
 export type ListingType = 'casa' | 'apartamento';
 export type ListingCategory = 'aluguel' | 'venda';
 export type BillingCycle = 'noite' | 'mês';
-export type ListingStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'REMOVED' | 'SOLD';
+export type ListingStatus = 'DRAFT' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'REMOVED' | 'SOLD' | 'RENTED';
 // Operação comercial explícita (seção 3 da spec de refatoração) — fonte principal a partir da
 // qual o domínio deve trabalhar. category/billingCycle continuam por compatibilidade.
 export type ListingOperationType = 'SALE' | 'MONTHLY_RENT' | 'DAILY_RENT';

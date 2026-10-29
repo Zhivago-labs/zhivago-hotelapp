@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { ReceivedBooking } from "@/lib/listings-api";
+import { bookingPhase, type BookingPhase } from "@/lib/booking-phase";
 import { cancelBookingAction, approveBookingAction, rejectBookingAction } from "@/lib/actions/listings";
 import { ActionForm } from "@/components/ActionForm";
 import { ConfirmSubmitButton } from "./ConfirmSubmitButton";
@@ -26,21 +27,22 @@ function getDurationLabel(startStr: string, endStr: string): string {
   return `${diffDays} ${diffDays === 1 ? "dia" : "dias"}`;
 }
 
-function statusInfo(status: string, isPast: boolean): { label: string; bg: string; text: string; border: string } {
-  if (status === "CANCELLED") return { label: "Cancelada", bg: "rgba(239, 68, 68, 0.08)", text: "#ef4444", border: "rgba(239, 68, 68, 0.2)" };
-  if (status === "REJECTED") return { label: "Recusada", bg: "rgba(239, 68, 68, 0.08)", text: "#ef4444", border: "rgba(239, 68, 68, 0.2)" };
-  if (status === "PENDING") return { label: "Pendente de Aprovação", bg: "rgba(245, 158, 11, 0.08)", text: "#f59e0b", border: "rgba(245, 158, 11, 0.2)" };
-  if (isPast) return { label: "Concluída", bg: "rgba(148, 163, 184, 0.08)", text: "#64748b", border: "rgba(148, 163, 184, 0.2)" };
+function statusInfo(phase: BookingPhase): { label: string; bg: string; text: string; border: string } {
+  if (phase === "CANCELLED") return { label: "Cancelada", bg: "rgba(239, 68, 68, 0.08)", text: "#ef4444", border: "rgba(239, 68, 68, 0.2)" };
+  if (phase === "REJECTED") return { label: "Recusada", bg: "rgba(239, 68, 68, 0.08)", text: "#ef4444", border: "rgba(239, 68, 68, 0.2)" };
+  if (phase === "PENDING") return { label: "Pendente de Aprovação", bg: "rgba(245, 158, 11, 0.08)", text: "#f59e0b", border: "rgba(245, 158, 11, 0.2)" };
+  if (phase === "EXPIRED") return { label: "Expirada (sem resposta)", bg: "rgba(148, 163, 184, 0.08)", text: "#64748b", border: "rgba(148, 163, 184, 0.2)" };
+  if (phase === "FINISHED") return { label: "Finalizada", bg: "rgba(148, 163, 184, 0.08)", text: "#64748b", border: "rgba(148, 163, 184, 0.2)" };
   return { label: "Confirmada", bg: "rgba(34, 197, 94, 0.08)", text: "#22c55e", border: "rgba(34, 197, 94, 0.2)" };
 }
 
 export function ReceivedBookingItem({ booking }: { booking: ReceivedBooking }) {
   const [discountModalOpen, setDiscountModalOpen] = useState(false);
-  const isPast = new Date(booking.endDate) < new Date();
-  const info = statusInfo(booking.status, isPast);
-  const canCancel = !isPast && (booking.status === "PENDING" || booking.status === "CONFIRMED");
-  const canRespond = !isPast && booking.status === "PENDING";
-  const canDiscount = booking.status === "PENDING" || booking.status === "CONFIRMED";
+  const phase = bookingPhase(booking);
+  const info = statusInfo(phase);
+  const canCancel = phase === "PENDING" || phase === "CONFIRMED";
+  const canRespond = phase === "PENDING";
+  const canDiscount = phase === "PENDING" || phase === "CONFIRMED";
   const hasActiveDiscount = booking.discountedPrice != null && booking.discountedPrice < booking.price;
   const durationText = getDurationLabel(booking.startDate, booking.endDate);
 

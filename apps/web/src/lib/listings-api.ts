@@ -55,6 +55,8 @@ export interface ReceivedBooking {
   startDate: string;
   endDate: string;
   status: string;
+  // Calculada pelo servidor: FINISHED/EXPIRED dependem da data (ver lib/booking-phase.ts).
+  phase?: string;
   price: number;
   discountedPrice: number | null;
   listing: { id: string; name: string; image: string; price: number };

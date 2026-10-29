@@ -34,6 +34,8 @@ const STATUS_LABEL: Record<string, { label: string; color: string }> = {
   PENDING:  { label: 'Em análise', color: '#f59e0b' },
   REJECTED: { label: 'Rejeitado', color: '#ef4444' },
   REMOVED:  { label: 'Removido', color: '#9ca3af' },
+  SOLD:     { label: 'Vendido', color: '#6366f1' },
+  RENTED:   { label: 'Alugado', color: '#0ea5e9' },
 };
 
 export default function MyListingsScreen() {

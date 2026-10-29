@@ -79,8 +79,10 @@ export async function getListings(
 ): Promise<void> {
   try {
     const listings = await prisma.listing.findMany({
+      // Só o que está disponível: vendido (SOLD) e alugado (RENTED) somem das telas públicas — o
+      // link direto continua abrindo (getListingById) e o dono os vê no painel.
       where: {
-        status: { in: ['APPROVED', 'SOLD'] }
+        status: 'APPROVED'
       },
       orderBy: { createdAt: 'desc' },
       include: {
@@ -155,7 +157,7 @@ export async function getListingById(
       // sem token válido — segue como visitante anônimo
     }
 
-    const isPublicStatus = ['APPROVED', 'SOLD'].includes(listing.status);
+    const isPublicStatus = ['APPROVED', 'SOLD', 'RENTED'].includes(listing.status);
     const isAdmin = requesterRole === 'ADMIN';
 
     // Anúncio de organização (B2B): "dono" é o corretor responsável ou quem gerencia a
@@ -233,7 +235,7 @@ export async function getSimilarListings(request: FastifyRequest, reply: Fastify
 
   // Nunca sugerir modalidade comercial incompatível (seção 94) — filtro rígido, não só pontuação.
   const candidates = await prisma.listing.findMany({
-    where: { id: { not: id }, status: { in: ['APPROVED', 'SOLD'] }, operationType: listing.operationType },
+    where: { id: { not: id }, status: 'APPROVED', operationType: listing.operationType },
     include: PUBLIC_LISTING_INCLUDE,
     take: SIMILAR_LISTINGS_CANDIDATE_POOL,
     orderBy: { createdAt: 'desc' },
@@ -745,6 +747,31 @@ export async function approveOrgListing(
     });
   }
 
+  return reply.send(updated);
+}
+
+// ─── DISPONIBILIZAR DE NOVO (imóvel alugado por mês voltou a ficar vago) ─────────────────────
+// Só RENTED: o aluguel mensal acaba e o imóvel volta pro mercado. Venda (SOLD) é definitiva.
+
+export async function relistListing(
+  request: FastifyRequest,
+  reply: FastifyReply
+): Promise<void> {
+  const { id: userId } = request.user as { id: string };
+  const { id } = request.params as { id: string };
+
+  const listing = await prisma.listing.findUnique({ where: { id } });
+  if (!listing) return reply.status(404).send({ error: 'Imóvel não encontrado.' });
+
+  const isOwner = listing.ownerId === userId;
+  if (!isOwner && !(await canManageOrgListing(userId, listing))) {
+    return reply.status(403).send({ error: 'Sem permissão para alterar este imóvel.' });
+  }
+  if (listing.status !== 'RENTED') {
+    return reply.status(400).send({ error: 'Só um imóvel marcado como alugado pode ser disponibilizado de novo.' });
+  }
+
+  const updated = await prisma.listing.update({ where: { id }, data: { status: 'APPROVED' } });
   return reply.send(updated);
 }
 

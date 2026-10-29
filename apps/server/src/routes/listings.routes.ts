@@ -13,6 +13,7 @@ import {
   reassignListingAgent,
   approveOrgListing,
   rejectOrgListing,
+  relistListing,
 } from '../controllers/listings.controller.js';
 
 export async function listingsRoutes(app: FastifyInstance): Promise<void> {
@@ -51,4 +52,7 @@ export async function listingsRoutes(app: FastifyInstance): Promise<void> {
 
   // PATCH /listings/:id/org-reject — rejeitar imóvel de organização (requer OWNER/ADMIN da organização)
   app.patch('/listings/:id/org-reject', { preHandler: [authenticate] }, rejectOrgListing);
+
+  // PATCH /listings/:id/relist — imóvel alugado (RENTED) volta a ficar disponível (dono ou responsável)
+  app.patch('/listings/:id/relist', { preHandler: [authenticate] }, relistListing);
 }

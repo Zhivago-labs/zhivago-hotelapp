@@ -22,14 +22,14 @@ export function OwnerListingsSection({
 }: Props) {
   const [selectedStatus, setSelectedStatus] = useState<string>("ALL");
 
-  const approvedCount = initialListings.filter((l) => l.status === "APPROVED" || l.status === "SOLD").length;
+  const approvedCount = initialListings.filter((l) => l.status === "APPROVED" || l.status === "SOLD" || l.status === "RENTED").length;
   const pendingCount = initialListings.filter((l) => l.status === "PENDING").length;
   const draftCount = initialListings.filter((l) => l.status === "DRAFT").length;
   const rejectedCount = initialListings.filter((l) => l.status === "REJECTED").length;
 
   const filteredListings = initialListings.filter((listing) => {
     if (selectedStatus === "ALL") return true;
-    if (selectedStatus === "APPROVED") return listing.status === "APPROVED" || listing.status === "SOLD";
+    if (selectedStatus === "APPROVED") return listing.status === "APPROVED" || listing.status === "SOLD" || listing.status === "RENTED";
     if (selectedStatus === "PENDING") return listing.status === "PENDING";
     if (selectedStatus === "DRAFT") return listing.status === "DRAFT";
     if (selectedStatus === "REJECTED") return listing.status === "REJECTED";

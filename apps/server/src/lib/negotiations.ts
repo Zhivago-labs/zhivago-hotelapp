@@ -3,6 +3,7 @@ import { prisma } from './prisma.js';
 import { canManageListingConversation, advanceLeadBySystem } from './leads.js';
 import { sendNotification } from '../services/notification.service.js';
 import { getIO } from '../socket.js';
+import { isRequestExpired } from './bookings.js';
 
 /**
  * ─── NEGOCIAÇÃO DE VALOR NO CHAT ─────────────────────────────────────────────────────────────
@@ -15,7 +16,8 @@ import { getIO } from '../socket.js';
  * - SALE: imóvel vira SOLD, as outras negociações do imóvel são encerradas, Lead → WON.
  * - DAILY_RENT: o valor vira `booking.discountedPrice` e a reserva é confirmada (checando
  *   conflito de datas), Lead → WON.
- * - MONTHLY_RENT: só registra o valor acordado (não há contrato de aluguel no sistema).
+ * - MONTHLY_RENT: registra o valor acordado e o imóvel vira RENTED (some das telas públicas; o
+ *   anunciante o devolve ao ar com PATCH /listings/:id/relist). Não há contrato no sistema.
  *
  * Todas as funções devolvem `{ status, body }` (mesmo padrão de approveBookingCore), pra serem
  * usadas tanto pelas rotas HTTP quanto pelos comandos de chat em socket.ts.
@@ -448,7 +450,7 @@ export async function respondToRound({
           ? ' O imóvel foi marcado como vendido.'
           : negotiation.operationType === 'DAILY_RENT'
             ? ' A reserva foi confirmada com esse valor.'
-            : '';
+            : ' O imóvel foi marcado como alugado.';
       resolutionText = `✅ ${actor.name} aceitou a proposta de ${valueText}.${effect}`;
       notificationTitle = 'Proposta aceita! 🎉';
     } else {
@@ -472,7 +474,12 @@ export async function respondToRound({
     if (error instanceof Error && error.message === 'BOOKING_NOT_PENDING') {
       return fail(400, 'A reserva desta negociação não está mais pendente.');
     }
-    if (error instanceof Error && error.message === 'ALREADY_SOLD') return fail(400, 'Este imóvel já foi vendido.');
+    if (error instanceof Error && error.message === 'BOOKING_EXPIRED') {
+      return fail(400, 'O período desta reserva já passou — a solicitação expirou.');
+    }
+    if (error instanceof Error && error.message === 'ALREADY_SOLD') {
+      return fail(400, listing.status === 'RENTED' ? 'Este imóvel já foi alugado.' : 'Este imóvel já foi vendido.');
+    }
     throw error;
   }
 
@@ -512,12 +519,14 @@ async function acceptRound(offer: OfferRow, negotiation: NegotiationRow, listing
     await tx.negotiation.update({ where: { id: negotiation.id }, data: { status: 'AGREED', agreedValue: offer.value } });
   };
 
-  if (negotiation.operationType === 'SALE') {
+  if (negotiation.operationType === 'SALE' || negotiation.operationType === 'MONTHLY_RENT') {
+    const closedStatus = negotiation.operationType === 'SALE' ? 'SOLD' : 'RENTED';
     await prisma.$transaction(async (tx) => {
       const current = await tx.listing.findUniqueOrThrow({ where: { id: listing.id }, select: { status: true } });
-      if (current.status === 'SOLD') throw new Error('ALREADY_SOLD');
+      if (current.status === 'SOLD' || current.status === 'RENTED') throw new Error('ALREADY_SOLD');
       await markAccepted(tx);
-      // Vendido: encerra as outras negociações do imóvel e cancela as rodadas pendentes delas.
+      // Vendido/alugado: some das telas públicas (só APPROVED aparece), então encerra as outras
+      // negociações do imóvel e cancela as rodadas pendentes delas.
       await tx.offer.updateMany({
         where: { listingId: listing.id, status: 'PENDING', id: { not: offer.id } },
         data: { status: 'CANCELLED' },
@@ -526,7 +535,7 @@ async function acceptRound(offer: OfferRow, negotiation: NegotiationRow, listing
         where: { listingId: listing.id, status: 'OPEN', id: { not: negotiation.id } },
         data: { status: 'CLOSED' },
       });
-      await tx.listing.update({ where: { id: listing.id }, data: { status: 'SOLD' } });
+      await tx.listing.update({ where: { id: listing.id }, data: { status: closedStatus } });
     });
   } else if (negotiation.operationType === 'DAILY_RENT') {
     const booking = negotiation.booking;
@@ -535,6 +544,7 @@ async function acceptRound(offer: OfferRow, negotiation: NegotiationRow, listing
     await prisma.$transaction(async (tx) => {
       const current = await tx.booking.findUniqueOrThrow({ where: { id: booking.id } });
       if (current.status !== 'PENDING') throw new Error('BOOKING_NOT_PENDING');
+      if (isRequestExpired(current)) throw new Error('BOOKING_EXPIRED');
       const overlapping = await tx.booking.count({
         where: {
           listingId: listing.id,

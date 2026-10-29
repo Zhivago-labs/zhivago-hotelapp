@@ -147,7 +147,7 @@ model Listing {
   // Status de moderação pelo admin / ciclo de vida do dono
   // SEGURANÇA: default alterado de "APPROVED" para "PENDING" — novos anúncios
   // entram em moderação, não ficam públicos automaticamente.
-  status       String   @default("PENDING") // "DRAFT" | "PENDING" | "APPROVED" | "REJECTED" | "REMOVED" | "SOLD"
+  status       String   @default("PENDING") // "DRAFT" | "PENDING" | "APPROVED" | "REJECTED" | "REMOVED" | "SOLD" | "RENTED"
   rejectReason String?
 
   viewCount    Int      @default(0)
@@ -217,6 +217,11 @@ model Review {
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // Estadia avaliada — uma avaliação por estadia finalizada. Nullable só pra avaliações antigas
+  // sem reserva correspondente (a migration vinculou as que tinham).
+  bookingId String?  @unique
+  booking   Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
 
   @@index([listingId])
@@ -257,6 +262,7 @@ model Booking {
   lead   Lead?   @relation(fields: [leadId], references: [id], onDelete: SetNull)
 
   negotiations Negotiation[]
+  review       Review?
 
   createdAt DateTime @default(now())
 

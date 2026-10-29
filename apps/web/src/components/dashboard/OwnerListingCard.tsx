@@ -10,6 +10,7 @@ import {
   unpublishListingAction,
   duplicateListingAction,
   approveOrgListingAction,
+  relistListingAction,
   rejectOrgListingAction,
 } from "@/lib/actions/listings";
 import { ActionForm } from "@/components/ActionForm";
@@ -25,6 +26,7 @@ const STATUS_LABEL: Record<string, { label: string; color: string }> = {
   REJECTED: { label: "Rejeitado", color: "#ef4444" },
   REMOVED: { label: "Removido", color: "#9ca3af" },
   SOLD: { label: "Vendido", color: "#6366f1" },
+  RENTED: { label: "Alugado", color: "#0ea5e9" },
 };
 
 export function OwnerListingCard({
@@ -121,6 +123,15 @@ export function OwnerListingCard({
                 <input type="hidden" name="id" value={listing.id} />
                 <button type="submit" className={styles.unpublishButton}>
                   Despublicar
+                </button>
+              </ActionForm>
+            )}
+
+            {listing.status === "RENTED" && (
+              <ActionForm action={relistListingAction}>
+                <input type="hidden" name="id" value={listing.id} />
+                <button type="submit" className={styles.publishButton} title="O inquilino saiu: o imóvel volta a aparecer para todos">
+                  Disponibilizar de novo
                 </button>
               </ActionForm>
             )}

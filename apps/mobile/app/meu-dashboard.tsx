@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 
 import { API_URL } from '@/config/api';
+import { bookingPhase, bookingStatusInfo } from '@/utils/bookingPhase';
 const screenWidth = Dimensions.get('window').width;
 
 type ReceivedBooking = {
@@ -14,6 +15,7 @@ type ReceivedBooking = {
   startDate: string;
   endDate: string;
   status: string;
+  phase?: string;
   listing: { name: string; image: string; price: number };
   user: { name: string; avatar: string; email: string; phone: string };
 };
@@ -241,18 +243,9 @@ export default function UserDashboardScreen() {
       ) : (
         <>
           {bookingsData.bookings.map((item) => {
-            const isPast = new Date(item.endDate) < new Date();
-            
-            const getStatusInfo = () => {
-              if (item.status === 'CANCELLED') return { label: 'Cancelada', bg: '#f5f5f5', text: '#d32f2f' };
-              if (item.status === 'REJECTED') return { label: 'Recusada', bg: '#f5f5f5', text: '#d32f2f' };
-              if (item.status === 'PENDING') return { label: 'Pendente', bg: '#fff3e0', text: '#e65100' };
-              if (isPast) return { label: 'Concluída', bg: '#f5f5f5', text: '#666' };
-              return { label: 'Confirmada', bg: '#e8f5e9', text: '#2e7d32' };
-            };
-
-            const statusInfo = getStatusInfo();
-            const canCancel = !isPast && (item.status === 'PENDING' || item.status === 'CONFIRMED');
+            const phase = bookingPhase(item);
+            const statusInfo = bookingStatusInfo(phase);
+            const canCancel = phase === 'PENDING' || phase === 'CONFIRMED';
 
             return (
               <View key={item.id} style={styles.bookingCard}>

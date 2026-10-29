@@ -1,7 +1,7 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { z } from 'zod';
-import { effectiveBookingPrice } from '../lib/bookings.js';
+import { effectiveBookingPrice, bookingPhase } from '../lib/bookings.js';
 import { myListingsWhere } from './listings.controller.js';
 
 export async function getUserProfile(
@@ -42,7 +42,7 @@ export async function getUserProfile(
     const listings = await prisma.listing.findMany({
       where: {
         ...listingsWhere,
-        status: { in: ['APPROVED', 'SOLD'] },
+        status: 'APPROVED',
       },
       orderBy: { createdAt: 'desc' },
       include: {
@@ -158,7 +158,7 @@ export async function getMyStats(
   const statusCounts = { pending: 0, approved: 0, rejected: 0 };
   listings.forEach(l => {
     if (l.status === 'PENDING') statusCounts.pending++;
-    if (l.status === 'APPROVED' || l.status === 'SOLD') statusCounts.approved++;
+    if (l.status === 'APPROVED' || l.status === 'SOLD' || l.status === 'RENTED') statusCounts.approved++;
     if (l.status === 'REJECTED') statusCounts.rejected++;
   });
 
@@ -249,13 +249,17 @@ export async function getMyBookings(
             price: true,
             images: { take: 1, orderBy: { order: 'asc' }, select: { url: true } },
           }
-        }
+        },
+        review: { select: { id: true, rating: true } },
       },
       orderBy: { startDate: 'desc' }
     });
 
-    const withCoverImage = bookings.map((booking) => ({
+    const withCoverImage = bookings.map(({ review, ...booking }) => ({
       ...booking,
+      // FINISHED/EXPIRED dependem da data — calculados aqui pra todas as telas usarem a mesma regra.
+      phase: bookingPhase(booking),
+      review,
       price: effectiveBookingPrice(booking, booking.listing.price),
       listing: {
         id: booking.listing.id,
@@ -357,6 +361,7 @@ export async function getReceivedBookings(
 
     const bookingsWithCoverImage = bookings.map((booking) => ({
       ...booking,
+      phase: bookingPhase(booking),
       // Preço travado da reserva (não o efetivo com desconto) — o dono precisa ver o valor base
       // pra gerenciar o desconto pontual a partir dele, não já com o desconto aplicado.
       price: booking.price ?? booking.listing.price,

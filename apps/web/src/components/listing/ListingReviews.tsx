@@ -64,7 +64,8 @@ export function ListingReviews({ listingId, category, user }: ListingReviewsProp
   const { token } = useChatSocket();
   const [reviews, setReviews] = useState<ReviewItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [hasConfirmedBooking, setHasConfirmedBooking] = useState<boolean | null>(null);
+  // Só quem tem estadia finalizada e ainda não avaliada vê o formulário (regra no servidor).
+  const [canReview, setCanReview] = useState(false);
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -85,22 +86,16 @@ export function ListingReviews({ listingId, category, user }: ListingReviewsProp
     fetchReviews();
   }, [fetchReviews]);
 
-  // Verifica se o usuário logado possui reserva confirmada para este imóvel
   useEffect(() => {
-    if (!token) return;
+    if (!token || !user || category !== "aluguel") return;
 
-    fetch(`${getPublicApiUrl()}/users/me/bookings`, {
+    fetch(`${getPublicApiUrl()}/listings/${listingId}/reviews/eligibility`, {
       headers: { Authorization: `Bearer ${token}` },
     })
-      .then((res) => (res.ok ? res.json() : []))
-      .then((bookings: Array<{ listingId: string; status: string }>) => {
-        const confirmed = bookings.some(
-          (b) => b.listingId === listingId && (b.status === "CONFIRMED" || b.status === "APPROVED")
-        );
-        setHasConfirmedBooking(confirmed);
-      })
-      .catch(() => setHasConfirmedBooking(false));
-  }, [token, listingId]);
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { canReview: boolean } | null) => setCanReview(Boolean(data?.canReview)))
+      .catch(() => setCanReview(false));
+  }, [token, user, category, listingId]);
 
   const averageRating = useMemo(() => {
     if (reviews.length === 0) return 0;
@@ -132,11 +127,12 @@ export function ListingReviews({ listingId, category, user }: ListingReviewsProp
       const data = await res.json().catch(() => null);
 
       if (!res.ok) {
-        setError(data?.error ?? data?.message ?? "Você só pode avaliar imóveis que já alugou com reserva confirmada.");
+        setError(data?.error ?? data?.message ?? "Você só pode avaliar depois de concluir uma estadia neste imóvel.");
         return;
       }
 
       setSuccess("Sua avaliação foi enviada com sucesso!");
+      setCanReview(false);
       setComment("");
       setRating(5);
       fetchReviews();
@@ -152,7 +148,7 @@ export function ListingReviews({ listingId, category, user }: ListingReviewsProp
   }
 
   return (
-    <div className={styles.section}>
+    <div className={styles.section} id="avaliar">
       <hr className={styles.divider} />
 
       <div className={styles.header}>
@@ -199,27 +195,21 @@ export function ListingReviews({ listingId, category, user }: ListingReviewsProp
         </div>
       )}
 
-      {/* Formulário de Envio de Avaliação */}
-      {category === "aluguel" && (
+      {success && !canReview && (
+        <div className={styles.successAlert}>
+          <CheckCircle2 size={16} />
+          <span>{success}</span>
+        </div>
+      )}
+
+      {/* Formulário de avaliação: só pra quem tem estadia finalizada ainda não avaliada */}
+      {category === "aluguel" && canReview && (
         <div className={styles.formCard}>
-          <h3 className={styles.formTitle}>Avaliar este imóvel</h3>
+          <h3 className={styles.formTitle}>Avaliar sua estadia</h3>
           <p className={styles.formSubtext}>
-            Sua opinião é fundamental para outros hóspedes! Avaliações são exclusivas para quem já alugou e teve a reserva confirmada.
+            Sua estadia neste imóvel foi finalizada. Conte como foi — sua opinião ajuda outros hóspedes!
           </p>
 
-          {!user ? (
-            <div className={styles.loginPrompt}>
-              <AlertCircle size={18} />
-              <span>Faça login para deixar uma avaliação se você já alugou este imóvel.</span>
-            </div>
-          ) : hasConfirmedBooking === false ? (
-            <div className={styles.loginPrompt}>
-              <AlertCircle size={18} />
-              <span>
-                Você só poderá enviar uma avaliação após realizar uma reserva e ter a sua estadia confirmada pelo anfitrião.
-              </span>
-            </div>
-          ) : (
             <form onSubmit={handleSubmit} className={styles.form}>
               <div className={styles.ratingField}>
                 <span className={styles.fieldLabel}>Sua Nota:</span>
@@ -247,19 +237,11 @@ export function ListingReviews({ listingId, category, user }: ListingReviewsProp
                 </div>
               )}
 
-              {success && (
-                <div className={styles.successAlert}>
-                  <CheckCircle2 size={16} />
-                  <span>{success}</span>
-                </div>
-              )}
-
               <button type="submit" className={styles.submitButton} disabled={submitting}>
                 <MessageSquare size={16} />
                 {submitting ? "Enviando…" : "Enviar Avaliação"}
               </button>
             </form>
-          )}
         </div>
       )}
     </div>

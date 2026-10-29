@@ -25,6 +25,7 @@ import {
   type LocalChatMessage,
 } from "./chat-utils";
 import { getPublicApiUrl } from "@/lib/public-api";
+import { isCheckInOver, isStayOver } from "@/lib/booking-phase";
 import type { ChatCommand, ChatMessage, ConversationDetail } from "@/lib/chat-api";
 import styles from "./ChatConversation.module.css";
 
@@ -660,7 +661,13 @@ export function ChatConversation({ conversation: initialConversation, initialMes
       metadata?.startDate && metadata.endDate
         ? Math.round((new Date(metadata.endDate).getTime() - new Date(metadata.startDate).getTime()) / 86_400_000)
         : null;
-    const isPending = message.type === "BOOKING_REQUEST";
+    // A mensagem só guarda o desfecho (aprovada/recusada/cancelada); "finalizada" e "expirada"
+    // dependem da data, então são derivadas aqui na hora de exibir.
+    const isFinished =
+      message.type === "BOOKING_APPROVED" && Boolean(metadata?.endDate) && isStayOver(metadata!.endDate!);
+    const isExpired =
+      message.type === "BOOKING_REQUEST" && Boolean(metadata?.startDate) && isCheckInOver(metadata!.startDate!);
+    const isPending = message.type === "BOOKING_REQUEST" && !isExpired;
 
     return (
       <div className={styles.card}>
@@ -669,7 +676,11 @@ export function ChatConversation({ conversation: initialConversation, initialMes
             <CalendarRange size={15} />
           </span>
           <span className={styles.cardTitle}>Solicitação de reserva</span>
-          {message.type === "BOOKING_APPROVED" && <span className={`${styles.pill} ${styles.pillOk}`}>Aprovada</span>}
+          {message.type === "BOOKING_APPROVED" && !isFinished && (
+            <span className={`${styles.pill} ${styles.pillOk}`}>Aprovada</span>
+          )}
+          {isFinished && <span className={`${styles.pill} ${styles.pillMuted}`}>Finalizada</span>}
+          {isExpired && <span className={`${styles.pill} ${styles.pillMuted}`}>Expirada</span>}
           {message.type === "BOOKING_REJECTED" && <span className={`${styles.pill} ${styles.pillBad}`}>Recusada</span>}
           {message.type === "BOOKING_CANCELLED" && <span className={`${styles.pill} ${styles.pillMuted}`}>Cancelada</span>}
           {isPending && <span className={`${styles.pill} ${styles.pillPending}`}>Pendente</span>}
@@ -715,6 +726,12 @@ export function ChatConversation({ conversation: initialConversation, initialMes
         )}
         {isPending && !conversation.canManage && isParticipant && (
           <p className={styles.cardHint}>Aguardando resposta do anunciante.</p>
+        )}
+        {isExpired && <p className={styles.cardHint}>O período desta solicitação passou sem resposta.</p>}
+        {isFinished && !conversation.canManage && isParticipant && (
+          <p className={styles.cardHint}>
+            Estadia finalizada. <Link href={`/imovel/${conversation.property.id}#avaliar`}>Avaliar o imóvel</Link>
+          </p>
         )}
       </div>
     );

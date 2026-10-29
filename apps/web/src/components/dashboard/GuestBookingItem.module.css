@@ -222,3 +222,38 @@
   opacity: 0.6;
   cursor: default;
 }
+
+.badgeFinished {
+  background: #eef2ff;
+  border: 1px solid #c7d2fe;
+  color: #4f46e5;
+}
+
+.reviewButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: #f59e0b;
+  color: #fff;
+  border: none;
+  padding: 0.55rem 1.1rem;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.15s ease;
+}
+
+.reviewButton:hover {
+  background: #d97706;
+  transform: translateY(-1px);
+}
+
+.reviewedTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: #b45309;
+  font-size: 0.85rem;
+  font-weight: 600;
+}

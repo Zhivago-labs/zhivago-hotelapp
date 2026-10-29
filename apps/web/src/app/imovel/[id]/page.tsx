@@ -107,6 +107,9 @@ export default async function ListingPage({ params }: Params) {
     redirect("/dashboard");
   }
 
+  // Vendido/alugado: some das listas públicas, mas o link direto ainda abre com o selo.
+  const closedLabel = listing.status === "SOLD" ? "Vendido" : listing.status === "RENTED" ? "Alugado" : null;
+
   return (
     <main className={styles.main}>
       <RecordRecentView listingId={listing.id} />
@@ -116,7 +119,7 @@ export default async function ListingPage({ params }: Params) {
           <Link href="/imoveis" className={styles.backButton} aria-label="Voltar">
             <ArrowLeft size={20} />
           </Link>
-          {listing.status === "SOLD" && <span className={styles.soldBadge}>VENDIDO</span>}
+          {closedLabel && <span className={styles.soldBadge}>{closedLabel.toUpperCase()}</span>}
         </ListingGallery>
       </div>
 
@@ -269,10 +272,10 @@ export default async function ListingPage({ params }: Params) {
                     <MessageCircle size={18} />
                     Entrar para conversar
                   </Link>
-                ) : isOwner ? null : listing.status === "SOLD" ? (
-                  <span className={styles.chatButtonDisabled} title="Este imóvel já foi vendido">
+                ) : isOwner ? null : closedLabel ? (
+                  <span className={styles.chatButtonDisabled} title={`Este imóvel já foi ${closedLabel.toLowerCase()}`}>
                     <MessageCircle size={18} />
-                    Chat (Vendido)
+                    Chat ({closedLabel})
                   </span>
                 ) : (
                   <StartChatButton listingId={listing.id} label={ctaLabel(listing.operationType)} />
@@ -325,10 +328,10 @@ export default async function ListingPage({ params }: Params) {
                 <MessageCircle size={18} />
                 {ctaLabel(listing.operationType)}
               </Link>
-            ) : isOwner ? null : listing.status === "SOLD" ? (
-              <span className={styles.chatButtonDisabled} title="Este imóvel já foi vendido">
+            ) : isOwner ? null : closedLabel ? (
+              <span className={styles.chatButtonDisabled} title={`Este imóvel já foi ${closedLabel.toLowerCase()}`}>
                 <MessageCircle size={18} />
-                Chat (Vendido)
+                Chat ({closedLabel})
               </span>
             ) : (
               <StartChatButton listingId={listing.id} label={ctaLabel(listing.operationType)} />

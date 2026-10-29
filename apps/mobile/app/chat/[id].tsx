@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { API_URL } from '@/config/api';
+import { isCheckInOver, isStayOver } from '@/utils/bookingPhase';
 
 const PAYMENT_METHODS = ['À Vista', 'Financiamento', 'Parcelado', 'Carta de Crédito'];
 
@@ -737,8 +738,15 @@ export default function ChatScreen() {
                     Até: {item.metadata ? new Date(parseMeta(item.metadata)?.endDate).toLocaleDateString() : ''}
                   </Text>
                   
-                  {item.type === 'BOOKING_APPROVED' && (
+                  {item.type === 'BOOKING_APPROVED' && !isStayOver(parseMeta(item.metadata)?.endDate) && (
                     <Text style={{ color: isMine ? '#E0E7FF' : '#10B981', fontWeight: 'bold', fontSize: 12, marginTop: 4 }}>✅ Reserva Aprovada</Text>
+                  )}
+                  {/* "Finalizada"/"Expirada" dependem da data — a mensagem só guarda o desfecho. */}
+                  {item.type === 'BOOKING_APPROVED' && isStayOver(parseMeta(item.metadata)?.endDate) && (
+                    <Text style={{ color: isMine ? '#E0E7FF' : '#4F46E5', fontWeight: 'bold', fontSize: 12, marginTop: 4 }}>🏁 Estadia Finalizada</Text>
+                  )}
+                  {item.type === 'BOOKING_REQUEST' && isCheckInOver(parseMeta(item.metadata)?.startDate) && (
+                    <Text style={{ color: isMine ? '#E0E7FF' : '#64748B', fontWeight: 'bold', fontSize: 12, marginTop: 4 }}>⌛ Solicitação Expirada</Text>
                   )}
                   {item.type === 'BOOKING_REJECTED' && (
                     <Text style={{ color: isMine ? '#FECACA' : '#EF4444', fontWeight: 'bold', fontSize: 12, marginTop: 4 }}>❌ Reserva Recusada</Text>
@@ -748,7 +756,7 @@ export default function ChatScreen() {
                   )}
 
                   {/* Se for o dono do imóvel e não for auditor, exibe os botões apenas se for PENDENTE */}
-                  {item.type === 'BOOKING_REQUEST' && !isAuditor && canManage && (
+                  {item.type === 'BOOKING_REQUEST' && !isCheckInOver(parseMeta(item.metadata)?.startDate) && !isAuditor && canManage && (
                     <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
                       <TouchableOpacity 
                         style={[styles.actionBtn, { backgroundColor: '#10B981' }]}

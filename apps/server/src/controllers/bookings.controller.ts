@@ -6,6 +6,7 @@ import { getIO } from '../socket.js';
 import { ensureLead, getCurrentAssignment, canManageListingConversation, closeLeadForDealOutcome } from '../lib/leads.js';
 import { canManageOrgListing } from './listings.controller.js';
 import { closeNegotiationsForBooking } from '../lib/negotiations.js';
+import { isRequestExpired, isStayFinished } from '../lib/bookings.js';
 
 const senderSelect = { select: { id: true, name: true, avatar: true } } as const;
 
@@ -279,6 +280,9 @@ export async function approveBookingCore(userId: string, bookingId: string): Pro
   if (booking.status !== 'PENDING') {
     return { status: 409, body: { error: 'Esta reserva não está mais pendente.' } };
   }
+  if (isRequestExpired(booking)) {
+    return { status: 409, body: { error: 'O período desta solicitação já passou — ela expirou.' } };
+  }
 
   // Mesma checagem de conflito da criação/aceite de negociação, atômica com a confirmação.
   let updated;
@@ -407,6 +411,9 @@ export async function cancelBooking(request: FastifyRequest, reply: FastifyReply
 
     if (booking.status === 'CANCELLED' || booking.status === 'REJECTED') {
       return reply.status(400).send({ error: 'Reserva já está cancelada ou recusada.' });
+    }
+    if (isStayFinished(booking)) {
+      return reply.status(400).send({ error: 'Esta estadia já foi finalizada e não pode mais ser cancelada.' });
     }
 
     const updated = await prisma.booking.update({

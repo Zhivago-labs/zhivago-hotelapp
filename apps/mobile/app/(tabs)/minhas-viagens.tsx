@@ -9,12 +9,16 @@ import { useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 
 import { API_URL } from '@/config/api';
+import { bookingPhase, bookingStatusInfo } from '@/utils/bookingPhase';
 
 type Booking = {
   id: string;
   startDate: string;
   endDate: string;
   status: string;
+  // Calculada pelo servidor: FINISHED (estadia acabou) / EXPIRED (pedido não respondido a tempo).
+  phase?: string;
+  review?: { id: string; rating: number } | null;
   // Preço efetivo travado no momento da reserva — nunca o preço ao vivo do anúncio.
   price?: number;
   listing: {
@@ -94,18 +98,9 @@ export default function MinhasViagensScreen() {
   };
 
   const renderBooking = ({ item }: { item: Booking }) => {
-    const isPast = new Date(item.endDate) < new Date();
-    
-    const getStatusInfo = () => {
-      if (item.status === 'CANCELLED') return { label: 'Cancelada', bg: '#f5f5f5', text: '#d32f2f' };
-      if (item.status === 'REJECTED') return { label: 'Recusada', bg: '#f5f5f5', text: '#d32f2f' };
-      if (item.status === 'PENDING') return { label: 'Pendente', bg: '#fff3e0', text: '#e65100' };
-      if (isPast) return { label: 'Concluída', bg: '#f5f5f5', text: '#666' };
-      return { label: 'Confirmada', bg: '#e8f5e9', text: '#2e7d32' };
-    };
-
-    const statusInfo = getStatusInfo();
-    const canCancel = !isPast && (item.status === 'PENDING' || item.status === 'CONFIRMED');
+    const phase = bookingPhase(item);
+    const statusInfo = bookingStatusInfo(phase);
+    const canCancel = phase === 'PENDING' || phase === 'CONFIRMED';
     const unitPrice = item.price ?? item.listing.price;
 
     return (
@@ -145,6 +140,20 @@ export default function MinhasViagensScreen() {
               <Text style={styles.cancelBtnText}>Cancelar Reserva</Text>
             </TouchableOpacity>
           )}
+
+          {phase === 'FINISHED' && (item.review ? (
+            <Text style={styles.reviewedText}>
+              ★ Você avaliou com {item.review.rating} {item.review.rating === 1 ? 'estrela' : 'estrelas'}
+            </Text>
+          ) : (
+            <TouchableOpacity
+              style={styles.reviewBtn}
+              onPress={() => router.push(`/imovel/${item.listing.id}` as never)}
+            >
+              <Ionicons name="star-outline" size={16} color="#fff" />
+              <Text style={styles.reviewBtnText}>Avaliar estadia</Text>
+            </TouchableOpacity>
+          ))}
         </View>
       </TouchableOpacity>
     );
@@ -228,6 +237,9 @@ const styles = StyleSheet.create({
 
   cancelBtn: { marginTop: 15, paddingVertical: 10, backgroundColor: '#ffebee', borderRadius: 8, alignItems: 'center' },
   cancelBtnText: { color: '#d32f2f', fontWeight: 'bold' },
+  reviewBtn: { marginTop: 15, paddingVertical: 10, backgroundColor: '#f59e0b', borderRadius: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 6 },
+  reviewBtnText: { color: '#fff', fontWeight: 'bold' },
+  reviewedText: { marginTop: 12, color: '#b45309', fontWeight: '600' },
 
   emptyContainer: { alignItems: 'center', marginTop: 80, paddingHorizontal: 20 },
   emptyTitle: { fontSize: 18, fontWeight: 'bold', color: '#333', marginTop: 15, marginBottom: 8 },

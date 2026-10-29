@@ -70,6 +70,7 @@ export default function ListingDetailScreen() {
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState('');
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+  const [canReview, setCanReview] = useState(false);
 
   // Estado do Modal do WhatsApp
   const [isWhatsAppModalVisible, setIsWhatsAppModalVisible] = useState(false);
@@ -98,6 +99,13 @@ export default function ListingDetailScreen() {
   }, [id]);
 
   const fetchExtras = async (listingId: string) => {
+    // Formulário de avaliação só pra quem tem estadia finalizada ainda não avaliada (regra no servidor).
+    if (token) {
+      fetch(`${API_URL}/listings/${listingId}/reviews/eligibility`, { headers: { Authorization: `Bearer ${token}` } })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => setCanReview(Boolean(data?.canReview)))
+        .catch(() => setCanReview(false));
+    }
     try {
       const [bookingsRes, reviewsRes] = await Promise.all([
         fetch(`${API_URL}/listings/${listingId}/bookings`),
@@ -428,9 +436,9 @@ export default function ListingDetailScreen() {
               <Text style={styles.sectionTitle}>Avaliações ({reviews.length})</Text>
               
               {/* Escrever Avaliação */}
-              {user && (
+              {user && canReview && (
                 <View style={styles.reviewForm}>
-                  <Text style={{fontWeight: 'bold', marginBottom: 10}}>Sua Avaliação:</Text>
+                  <Text style={{fontWeight: 'bold', marginBottom: 10}}>Sua estadia foi finalizada — avalie:</Text>
                   <View style={{flexDirection: 'row', gap: 10, marginBottom: 10}}>
                     {[1,2,3,4,5].map(star => (
                       <TouchableOpacity key={star} onPress={() => setRating(star)}>
@@ -494,7 +502,7 @@ export default function ListingDetailScreen() {
             style={[
               styles.contactButton, 
               (listing.category === 'aluguel' && !selectedStartDate) && { backgroundColor: '#ccc' },
-              listing.status === 'SOLD' && { backgroundColor: '#64748B' },
+              (listing.status === 'SOLD' || listing.status === 'RENTED') && { backgroundColor: '#64748B' },
               { flex: 1, alignItems: 'center', justifyContent: 'center', height: 48 }
             ]} 
             onPress={handleInAppChat}

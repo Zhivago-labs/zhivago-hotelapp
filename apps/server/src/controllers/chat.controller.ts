@@ -293,8 +293,9 @@ export async function createOrGetConversation(request: FastifyRequest, reply: Fa
       return reply.status(200).send(existingConversation);
     }
 
-    if (listing.status === 'SOLD') {
-      return reply.status(400).send({ message: 'Este imóvel já foi vendido e não aceita novas negociações.' });
+    if (listing.status === 'SOLD' || listing.status === 'RENTED') {
+      const closedAs = listing.status === 'SOLD' ? 'vendido' : 'alugado';
+      return reply.status(400).send({ message: `Este imóvel já foi ${closedAs} e não aceita novas negociações.` });
     }
 
     // Imóvel de organização: autoridade é o Lead + responsável atual (seção 24/108 da spec) — não

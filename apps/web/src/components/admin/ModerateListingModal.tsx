@@ -18,6 +18,7 @@ const STATUS_LABEL: Record<string, { label: string; color: string }> = {
   PENDING: { label: "Pendente", color: "#f59e0b" },
   REJECTED: { label: "Rejeitado", color: "#ef4444" },
   SOLD: { label: "Vendido", color: "#64748b" },
+  RENTED: { label: "Alugado", color: "#64748b" },
 };
 
 export function ModerateListingTrigger({ listingId, listingName, status }: { listingId: string; listingName: string; status: string }) {

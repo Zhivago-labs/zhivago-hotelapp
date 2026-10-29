@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Calendar, MapPin, MessageCircle, AlertCircle, CheckCircle2, XCircle, Clock } from "lucide-react";
+import { Calendar, MapPin, MessageCircle, AlertCircle, CheckCircle2, XCircle, Clock, Flag, Star } from "lucide-react";
+import { bookingPhase } from "@/lib/booking-phase";
 import { useChatSocket } from "@/components/chat/ChatSocketProvider";
 import { getPublicApiUrl } from "@/lib/public-api";
 import { useRouter } from "next/navigation";
@@ -13,6 +14,9 @@ export interface GuestBookingData {
   startDate: string;
   endDate: string;
   status: string;
+  // Calculada pelo servidor: FINISHED (estadia acabou) / EXPIRED (pedido não respondido a tempo).
+  phase?: string;
+  review?: { id: string; rating: number } | null;
   createdAt: string;
   // Preço efetivo travado no momento da reserva (já considerando um eventual desconto pontual ou
   // valor negociado no chat) — nunca o preço ao vivo do anúncio. Em reservas com snapshot
@@ -57,6 +61,8 @@ export function GuestBookingItem({ booking }: { booking: GuestBookingData }) {
     : (booking.price ?? booking.listing.price) * nights;
   const unitPrice = booking.nightlyRateSnapshot ?? (hasSnapshot ? null : (booking.price ?? booking.listing.price));
   const isNegotiated = booking.discountedPrice != null;
+  const phase = bookingPhase(booking);
+  const canCancel = phase === "PENDING" || phase === "CONFIRMED";
 
   const handleCancel = async () => {
     if (!token) return;
@@ -86,9 +92,22 @@ export function GuestBookingItem({ booking }: { booking: GuestBookingData }) {
   };
 
   const renderStatusBadge = () => {
-    switch (booking.status) {
+    switch (phase) {
+      case "FINISHED":
+        return (
+          <span className={`${styles.statusBadge} ${styles.badgeFinished}`}>
+            <Flag size={14} />
+            Estadia Finalizada
+          </span>
+        );
+      case "EXPIRED":
+        return (
+          <span className={`${styles.statusBadge} ${styles.badgeCancelled}`}>
+            <Clock size={14} />
+            Expirada sem resposta
+          </span>
+        );
       case "CONFIRMED":
-      case "APPROVED":
         return (
           <span className={`${styles.statusBadge} ${styles.badgeConfirmed}`}>
             <CheckCircle2 size={14} />
@@ -196,7 +215,20 @@ export function GuestBookingItem({ booking }: { booking: GuestBookingData }) {
             Mensagens / Chat
           </button>
 
-          {(booking.status === "PENDING" || booking.status === "CONFIRMED" || booking.status === "APPROVED") && (
+          {phase === "FINISHED" &&
+            (booking.review ? (
+              <span className={styles.reviewedTag}>
+                <Star size={14} />
+                Você avaliou com {booking.review.rating} {booking.review.rating === 1 ? "estrela" : "estrelas"}
+              </span>
+            ) : (
+              <Link href={`/imovel/${booking.listing.id}#avaliar`} className={styles.reviewButton}>
+                <Star size={16} />
+                Avaliar estadia
+              </Link>
+            ))}
+
+          {canCancel && (
             <button
               type="button"
               onClick={handleCancel}

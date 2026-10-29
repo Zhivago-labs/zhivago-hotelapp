@@ -514,6 +514,27 @@ export async function approveOrgListingAction(
   revalidatePath("/dashboard");
 }
 
+/** Imóvel alugado por mês (RENTED) volta a ficar disponível nas telas públicas. */
+export async function relistListingAction(
+  _prevState: ListingFormState,
+  formData: FormData
+): Promise<ListingFormState> {
+  const token = await getToken();
+  const id = String(formData.get("id") ?? "");
+  if (!token || !id) return { error: "Anúncio inválido." };
+
+  const res = await fetch(`${getApiUrl()}/listings/${id}/relist`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    return { error: extractErrorMessage(data, "Não foi possível disponibilizar o imóvel de novo.") };
+  }
+
+  revalidatePath("/dashboard");
+}
+
 export async function rejectOrgListingAction(
   _prevState: ListingFormState,
   formData: FormData
