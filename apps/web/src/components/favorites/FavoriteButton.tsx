@@ -8,9 +8,11 @@ interface FavoriteButtonProps {
   listingId: string;
   size?: number;
   className?: string;
+  // Com texto ("Favoritar"), o botão vira retangular — usado no card de preço da página do imóvel.
+  label?: string;
 }
 
-export function FavoriteButton({ listingId, size = 20, className = "" }: FavoriteButtonProps) {
+export function FavoriteButton({ listingId, size = 20, className = "", label }: FavoriteButtonProps) {
   const { isFavorite, toggleFavorite } = useFavorites();
   const active = isFavorite(listingId);
 
@@ -25,12 +27,13 @@ export function FavoriteButton({ listingId, size = 20, className = "" }: Favorit
       type="button"
       onClick={handleClick}
       aria-label={active ? "Remover dos favoritos" : "Salvar nos favoritos"}
-      className={`${styles.button} ${active ? styles.active : ""} ${className}`}
+      className={`${label ? styles.labeled : styles.button} ${active ? styles.active : ""} ${className}`}
     >
       <Heart
         size={size}
         className={active ? styles.heartFilled : styles.heartOutline}
       />
+      {label && <span>{active ? "Favoritado" : label}</span>}
     </button>
   );
 }

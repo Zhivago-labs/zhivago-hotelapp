@@ -49,3 +49,25 @@
     transform: scale(1);
   }
 }
+
+.labeled {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 46px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--foreground);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.labeled:hover {
+  border-color: var(--border-hover);
+  background: var(--hover-bg);
+}

@@ -10,7 +10,7 @@ veja `docs/deploy-vps-hostinger.md` — este documento aqui é só "quais comand
 
 | Peça | Onde roda | Como atualiza |
 |---|---|---|
-| `apps/web` (Next.js) | Netlify — `https://zhivago.com.br` (e `https://zhivag0.netlify.app`) | push na `main` → build e deploy automáticos |
+| `apps/web` (Next.js) | Netlify — `https://zhivago.com.br` (e `https://zhivag0.netlify.app`) | push na `main` do repo **`zhivago-web`** (não do `hotelapp`) → build e deploy automáticos (seção 1) |
 | `apps/server` (Fastify + Prisma + Socket.IO) | VPS Hostinger `177.7.45.213`, Docker Compose em `/opt/zhivago/deploy/vps` | `atualizar.sh` na VPS (seção 2) |
 | Banco de dados | Postgres 18 no Docker da própria VPS (serviço `db`) | migrations aplicadas pelo `atualizar.sh` |
 | Uploads (avatar, fotos de imóvel) | Disco da VPS: `/opt/zhivago/deploy/vps/uploads`, servidos em `/uploads/` | nada a fazer |
@@ -28,8 +28,14 @@ terminal do navegador no hPanel → VPS → Gerenciar).
 
 ## 1. Atualizar só o frontend (`apps/web`)
 
-1. Commitar e dar push na `main`.
-2. A Netlify builda e publica sozinha. Acompanhe em **app.netlify.com** → o site → **Deploys**.
+⚠️ A Netlify está ligada ao repositório **`Zhivago-labs/zhivago-web`** (clone em `C:\Users\Fábio de Melo\zhivago-web`),
+não ao `hotelapp`. Push só no `hotelapp` **não publica o site**.
+
+1. Commitar e dar push na `main` do `hotelapp` (onde o trabalho é feito).
+2. Copiar os arquivos alterados de `apps/web` e `packages/shared` para o `zhivago-web` (antes, `git fetch` +
+   `git log main..origin/main` lá, pra não sobrescrever algo feito direto nele), conferir com
+   `npx tsc --noEmit` em `apps/web`, commitar como "(sync de hotelapp <commit>)" e dar push.
+3. A Netlify builda e publica sozinha. Acompanhe em **app.netlify.com** → o site → **Deploys**.
 
 Variáveis de ambiente da Netlify (Site configuration → Environment variables) — o endereço da API está em
 **duas**, e as duas têm que ser iguais:
