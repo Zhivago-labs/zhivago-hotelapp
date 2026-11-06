@@ -7,6 +7,7 @@ import { LeadStatusSelect } from "@/components/dashboard/LeadStatusSelect";
 import { SlaBadge } from "@/components/dashboard/SlaBadge";
 import { LineChart } from "@/components/dashboard/LineChart";
 import type { Lead, LeadStatus } from "@zhivago/shared";
+import type { MyOrganization } from "@/lib/organizations-api";
 import styles from "./page.module.css";
 
 export const metadata: Metadata = { title: "Pipeline de Leads" };
@@ -42,11 +43,23 @@ function formatNextAction(task: Lead["tasks"][number]): string {
 }
 
 type Props = {
-  searchParams: Promise<{ view?: string; brokerId?: string; buildingId?: string; search?: string }>;
+  searchParams: Promise<{ view?: string; brokerId?: string; buildingId?: string; search?: string; status?: string; page?: string }>;
 };
 
 export default async function ImobiliariaPipelinePage({ searchParams }: Props) {
-  const { view: viewParam, brokerId, buildingId, search } = await searchParams;
+  const params = await searchParams;
+  const { view: viewParam, brokerId, buildingId } = params;
+  const search = params.search?.trim();
+  const status = COLUMNS.some((column) => column.status === params.status) ? params.status : undefined;
+  const pageNumber = Number(params.page);
+  const page = Number.isSafeInteger(pageNumber) && pageNumber > 0 ? pageNumber : 1;
+  const tabHref = (view: string) => {
+    const query = new URLSearchParams({ view });
+    for (const [key, value] of Object.entries({ brokerId, buildingId, search, status })) {
+      if (value) query.set(key, value);
+    }
+    return `/imobiliaria?${query}`;
+  };
   const { token } = await requireAuth("/imobiliaria");
 
   const membership = await getMyOrganization(token);
@@ -69,18 +82,27 @@ export default async function ImobiliariaPipelinePage({ searchParams }: Props) {
       <Link href="/equipe" className={styles.backLink}>
         ← Voltar à equipe
       </Link>
-      <h1 className={styles.title}>Pipeline de Leads</h1>
+      <div className={styles.pageHeader}>
+        <div>
+          <p className={styles.eyebrow}>{membership.organization.name}</p>
+          <h1 className={styles.title}>Central da imobiliária</h1>
+          <p className={styles.subtitle}>Acompanhe oportunidades e organize o próximo atendimento.</p>
+        </div>
+        <Link href="/equipe" className={styles.filterButton}>Ver equipe →</Link>
+      </div>
 
       {hasOrgWideView && (
         <div className={styles.viewTabs}>
           <Link
-            href="/imobiliaria?view=pipeline"
+            href={tabHref("pipeline")}
+            aria-current={view === "pipeline" ? "page" : undefined}
             className={`${styles.viewTab} ${view === "pipeline" ? styles.viewTabActive : ""}`}
           >
             Kanban
           </Link>
           <Link
-            href="/imobiliaria?view=metricas"
+            href={tabHref("metricas")}
+            aria-current={view === "metricas" ? "page" : undefined}
             className={`${styles.viewTab} ${view === "metricas" ? styles.viewTabActive : ""}`}
           >
             Métricas
@@ -95,7 +117,9 @@ export default async function ImobiliariaPipelinePage({ searchParams }: Props) {
           token={token}
           hasOrgWideView={hasOrgWideView}
           canManage={canManage}
-          filters={{ brokerId, buildingId, search }}
+          membership={membership}
+          page={page}
+          filters={{ brokerId, buildingId, search, status }}
         />
       )}
     </main>
@@ -107,26 +131,40 @@ async function PipelineView({
   hasOrgWideView,
   canManage,
   filters,
+  membership,
+  page,
 }: {
   token: string;
   hasOrgWideView: boolean;
   canManage: boolean;
-  filters: { brokerId?: string; buildingId?: string; search?: string };
+  membership: MyOrganization;
+  page: number;
+  filters: { brokerId?: string; buildingId?: string; search?: string; status?: string };
 }) {
-  // Filtros server-side (seção 118/119 da spec) — antes trazia a organização inteira e o front
-  // filtrava em memória. `limit` alto de propósito: o Kanban mostra o funil inteiro de uma vez,
-  // só os filtros reduzem o conjunto (paginar por coluna não faz sentido nesse layout).
-  const [leadsResult, myOrg, buildings] = await Promise.all([
+  // Paginação do resultado completo; os filtros são preservados entre páginas.
+  const [leadsResult, buildings] = await Promise.all([
     hasOrgWideView
-      ? getOrganizationLeads(token, { ...filters, limit: 300 })
-      : getMyLeads(token).then((items) => ({ items, total: items.length, page: 1, limit: items.length })),
-    getMyOrganization(token),
+      ? getOrganizationLeads(token, { ...filters, page, limit: 100 })
+      : getMyLeads(token).then((items) => {
+          const filtered = items.filter((lead) =>
+            (!filters.search || lead.user.name.toLocaleLowerCase("pt-BR").includes(filters.search.toLocaleLowerCase("pt-BR"))) &&
+            (!filters.status || lead.status === filters.status)
+          );
+          return { items: filtered, total: filtered.length, page: 1, limit: Math.max(1, filtered.length) };
+        }),
     hasOrgWideView ? getOrganizationBuildings(token) : Promise.resolve([]),
   ]);
   const leads = leadsResult.items;
   const brokers = hasOrgWideView
-    ? (myOrg?.organization.members ?? []).filter((m) => m.status === "ACTIVE" && m.role !== "ASSISTANT")
+    ? membership.organization.members.filter((m) => m.status === "ACTIVE" && m.role !== "ASSISTANT")
     : [];
+  const activeLeads = leads.filter((lead) => lead.status !== "WON" && lead.status !== "LOST");
+  const totalPages = Math.max(1, Math.ceil(leadsResult.total / leadsResult.limit));
+  const pageHref = (nextPage: number) => {
+    const query = new URLSearchParams({ view: "pipeline", page: String(nextPage) });
+    for (const [key, value] of Object.entries(filters)) if (value) query.set(key, value);
+    return `/imobiliaria?${query}`;
+  };
 
   return (
     <>
@@ -136,10 +174,20 @@ async function PipelineView({
           : "Seus leads atualmente atribuídos, agrupados por etapa do funil."}
       </p>
 
-      {hasOrgWideView && (
-        <form className={styles.filterBar}>
+      <div className={styles.statsGrid} aria-label="Resumo dos leads exibidos">
+        {[
+          ["Oportunidades no resultado", leadsResult.total],
+          ["Em andamento nesta página", activeLeads.length],
+          ["SLA vencido nesta página", activeLeads.filter((lead) => lead.slaStatus === "OVERDUE").length],
+          ["Sem responsável nesta página", activeLeads.filter((lead) => !lead.assignments.length).length],
+        ].map(([label, value]) => (
+          <div className={styles.statTile} key={label}><p className={styles.statValue}>{value}</p><p className={styles.statLabel}>{label}</p></div>
+        ))}
+      </div>
+        <form action="/imobiliaria" className={styles.filterBar} key={JSON.stringify(filters)}>
           <input type="hidden" name="view" value="pipeline" />
-          <select name="brokerId" defaultValue={filters.brokerId ?? ""} className={styles.filterInput}>
+          {hasOrgWideView && <>
+          <select aria-label="Corretor responsável" name="brokerId" defaultValue={filters.brokerId ?? ""} className={styles.filterInput}>
             <option value="">Todos os corretores</option>
             {brokers.map((b) => (
               <option key={b.id} value={b.id}>
@@ -147,7 +195,7 @@ async function PipelineView({
               </option>
             ))}
           </select>
-          <select name="buildingId" defaultValue={filters.buildingId ?? ""} className={styles.filterInput}>
+          <select aria-label="Empreendimento" name="buildingId" defaultValue={filters.buildingId ?? ""} className={styles.filterInput}>
             <option value="">Todos os empreendimentos</option>
             {buildings.map((b) => (
               <option key={b.id} value={b.id}>
@@ -155,8 +203,14 @@ async function PipelineView({
               </option>
             ))}
           </select>
+          </>}
+          <select name="status" aria-label="Etapa do funil" defaultValue={filters.status ?? ""} className={styles.filterInput}>
+            <option value="">Todas as etapas</option>
+            {COLUMNS.map((column) => <option key={column.status} value={column.status}>{column.label}</option>)}
+          </select>
           <input
-            type="text"
+            aria-label="Buscar pelo nome do cliente"
+            type="search"
             name="search"
             placeholder="Buscar cliente…"
             defaultValue={filters.search ?? ""}
@@ -165,19 +219,31 @@ async function PipelineView({
           <button type="submit" className={styles.filterButton}>
             Filtrar
           </button>
-          {(filters.brokerId || filters.buildingId || filters.search) && (
+          {(filters.brokerId || filters.buildingId || filters.search || filters.status) && (
             <Link href="/imobiliaria?view=pipeline" className={styles.filterButton}>
               Limpar
             </Link>
           )}
         </form>
-      )}
 
-      <div className={styles.board}>
+      <div className={styles.resultBar}>
+        <p>{leads.length} de {leadsResult.total} leads · Contagens por etapa referentes a esta página</p>
+        {hasOrgWideView && (totalPages > 1 || page > 1) && <nav aria-label="Paginação dos leads" className={styles.pagination}>
+          {page > 1 && <Link href={pageHref(Math.min(page - 1, totalPages))}>← Anterior</Link>}
+          <span>Página {page} de {totalPages}</span>
+          {page < totalPages && <Link href={pageHref(page + 1)}>Próxima →</Link>}
+        </nav>}
+      </div>
+      {leads.length === 0 && <div className={styles.emptyState}>
+        <h2>Nenhuma oportunidade nesta página</h2>
+        <p>Ajuste os filtros ou volte ao início do pipeline.</p>
+        <Link href="/imobiliaria" className={styles.filterButton}>Voltar ao pipeline</Link>
+      </div>}
+      <div className={styles.board} role="region" aria-label="Funil de oportunidades, role para ver todas as etapas" tabIndex={0}>
         {COLUMNS.map((column) => {
           const columnLeads = leads.filter((lead) => lead.status === column.status);
           return (
-            <div key={column.status} className={styles.column}>
+            <div key={column.status} className={styles.column} data-status={column.status}>
               <div className={styles.columnHeader}>
                 <span>{column.label}</span>
                 <span className={styles.columnCount}>{columnLeads.length}</span>
@@ -190,7 +256,7 @@ async function PipelineView({
                   columnLeads.map((lead) => {
                     const currentAssignment = lead.assignments[0];
                     return (
-                      <div key={lead.id} className={styles.card}>
+                      <div key={lead.id} className={styles.card} data-urgent={lead.status !== "WON" && lead.status !== "LOST" && lead.slaStatus === "OVERDUE"}>
                         <div className={styles.cardTopRow}>
                           <span className={styles.cardCustomer}>{lead.user.name}</span>
                           <SlaBadge status={lead.slaStatus} />
@@ -209,7 +275,7 @@ async function PipelineView({
                         ) : (
                           <span className={styles.cardBroker}>{STATUS_LABELS[lead.status]}</span>
                         )}
-                        <Link href={`/imobiliaria/leads/${lead.id}`} className={styles.cardLink}>
+                        <Link href={`/imobiliaria/leads/${lead.id}`} className={styles.cardLink} aria-label={`Ver detalhes de ${lead.user.name}`}>
                           Ver detalhes →
                         </Link>
                       </div>
@@ -292,6 +358,7 @@ async function MetricsView({ token }: { token: string }) {
             </tr>
           </thead>
           <tbody>
+            {metrics.byBroker.length === 0 && <tr><td colSpan={4}>Ainda não há dados de corretores para exibir.</td></tr>}
             {metrics.byBroker.map((broker) => (
               <tr key={broker.memberId}>
                 <td>{broker.name}</td>
