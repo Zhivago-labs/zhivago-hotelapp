@@ -28,12 +28,16 @@ import {
   removeRecentSearch,
 } from "@/lib/recent-activity";
 import { thumbnailImgProps } from "@/lib/images";
+import { Pagination } from "./Pagination";
 import styles from "./ListingsExplorer.module.css";
 
 // "aluguel" = aluguel mensal; "temporada" = diária (operationType DAILY_RENT), mesma divisão da busca da home.
 export type Category = "todos" | "aluguel" | "venda" | "temporada";
 type SortOption = "relevance" | "newest" | "price_asc" | "price_desc";
 type OwnerFilter = "todos" | "proprietario" | "imobiliaria";
+
+// Divisível por 2, 3 e 4 — a última linha da grade fica cheia em qualquer largura de tela.
+const PAGE_SIZE = 24;
 
 const SORT_LABELS: Record<SortOption, string> = {
   relevance: "Mais relevantes",
@@ -218,6 +222,49 @@ export function ListingsExplorer({
     ownerFilter,
     sortOption,
   ]);
+
+  // Página atual presa à combinação de filtros/ordem: mudou qualquer um, volta pra página 1 sem
+  // precisar de um efeito pra resetar.
+  const filterKey = JSON.stringify([
+    query,
+    activeType,
+    activeCategory,
+    minBedrooms,
+    minBathrooms,
+    minParking,
+    minPrice,
+    maxPrice,
+    selectedAmenities,
+    ownerFilter,
+    sortOption,
+  ]);
+  const [pageState, setPageState] = useState({ key: filterKey, page: 1 });
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const page = pageState.key === filterKey ? Math.min(pageState.page, totalPages) : 1;
+  const pageListings = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const resultsRef = useRef<HTMLDivElement>(null);
+
+  // Lido no mount (não no useState) porque o servidor não tem window; voltar de um imóvel com o
+  // "voltar" do navegador cai na mesma página da lista em vez da primeira. Tem que vir antes do
+  // efeito abaixo, que tira o ?pagina da URL enquanto a página ainda é 1.
+  useEffect(() => {
+    const pageFromUrl = Number(new URLSearchParams(window.location.search).get("pagina"));
+    if (!Number.isInteger(pageFromUrl) || pageFromUrl <= 1) return;
+    queueMicrotask(() => setPageState((prev) => ({ ...prev, page: pageFromUrl })));
+  }, []);
+
+  // ?pagina=N na URL (sem criar entrada no histórico), pra recarregar/voltar manter a página.
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (page > 1) url.searchParams.set("pagina", String(page));
+    else url.searchParams.delete("pagina");
+    if (url.href !== window.location.href) window.history.replaceState(window.history.state, "", url);
+  }, [page]);
+
+  const goToPage = (next: number) => {
+    setPageState({ key: filterKey, page: next });
+    resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   const recentlyViewedListings = useMemo(() => {
     if (recentlyViewedIds.length === 0) return [];
@@ -611,7 +658,7 @@ export function ListingsExplorer({
 
       {/* ── RESULTADOS ── */}
       {!loadError && (
-        <div className={styles.resultsHeader}>
+        <div className={styles.resultsHeader} ref={resultsRef}>
           <span className={styles.resultsCount}>
             {filtered.length} {filtered.length === 1 ? "imóvel encontrado" : "imóveis encontrados"}
           </span>
@@ -647,11 +694,21 @@ export function ListingsExplorer({
           )}
         </div>
       ) : (
-        <div className={styles.grid}>
-          {filtered.map((listing, index) => (
-            <ListingCard key={listing.id} listing={listing} isAdmin={isAdmin} priority={index < 4} />
-          ))}
-        </div>
+        <>
+          <div className={styles.grid}>
+            {pageListings.map((listing, index) => (
+              <ListingCard key={listing.id} listing={listing} isAdmin={isAdmin} priority={page === 1 && index < 4} />
+            ))}
+          </div>
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            totalItems={filtered.length}
+            pageSize={PAGE_SIZE}
+            itemLabel={filtered.length === 1 ? "imóvel" : "imóveis"}
+            onPageChange={goToPage}
+          />
+        </>
       )}
     </div>
   );

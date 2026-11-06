@@ -575,6 +575,8 @@
 /* ─── RESULTADOS ─────────────────────────────────────────────────────────── */
 
 .resultsHeader {
+  /* Ao trocar de página a lista rola até aqui — folga pro header fixo do site não cobrir. */
+  scroll-margin-top: 96px;
   display: flex;
   align-items: center;
   justify-content: space-between;
