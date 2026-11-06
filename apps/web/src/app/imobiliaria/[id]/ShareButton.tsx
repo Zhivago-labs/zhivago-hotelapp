@@ -10,8 +10,10 @@ interface ShareButtonProps {
 
 export function ShareButton({ title }: ShareButtonProps) {
   const [copied, setCopied] = useState(false);
+  const [error, setError] = useState(false);
 
   const handleShare = async () => {
+    setError(false);
     const url = typeof window !== "undefined" ? window.location.href : "";
     if (typeof navigator !== "undefined" && navigator.share) {
       try {
@@ -21,7 +23,8 @@ export function ShareButton({ title }: ShareButtonProps) {
           url,
         });
         return;
-      } catch {
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
         // Fallback para cópia em caso de cancelamento ou falha
       }
     }
@@ -32,8 +35,10 @@ export function ShareButton({ title }: ShareButtonProps) {
         setCopied(true);
         setTimeout(() => setCopied(false), 2400);
       } catch {
-        // Sem suporte
+        setError(true);
       }
+    } else {
+      setError(true);
     }
   };
 
@@ -46,7 +51,7 @@ export function ShareButton({ title }: ShareButtonProps) {
       aria-label="Compartilhar vitrine"
     >
       {copied ? <Check size={15} className={styles.checkIcon} /> : <Share2 size={15} />}
-      <span>{copied ? "Link copiado!" : "Compartilhar"}</span>
+      <span aria-live="polite">{error ? "Copie o endereço da página" : copied ? "Link copiado!" : "Compartilhar"}</span>
     </button>
   );
 }

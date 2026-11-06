@@ -22,6 +22,12 @@ export async function getSimilarListings(id: string): Promise<Listing[]> {
 }
 
 export interface AgencyProfileUser {
+  logoUrl: string | null;
+  coverUrl: string | null;
+  publicDescription: string | null;
+  publicLocation: string | null;
+  publicPhone: string | null;
+  publicEmail: string | null;
   id: string;
   name: string;
   avatar: string | null;
@@ -46,7 +52,12 @@ export interface AgencyProfile {
   user: AgencyProfileUser;
   // Presente quando o usuário do perfil pertence a uma organização (B2B) — nesse caso o portfólio
   // exibido já é o da organização inteira, não só o que esse membro criou.
-  organization: { id: string; name: string; logo: string | null; verified: boolean } | null;
+  organization: {
+    id: string; name: string; logo: string | null; verified: boolean;
+    coverUrl: string | null; description: string | null; publicLocation: string | null;
+    phone: string | null; email: string | null; createdAt: string;
+    members: { role: string; user: { id: string; name: string; avatar: string | null } }[];
+  } | null;
   listings: Listing[];
   reviews: AgencyProfileReview[];
 }

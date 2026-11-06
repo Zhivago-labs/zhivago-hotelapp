@@ -95,6 +95,12 @@ export async function getMyOrganization(
       const organization = await prisma.organization.create({
         data: {
           name: user.companyName || user.name,
+          logo: user.logoUrl,
+          coverUrl: user.coverUrl,
+          description: user.publicDescription,
+          publicLocation: user.publicLocation,
+          phone: user.publicPhone,
+          email: user.publicEmail,
           document: user.document || '00000000000000',
           members: {
             create: { userId, role: 'OWNER' },

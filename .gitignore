@@ -42,5 +42,6 @@ apps/mobile/android
 
 # Next.js
 .next/
+.tmp/
 out/
 

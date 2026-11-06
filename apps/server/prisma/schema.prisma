@@ -45,6 +45,11 @@ model User {
   creci       String? // registro CRECI do corretor/imobiliária
   companyName String? // nome fantasia, exibido na vitrine pública
   logoUrl     String?
+  coverUrl    String?
+  publicDescription String?
+  publicLocation String?
+  publicPhone String?
+  publicEmail String?
   verified    Boolean @default(false) // aprovado pelo admin
 
   listings         Listing[]      @relation("ListingOwner")
@@ -364,6 +369,8 @@ model Organization {
   phone       String?
   logo        String?
   description String?
+  coverUrl    String?
+  publicLocation String?
 
   verified Boolean @default(false)
 

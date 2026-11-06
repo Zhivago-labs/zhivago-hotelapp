@@ -1,8 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import { getUserProfile, getMyStats, getMyBookings, updatePushToken, getReceivedBookings } from '../controllers/users.controller.js';
 import { authenticate } from '../middlewares/authenticate.js';
+import { updateShowcase } from '../controllers/users.controller.js';
 
 export async function usersRoutes(app: FastifyInstance): Promise<void> {
+  app.patch('/users/me/showcase', { preHandler: [authenticate] }, updateShowcase);
   // GET /users/me/stats - ESTATÍSTICAS DO USUÁRIO
   app.get('/users/me/stats', { preHandler: [authenticate] }, getMyStats);
 

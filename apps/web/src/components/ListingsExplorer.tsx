@@ -68,7 +68,7 @@ function FilterChip({
   onClick: () => void;
 }) {
   return (
-    <button type="button" className={`${styles.chip} ${active ? styles.chipActive : ""}`} onClick={onClick}>
+    <button type="button" aria-pressed={active} className={`${styles.chip} ${active ? styles.chipActive : ""}`} onClick={onClick}>
       {icon}
       <span>{label}</span>
     </button>
@@ -84,6 +84,7 @@ export function ListingsExplorer({
   initialCategory = "todos",
   initialMinPrice = "",
   initialMaxPrice = "",
+  showcase = false,
 }: {
   listings: Listing[];
   isAdmin?: boolean;
@@ -95,6 +96,7 @@ export function ListingsExplorer({
   initialCategory?: Category;
   initialMinPrice?: string;
   initialMaxPrice?: string;
+  showcase?: boolean;
 }) {
   const [query, setQuery] = useState(initialQuery);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -129,6 +131,25 @@ export function ListingsExplorer({
       document.body.style.overflow = "";
     };
   }, [filtersModalOpen]);
+
+  useEffect(() => {
+    if (!showcase || !filtersModalOpen) return;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-label="Filtros avançados"]');
+    const focusable = () => Array.from(dialog?.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select, [tabindex="0"]') ?? []);
+    focusable()[0]?.focus();
+    function handleKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setFiltersModalOpen(false);
+      if (event.key !== "Tab") return;
+      const elements = focusable();
+      const first = elements[0];
+      const last = elements[elements.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    }
+    document.addEventListener("keydown", handleKey);
+    return () => { document.removeEventListener("keydown", handleKey); previousFocus?.focus(); };
+  }, [filtersModalOpen, showcase]);
 
   const activeAdvancedCount =
     (minBedrooms !== null ? 1 : 0) +
@@ -324,7 +345,7 @@ export function ListingsExplorer({
     searchOpen && (recentSearches.length > 0 || locationSuggestions.length > 0);
 
   return (
-    <div className={styles.explorerContainer}>
+    <div className={`${styles.explorerContainer} ${showcase ? styles.showcaseExplorer : ""}`}>
       {/* ── BUSCA ── */}
       <div className={styles.searchRow}>
         <div className={styles.searchBox}>
@@ -413,6 +434,7 @@ export function ListingsExplorer({
       {/* ── FILTROS PRIMÁRIOS ── */}
       <div className={styles.filtersBar}>
         <div className={styles.filterGroup}>
+          {showcase && <FilterChip label="Todos" active={activeCategory === "todos"} onClick={() => setActiveCategory("todos")} />}
           <FilterChip
             label="Alugar"
             active={activeCategory === "aluguel"}
@@ -695,7 +717,7 @@ export function ListingsExplorer({
         </div>
       ) : (
         <>
-          <div className={styles.grid}>
+          <div className={`${styles.grid} ${showcase ? styles.showcaseGrid : ""}`}>
             {pageListings.map((listing, index) => (
               <ListingCard key={listing.id} listing={listing} isAdmin={isAdmin} priority={page === 1 && index < 4} />
             ))}

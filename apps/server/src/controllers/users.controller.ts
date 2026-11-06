@@ -23,6 +23,8 @@ export async function getUserProfile(
         companyName: true,
         creci: true,
         verified: true,
+        logoUrl: true, coverUrl: true, publicDescription: true, publicLocation: true,
+        publicPhone: true, publicEmail: true,
       },
     });
 
@@ -33,9 +35,15 @@ export async function getUserProfile(
     // Vitrine pública (B2B): quando o usuário do perfil pertence a uma organização, o portfólio
     // exibido é o da organização inteira (`organizationId`), não só o que esse membro criou —
     // evita mostrar 0 imóveis pra quem criou uma empresa (imóvel de empresa tem ownerId null).
-    const membership = await prisma.organizationMember.findUnique({
-      where: { userId: id },
-      include: { organization: { select: { id: true, name: true, logo: true, verified: true } } },
+    const membership = await prisma.organizationMember.findFirst({
+      where: { userId: id, status: 'ACTIVE' },
+      include: { organization: { select: {
+        id: true, name: true, logo: true, verified: true, coverUrl: true,
+        description: true, publicLocation: true, phone: true, email: true, createdAt: true,
+        members: { where: { status: 'ACTIVE' }, select: {
+          role: true, user: { select: { id: true, name: true, avatar: true } },
+        }, orderBy: { createdAt: 'asc' } },
+      } } },
     });
     const listingsWhere = membership ? { organizationId: membership.organizationId } : { ownerId: id };
 
@@ -64,7 +72,7 @@ export async function getUserProfile(
     });
 
     const reviews = await prisma.review.findMany({
-      where: { listing: listingsWhere },
+      where: { listing: { ...listingsWhere, status: 'APPROVED' } },
       include: {
         user: { select: { name: true, avatar: true } },
         listing: { select: { name: true, id: true } },
@@ -383,4 +391,40 @@ export async function getReceivedBookings(
     console.error('Erro ao buscar reservas recebidas:', error);
     return reply.status(500).send({ error: 'Erro ao buscar reservas recebidas.' });
   }
+}
+
+// Company settings are independent from personal profile settings. The target is derived
+// from the authenticated membership, never from an organization id supplied by a client.
+export async function updateShowcase(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  const { id } = request.user as { id: string };
+  const image = z.string().trim().max(2048).url().refine(value => /^https?:\/\//i.test(value), 'Use uma URL HTTP ou HTTPS').nullable();
+  const schema = z.object({
+    name: z.string().trim().min(2).max(120),
+    logo: image, coverUrl: image,
+    description: z.string().trim().max(3000).nullable(),
+    publicLocation: z.string().trim().max(200).nullable(),
+    phone: z.string().trim().max(30).regex(/^[+\d\s().-]*$/)
+      .refine(value => /^\d{10,15}$/.test(value.replace(/\D/g, '')), 'Informe um telefone com DDD').nullable(),
+    email: z.string().trim().email().max(254).nullable(),
+  }).strict();
+  const parsed = schema.safeParse(request.body);
+  if (!parsed.success) return reply.status(400).send({ error: 'Confira os campos da vitrine.' });
+  const membership = await prisma.organizationMember.findUnique({ where: { userId: id } });
+  const { name, logo, coverUrl, description, publicLocation, phone, email } = parsed.data;
+  if (membership) {
+    if (membership.status !== 'ACTIVE' || !['OWNER', 'ADMIN'].includes(membership.role)) {
+      return reply.status(403).send({ error: 'Sem permissão para editar a imobiliária.' });
+    }
+    await prisma.organization.update({ where: { id: membership.organizationId }, data: {
+      name, logo, coverUrl, description, publicLocation, phone, email,
+    } });
+  } else {
+    const user = await prisma.user.findUnique({ where: { id }, select: { accountType: true } });
+    if (user?.accountType !== 'AGENCY') return reply.status(403).send({ error: 'Esta conta não é uma imobiliária.' });
+    await prisma.user.update({ where: { id }, data: {
+      companyName: name, logoUrl: logo, coverUrl, publicDescription: description,
+      publicLocation, publicPhone: phone, publicEmail: email,
+    } });
+  }
+  return reply.send({ success: true });
 }
