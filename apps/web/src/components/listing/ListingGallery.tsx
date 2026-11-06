@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { ChevronLeft, ChevronRight, Maximize2 } from "lucide-react";
+import { useSmoothImage } from "@/lib/useSmoothImage";
+import { ImageLoadingIndicator } from "./ImageLoadingIndicator";
 import { PropertyPhotoViewer } from "./PropertyPhotoViewer";
 import styles from "./ListingGallery.module.css";
 
@@ -30,6 +32,12 @@ export function ListingGallery({
   const [viewerInitialIndex, setViewerInitialIndex] = useState(0);
 
   const total = images.length;
+
+  // Foto grande troca só quando a próxima já baixou; anterior/próxima ficam pré-carregadas.
+  const { shownSrc, loading: photoLoading } = useSmoothImage(
+    images[index]?.url,
+    total > 1 ? [images[(index + 1) % total]?.url, images[(index - 1 + total) % total]?.url] : []
+  );
 
   const openViewer = (indexToOpen: number) => {
     setViewerInitialIndex(indexToOpen);
@@ -63,7 +71,8 @@ export function ListingGallery({
           aria-label="Abrir fotos em tela cheia"
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={images[index].url} alt={`${alt} - Foto ${index + 1}`} className={styles.img} />
+          <img src={shownSrc} alt={`${alt} - Foto ${index + 1}`} className={styles.img} />
+          <ImageLoadingIndicator visible={photoLoading} />
           {children}
 
           {total > 1 && (

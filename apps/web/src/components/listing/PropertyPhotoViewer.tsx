@@ -16,6 +16,8 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { thumbnailImgProps } from "@/lib/images";
+import { useSmoothImage } from "@/lib/useSmoothImage";
+import { ImageLoadingIndicator } from "./ImageLoadingIndicator";
 import styles from "./PropertyPhotoViewer.module.css";
 
 export interface PhotoViewerImage {
@@ -80,8 +82,12 @@ export function PropertyPhotoViewer({
     return () => window.removeEventListener("resize", measureNavbar);
   }, [isOpen]);
 
-  // Sincroniza o índice inicial sempre que o modal abre
-  useEffect(() => {
+  // Sincroniza o índice inicial sempre que o modal abre. Feito durante o render (e não num efeito)
+  // pra que o primeiro quadro já peça a foto certa, sem passar pela foto da abertura anterior.
+  const openKey = isOpen ? `open-${initialIndex}` : "closed";
+  const [syncedOpenKey, setSyncedOpenKey] = useState(openKey);
+  if (openKey !== syncedOpenKey) {
+    setSyncedOpenKey(openKey);
     if (isOpen) {
       setCurrentIndex(initialIndex);
       setLoaded(false);
@@ -89,14 +95,24 @@ export function PropertyPhotoViewer({
       setIsZoomed(false);
       setPan({ x: 0, y: 0 });
     }
-  }, [isOpen, initialIndex]);
+  }
 
   const hasMultiple = images.length > 1;
   const currentImage = images[currentIndex] ?? images[0];
 
+  // Mantém a foto anterior na tela até a próxima estar baixada e pré-carrega a anterior/próxima.
+  const { shownSrc, loading: photoLoading } = useSmoothImage(
+    isOpen ? currentImage?.url : undefined,
+    isOpen && hasMultiple
+      ? [
+          images[(currentIndex + 1) % images.length]?.url,
+          images[(currentIndex - 1 + images.length) % images.length]?.url,
+        ]
+      : []
+  );
+
   const goTo = useCallback(
     (newIndex: number) => {
-      setLoaded(false);
       setIsZoomed(false);
       setPan({ x: 0, y: 0 });
       setCurrentIndex((newIndex + images.length) % images.length);
@@ -342,8 +358,7 @@ export function PropertyPhotoViewer({
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                key={currentImage.url}
-                src={currentImage.url}
+                src={shownSrc}
                 alt={`${title} - Foto ${currentIndex + 1}`}
                 className={`${styles.mainPhoto} ${loaded ? styles.mainPhotoLoaded : ""} ${isZoomed ? styles.mainPhotoZoomed : ""}`}
                 style={
@@ -358,6 +373,8 @@ export function PropertyPhotoViewer({
                 draggable={false}
                 onLoad={() => setLoaded(true)}
               />
+
+              <ImageLoadingIndicator visible={photoLoading} />
 
               {/* Badge indicando o zoom ativo e atalho para desativar */}
               {isZoomed && (
@@ -456,7 +473,7 @@ export function PropertyPhotoViewer({
                   key={img.id ?? img.url ?? i}
                   className={`${styles.gridCard} ${i === 0 ? styles.gridCardFeatured : ""}`}
                   onClick={() => {
-                    setCurrentIndex(i);
+                    goTo(i);
                     setViewMode("carousel");
                   }}
                   role="button"

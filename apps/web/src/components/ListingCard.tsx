@@ -5,7 +5,9 @@ import Link from "next/link";
 import { BedDouble, Droplet, Car, Maximize2, BadgeCheck, ChevronLeft, ChevronRight } from "lucide-react";
 import type { Listing } from "@zhivago/shared";
 import { formatPrice } from "@/lib/api";
-import { thumbnailImgProps } from "@/lib/images";
+import { thumbnailImgProps, thumbnailUrl } from "@/lib/images";
+import { useSmoothImage } from "@/lib/useSmoothImage";
+import { ImageLoadingIndicator } from "@/components/listing/ImageLoadingIndicator";
 import { FavoriteButton } from "@/components/favorites/FavoriteButton";
 import { ModerateListingTrigger } from "@/components/admin/ModerateListingModal";
 import { PropertyPhotoViewer } from "@/components/listing/PropertyPhotoViewer";
@@ -95,20 +97,40 @@ export function ListingCard({
   const currentImage = images[activeImageIndex] ?? images[0];
   const hasMultiple = images.length > 1;
 
+  // Só pré-carrega as vizinhas depois que o usuário mostra interesse no card (passou o mouse ou
+  // já trocou de foto) — a exploração tem dezenas de cards e não vale baixar fotos de todos.
+  const [warm, setWarm] = useState(false);
+  const interested = warm || activeImageIndex !== 0;
+  const neighborThumbs =
+    hasMultiple && interested
+      ? [
+          thumbnailUrl(images[(activeImageIndex + 1) % images.length]?.url),
+          thumbnailUrl(images[(activeImageIndex - 1 + images.length) % images.length]?.url),
+        ]
+      : [];
+  // Mantém a miniatura anterior na tela até a próxima estar baixada.
+  const { shownSrc, loading: photoLoading } = useSmoothImage(thumbnailUrl(currentImage?.url), neighborThumbs);
+  const shownImage = images.find((img) => thumbnailUrl(img.url) === shownSrc) ?? currentImage;
+
   return (
     <>
       <div className={styles.card}>
-        <div className={styles.imageWrap} onClick={handleOpenPhotos} title="Clique para abrir as fotos">
+        <div
+          className={styles.imageWrap}
+          onClick={handleOpenPhotos}
+          onMouseEnter={hasMultiple && !warm ? () => setWarm(true) : undefined}
+          title="Clique para abrir as fotos"
+        >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            key={currentImage?.url}
-            {...thumbnailImgProps(currentImage?.url)}
+            {...thumbnailImgProps(shownImage?.url)}
             alt={listing.name}
             className={styles.image}
             loading={priority ? "eager" : "lazy"}
             fetchPriority={priority ? "high" : "auto"}
             decoding="async"
           />
+          <ImageLoadingIndicator visible={photoLoading} size={28} />
 
           {isAdmin && (
             <ModerateListingTrigger listingId={listing.id} listingName={listing.name} status={listing.status} />
