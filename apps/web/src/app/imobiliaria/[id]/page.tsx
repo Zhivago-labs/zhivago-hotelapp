@@ -5,6 +5,7 @@ import type { Metadata } from "next";
 import { MapPin, MessageCircle, Pencil } from "lucide-react";
 import { getAgencyProfile } from "@/lib/api";
 import { getSessionUser } from "@/lib/session";
+import { canEditShowcase } from "@/lib/showcase";
 import { ShowcaseTabs } from "./ShowcaseTabs";
 import { ShareButton } from "./ShareButton";
 import styles from "./page.module.css";
@@ -31,8 +32,7 @@ export default async function AgencyPage({ params }: Params) {
   const digits = phone?.replace(/\D/g, "");
   const international = digits ? (digits.length <= 11 ? `55${digits}` : digits) : null;
   const contact = international ? `https://wa.me/${international}?text=${encodeURIComponent(`Olá! Vi a vitrine de ${name} no Zhivago e gostaria de informações sobre os imóveis.`)}` : email ? `mailto:${email}` : profile.listings[0] ? `/imovel/${profile.listings[0].id}#anunciante` : null;
-  const viewerMember = org?.members.find(member => member.user.id === viewer?.id);
-  const canEdit = org ? !!viewerMember && ["OWNER", "ADMIN"].includes(viewerMember.role) : viewer?.id === user.id && business;
+  const canEdit = !!viewer && canEditShowcase(profile, viewer);
   const responsible = org?.members.find(member => member.role === "OWNER")?.user ?? user;
   const since = new Date(org?.createdAt || user.createdAt).toLocaleDateString("pt-BR", { month: "long", year: "numeric", timeZone: "UTC" });
   const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map(word => word[0]).join("");

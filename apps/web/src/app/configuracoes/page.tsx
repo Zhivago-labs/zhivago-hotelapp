@@ -5,6 +5,8 @@ import { ProfileForm } from "@/components/settings/ProfileForm";
 import { PasswordForm } from "@/components/settings/PasswordForm";
 import { PushNotificationOptIn } from "@/components/PushNotificationOptIn";
 import { AgencyBadge } from "@/components/AgencyBadge";
+import { getAgencyProfile } from "@/lib/api";
+import { canEditShowcase } from "@/lib/showcase";
 import {
   Settings,
   ArrowLeft,
@@ -15,6 +17,8 @@ import {
   Mail,
   CheckCircle,
   FileText,
+  Store,
+  ChevronRight,
 } from "lucide-react";
 import styles from "./page.module.css";
 
@@ -24,6 +28,10 @@ export const metadata: Metadata = {
 
 export default async function SettingsPage() {
   const { token, user } = await requireAuth("/configuracoes");
+  // Atalho para a vitrine: dono/admin de organização (qualquer tipo de conta) ou conta AGENCY.
+  // O admin da plataforma não tem vitrine — pula a chamada.
+  const showcaseEditable =
+    user.role !== "ADMIN" && canEditShowcase(await getAgencyProfile(user.id), user);
 
   return (
     <main className={styles.main}>
@@ -47,6 +55,21 @@ export default async function SettingsPage() {
         </div>
 
         <div className={styles.grid}>
+          {showcaseEditable && (
+            <Link href="/configuracoes/imobiliaria" className={`${styles.card} ${styles.showcaseCard}`}>
+              <div className={styles.cardHeader}>
+                <Store size={20} className={styles.cardIcon} />
+                <div style={{ flex: 1 }}>
+                  <h2 className={styles.cardTitle}>Minha imobiliária</h2>
+                  <p className={styles.cardSubtitle}>
+                    Foto de capa, logo, apresentação e contato que aparecem na vitrine pública da imobiliária.
+                  </p>
+                </div>
+                <ChevronRight size={20} className={styles.showcaseChevron} />
+              </div>
+            </Link>
+          )}
+
           {/* Seção 1: Dados Pessoais */}
           <section className={styles.card}>
             <div className={styles.cardHeader}>

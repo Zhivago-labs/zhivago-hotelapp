@@ -16,14 +16,31 @@ const profile = {
   reviews: [],
   listings: ['SALE', 'MONTHLY_RENT', 'DAILY_RENT'].map((operationType, i) => ({ id: `listing-${i}`, name: ['Casa de venda', 'Apartamento mensal', 'Casa de temporada'][i], operationType, category: i ? 'aluguel' : 'venda', type: i === 1 ? 'apartamento' : 'casa', location: ['Centro, Santos', 'Pinheiros, São Paulo', 'Praia, Guarujá'][i], cidade: ['Santos', 'São Paulo', 'Guarujá'][i], bairro: ['Centro', 'Pinheiros', 'Praia'][i], uf: 'SP', price: [500000, 2500, 300][i], billingCycle: i === 2 ? 'noite' : 'mês', images: [{ id: 'photo-1', url: 'http://localhost:4337/fixture.svg', order: 0 }, { id: 'photo-2', url: 'http://localhost:4337/fixture.svg?second', order: 1 }], bedrooms: 2, bathrooms: 1, parking: 1, viewCount: 3 - i, createdAt: '2025-01-01T00:00:00Z', organizationId: 'org', organization: { id: 'org', name: 'Imobiliária de teste', verified: false }, status: 'APPROVED', amenities: null })),
 };
-const api = createServer((req, res) => {
+const showcaseWrites = [];
+const api = createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', base);
+  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
+  if (req.method === 'OPTIONS') { res.statusCode = 204; return res.end(); }
+  if (req.method === 'POST' && req.url?.startsWith('/users/me/showcase/image')) {
+    for await (const _ of req); // consome o multipart
+    const kind = new URL(req.url, 'http://x').searchParams.get('kind');
+    res.setHeader('Content-Type', 'application/json');
+    return res.end(JSON.stringify({ url: `http://localhost:4337/fixture.svg?uploaded-${kind}` }));
+  }
+  if (req.method === 'PATCH' && req.url === '/users/me/showcase') {
+    let body = ''; for await (const chunk of req) body += chunk;
+    showcaseWrites.push({ auth: req.headers.authorization, body: JSON.parse(body) });
+    res.setHeader('Content-Type', 'application/json');
+    return res.end('{"success":true}');
+  }
   if (req.url?.startsWith('/fixture.svg')) {
     res.setHeader('Content-Type', 'image/svg+xml');
     return res.end('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400"><rect width="600" height="400" fill="#e2e8f0"/><text x="40" y="200" font-size="24">Imagem de teste isolado</text></svg>');
   }
   res.setHeader('Content-Type', 'application/json');
   if (req.url === '/users/owner') return res.end(JSON.stringify(profile));
+  if (req.url === '/users/broker') return res.end(JSON.stringify({ ...profile, user: { ...profile.user, id: 'broker', name: 'Corretor de teste' } }));
   if (req.url === '/auth/me') {
     const id = req.headers.authorization?.includes('broker') ? 'broker' : 'owner';
     return res.end(JSON.stringify({ ...profile.user, id, email: `${id}@example.test`, status: 'ACTIVE', role: 'USER', onboardingCompleted: true }));
@@ -73,7 +90,7 @@ try {
   assert.ok(await evaluate(`!!document.activeElement.closest('[role="dialog"]')`));
   await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
   await delay(100);
-  assert.equal(await evaluate(`document.querySelector('[aria-label="Filtros avan?ados"]') === null`), true);
+  assert.equal(await evaluate(`document.querySelector('[aria-label="Filtros avançados"]') === null`), true);
   for (const [filter, expected] of [['Comprar', 'Casa de venda'], ['Alugar', 'Apartamento mensal'], ['Temporada', 'Casa de temporada']]) {
     await click(filter); await delay(200); assert.deepEqual(await titles(), [expected]);
   }
@@ -95,6 +112,54 @@ try {
     await screenshot(name);
   }
   assert.equal(await evaluate(`getComputedStyle(document.querySelector('[class*="mobileContact"]')).position`), 'fixed');
+  // ── Edição da imobiliária: atalhos, envio de capa/logo e permissão ──
+  const visit = async (path, ready) => { await cdp('Page.navigate', { url: `${base}${path}` }); await retry(() => evaluate(ready)); await delay(500); };
+  const fixturePng = resolve(artifacts, 'upload.png');
+  await writeFile(fixturePng, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64'));
+  async function chooseFile(selector) {
+    const { root } = await cdp('DOM.getDocument', { depth: -1 });
+    const { nodeId } = await cdp('DOM.querySelector', { nodeId: root.nodeId, selector });
+    await cdp('DOM.setFileInputFiles', { nodeId, files: [fixturePng] });
+  }
+  await cdp('Emulation.setDeviceMetricsOverride', { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+  // Broker: sem atalho nas configurações e página de edição explica que não pode.
+  await visit('/configuracoes', `document.body.innerText.includes('Configurações da Conta')`);
+  assert.equal(await evaluate(`!!document.querySelector('a[href="/configuracoes/imobiliaria"]')`), false, 'broker sees no showcase card');
+  await visit('/configuracoes/imobiliaria', `document.body.innerText.includes('Minha imobiliária')`);
+  assert.ok(await evaluate(`document.body.innerText.includes('Só o proprietário ou um administrador')`));
+  assert.equal(await evaluate(`!!document.querySelector('form input[type=file]')`), false);
+  // Owner: atalho nas configurações leva ao formulário.
+  await cdp('Network.setCookie', { name: 'zhivago_token', value: 'owner', url: base });
+  await visit('/configuracoes', `!!document.querySelector('a[href="/configuracoes/imobiliaria"]')`);
+  await evaluate(`document.querySelector('a[href="/configuracoes/imobiliaria"]').click()`);
+  await retry(() => evaluate(`!!document.querySelector('#showcase-name')`));
+  await delay(500);
+  assert.equal(await evaluate(`document.querySelector('#showcase-name').value`), 'Imobiliária de teste');
+  assert.equal(await evaluate(`document.querySelector('#showcase-location').value`), 'São Paulo, SP');
+  const inputs = `form input[type=file]`;
+  await chooseFile(`${inputs}:nth-of-type(2)`); // capa (2º input de arquivo)
+  await retry(() => evaluate(`document.querySelector('img[alt="Prévia da capa"]')?.src.includes('uploaded-cover')`));
+  await chooseFile(`${inputs}:nth-of-type(1)`); // logo
+  await retry(() => evaluate(`document.querySelector('img[alt="Prévia do logo"]')?.src.includes('uploaded-logo')`));
+  assert.ok(await evaluate(`document.body.innerText.includes('Há alterações não salvas')`));
+  assert.equal(showcaseWrites.length, 0, 'upload alone must not save');
+  await screenshot('settings-before-save');
+  await click('Salvar alterações');
+  await retry(() => evaluate(`document.body.innerText.includes('Imobiliária atualizada')`));
+  assert.equal(showcaseWrites.length, 1);
+  assert.equal(showcaseWrites[0].body.coverUrl, 'http://localhost:4337/fixture.svg?uploaded-cover');
+  assert.equal(showcaseWrites[0].body.logo, 'http://localhost:4337/fixture.svg?uploaded-logo');
+  assert.equal(showcaseWrites[0].body.publicLocation, 'São Paulo, SP');
+  // Remover a capa e salvar manda null.
+  await evaluate(`document.querySelector('button[aria-label="Remover capa"]').click()`);
+  await delay(100);
+  await click('Salvar alterações');
+  await retry(() => showcaseWrites.length === 2);
+  assert.equal(showcaseWrites[1].body.coverUrl, null);
+  await cdp('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true }); await delay(300);
+  assert.ok(await evaluate('document.documentElement.scrollWidth <= window.innerWidth'), 'settings horizontal overflow');
+  await screenshot('settings-mobile');
+
   await cdp('Page.navigate', { url: `${base}/imobiliaria/missing` }); await retry(() => evaluate(`document.body.innerText.includes('Perfil não encontrado')`));
   console.log('PASS: desktop/tablet/mobile columns, no horizontal overflow, sale/rent/season filters, neighborhood search, tabs, contact URL, clipboard sharing, owner/broker/anonymous edit visibility, 404. Screenshots: .tmp/showcase-browser');
 } catch (error) {

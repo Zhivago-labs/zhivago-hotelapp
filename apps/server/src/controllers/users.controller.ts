@@ -1,6 +1,8 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { z } from 'zod';
+import sharp from 'sharp';
+import { saveUpload } from '../lib/storage.js';
 import { effectiveBookingPrice, bookingPhase } from '../lib/bookings.js';
 import { myListingsWhere } from './listings.controller.js';
 
@@ -409,22 +411,68 @@ export async function updateShowcase(request: FastifyRequest, reply: FastifyRepl
   }).strict();
   const parsed = schema.safeParse(request.body);
   if (!parsed.success) return reply.status(400).send({ error: 'Confira os campos da vitrine.' });
-  const membership = await prisma.organizationMember.findUnique({ where: { userId: id } });
+  const target = await resolveShowcaseTarget(id);
+  if ('error' in target) return reply.status(403).send({ error: target.error });
   const { name, logo, coverUrl, description, publicLocation, phone, email } = parsed.data;
-  if (membership) {
-    if (membership.status !== 'ACTIVE' || !['OWNER', 'ADMIN'].includes(membership.role)) {
-      return reply.status(403).send({ error: 'Sem permissão para editar a imobiliária.' });
-    }
-    await prisma.organization.update({ where: { id: membership.organizationId }, data: {
+  if (target.organizationId) {
+    await prisma.organization.update({ where: { id: target.organizationId }, data: {
       name, logo, coverUrl, description, publicLocation, phone, email,
     } });
   } else {
-    const user = await prisma.user.findUnique({ where: { id }, select: { accountType: true } });
-    if (user?.accountType !== 'AGENCY') return reply.status(403).send({ error: 'Esta conta não é uma imobiliária.' });
     await prisma.user.update({ where: { id }, data: {
       companyName: name, logoUrl: logo, coverUrl, publicDescription: description,
       publicLocation, publicPhone: phone, publicEmail: email,
     } });
   }
   return reply.send({ success: true });
+}
+
+/**
+ * Quem pode editar a vitrine: OWNER/ADMIN ativo da organização (edita a organização) ou conta AGENCY
+ * sem organização (edita o próprio usuário). Membro de organização com outro papel, ou inativo, não.
+ */
+async function resolveShowcaseTarget(userId: string): Promise<{ organizationId: string | null } | { error: string }> {
+  const membership = await prisma.organizationMember.findUnique({ where: { userId } });
+  if (membership) {
+    if (membership.status !== 'ACTIVE' || !['OWNER', 'ADMIN'].includes(membership.role)) {
+      return { error: 'Sem permissão para editar a imobiliária.' };
+    }
+    return { organizationId: membership.organizationId };
+  }
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { accountType: true } });
+  if (user?.accountType !== 'AGENCY') return { error: 'Esta conta não é uma imobiliária.' };
+  return { organizationId: null };
+}
+
+// Logo: quadrado (exibido em ~104px, 400px cobre telas de alta densidade). Capa: faixa larga, mantém a
+// proporção e limita a largura. Ambos em WebP.
+const SHOWCASE_IMAGE = {
+  logo: (input: Buffer) => sharp(input).rotate().resize({ width: 400, height: 400, fit: 'cover' }).webp({ quality: 85 }).toBuffer(),
+  cover: (input: Buffer) => sharp(input).rotate().resize({ width: 1600, withoutEnlargement: true }).webp({ quality: 80 }).toBuffer(),
+};
+
+/**
+ * POST /users/me/showcase/image?kind=logo|cover — envia o arquivo e devolve a URL. Não grava na
+ * vitrine: o formulário mostra a prévia e a URL só é publicada quando a pessoa clica em Salvar.
+ */
+export async function uploadShowcaseImage(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  const { id } = request.user as { id: string };
+  const { kind } = request.query as { kind?: string };
+  if (kind !== 'logo' && kind !== 'cover') return reply.status(400).send({ error: 'Tipo de imagem inválido.' });
+
+  const target = await resolveShowcaseTarget(id);
+  if ('error' in target) return reply.status(403).send({ error: target.error });
+
+  const file = await request.file();
+  if (!file) return reply.status(400).send({ error: 'Nenhuma imagem enviada.' });
+  if (!file.mimetype.startsWith('image/')) return reply.status(400).send({ error: 'Envie um arquivo de imagem.' });
+
+  try {
+    const processed = await SHOWCASE_IMAGE[kind](await file.toBuffer());
+    const owner = target.organizationId ?? id;
+    const url = await saveUpload(processed, `showcase-${kind}-${owner}-${Date.now()}.webp`, 'image/webp');
+    return reply.send({ url });
+  } catch {
+    return reply.status(400).send({ error: 'Não foi possível processar a imagem. Tente outra foto.' });
+  }
 }

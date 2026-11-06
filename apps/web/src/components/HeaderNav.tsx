@@ -16,6 +16,7 @@ import {
   Shield,
   LogOut,
   MessageCircle,
+  Store,
 } from "lucide-react";
 import { UserMenu } from "@/components/UserMenu";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
@@ -190,6 +191,13 @@ export function HeaderNav({ user, isAgencyAccount }: HeaderNavProps) {
                     <Link href="/admin" className={styles.mobileNavLink} onClick={() => setMobileOpen(false)}>
                       <Shield size={18} />
                       <span>Painel Admin</span>
+                    </Link>
+                  )}
+
+                  {user.accountType === "AGENCY" && user.role !== "ADMIN" && (
+                    <Link href="/configuracoes/imobiliaria" className={styles.mobileNavLink} onClick={() => setMobileOpen(false)}>
+                      <Store size={18} />
+                      <span>Minha imobiliária</span>
                     </Link>
                   )}
 

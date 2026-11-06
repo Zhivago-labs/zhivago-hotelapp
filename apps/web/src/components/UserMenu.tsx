@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import Link from "next/link";
-import { LayoutDashboard, Building2, Settings, LogOut, User, ChevronDown, Shield, CalendarRange, MessageCircle } from "lucide-react";
+import { LayoutDashboard, Building2, Settings, LogOut, User, ChevronDown, Shield, CalendarRange, MessageCircle, Store } from "lucide-react";
 import { logoutAction } from "@/lib/actions/auth";
 import { PushNotificationOptIn } from "@/components/PushNotificationOptIn";
 import { useChatSocket } from "@/components/chat/ChatSocketProvider";
@@ -126,6 +126,17 @@ export function UserMenu({ user }: UserMenuProps) {
               >
                 <Shield size={16} />
                 <span>Painel Admin</span>
+              </Link>
+            )}
+
+            {user.accountType === "AGENCY" && user.role !== "ADMIN" && (
+              <Link
+                href="/configuracoes/imobiliaria"
+                className={styles.dropdownLink}
+                onClick={() => setIsOpen(false)}
+              >
+                <Store size={16} />
+                <span>Minha imobiliária</span>
               </Link>
             )}
 
