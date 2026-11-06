@@ -1,4 +1,7 @@
 .main {
+  /* O body é flex em coluna: sem width, o margin auto encolhe o main até o conteúdo e a grade
+     ficava com 2 colunas mesmo em tela larga. Com 1400px cabem 4 cards por fila. */
+  width: 100%;
   max-width: 1400px;
   margin: 0 auto;
   padding: 32px 32px 80px;
