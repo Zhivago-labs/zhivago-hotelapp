@@ -23,7 +23,8 @@ export const metadata: Metadata = {
     "Encontre casas e apartamentos para comprar, alugar ou ficar por temporada e fale direto com quem anuncia pelo chat do Zhivago.",
 };
 
-const FEATURED_LIMIT = 6;
+// 2 filas cheias de 4 cards (a seção de destaques é mais larga que o resto da home).
+const FEATURED_LIMIT = 8;
 
 export default async function LandingPage() {
   const user = await getSessionUser();

@@ -13,7 +13,7 @@ export function FeaturedListingsSection({
 }) {
   return (
     <section className={styles.section} id="destaques" aria-labelledby="featured-title">
-      <div className={shared.wrap}>
+      <div className={`${shared.wrap} ${styles.wideWrap}`}>
         <div className={styles.head}>
           <h2 id="featured-title" className={shared.sectionTitle}>
             Imóveis em destaque

@@ -2,6 +2,12 @@
   padding: 56px 0 72px;
 }
 
+/* Mais larga que o resto da home (1160px) — mesma largura da página de explorar, cabem 4 cards
+   por fila em vez de 3. */
+.wideWrap {
+  max-width: 1400px;
+}
+
 .head {
   display: flex;
   align-items: flex-end;
