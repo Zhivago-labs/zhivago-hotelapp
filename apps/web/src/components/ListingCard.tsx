@@ -5,6 +5,7 @@ import Link from "next/link";
 import { BedDouble, Droplet, Car, Maximize2, BadgeCheck, ChevronLeft, ChevronRight } from "lucide-react";
 import type { Listing } from "@zhivago/shared";
 import { formatPrice } from "@/lib/api";
+import { thumbnailImgProps } from "@/lib/images";
 import { FavoriteButton } from "@/components/favorites/FavoriteButton";
 import { ModerateListingTrigger } from "@/components/admin/ModerateListingModal";
 import { PropertyPhotoViewer } from "@/components/listing/PropertyPhotoViewer";
@@ -40,11 +41,14 @@ export function ListingCard({
   listing,
   isAdmin = false,
   compactLocation = false,
+  priority = false,
 }: {
   listing: Listing;
   isAdmin?: boolean;
   // Home: mostra só bairro/cidade, sem endereço completo.
   compactLocation?: boolean;
+  // Primeiros cards da tela: foto baixa na hora, com prioridade, em vez de esperar o lazy loading.
+  priority?: boolean;
 }) {
   // Garantir fallback idêntico ao do mobile
   const bedrooms = listing.bedrooms || 0;
@@ -97,10 +101,12 @@ export function ListingCard({
         <div className={styles.imageWrap} onClick={handleOpenPhotos} title="Clique para abrir as fotos">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={currentImage?.url || "/placeholder.jpg"}
+            key={currentImage?.url}
+            {...thumbnailImgProps(currentImage?.url)}
             alt={listing.name}
             className={styles.image}
-            loading="lazy"
+            loading={priority ? "eager" : "lazy"}
+            fetchPriority={priority ? "high" : "auto"}
             decoding="async"
           />
 

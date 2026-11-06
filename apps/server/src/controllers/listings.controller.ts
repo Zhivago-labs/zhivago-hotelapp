@@ -4,9 +4,8 @@ import { parse as parseCsv } from 'csv-parse/sync';
 
 import path from 'node:path';
 import { prisma } from '../lib/prisma.js';
-import { saveUpload } from '../lib/storage.js';
+import { saveListingPhoto, InvalidImageError } from '../lib/images.js';
 import { sendNotification } from '../services/notification.service.js';
-import sharp from 'sharp';
 import { LEAD_DISTRIBUTION_ROLES } from '../lib/leads.js';
 import { logOrgAudit } from '../lib/organizations.js';
 
@@ -285,13 +284,10 @@ export async function createListing(
         const buffer = await part.toBuffer();
         if (imageUrls.length >= MAX_LISTING_IMAGES) continue;
 
-        const filename = `${Date.now()}-${imageUrls.length}-${path.parse(part.filename).name}.webp`;
-        const processed = await sharp(buffer)
-          .resize({ width: 1200, withoutEnlargement: true })
-          .webp({ quality: 80 })
-          .toBuffer();
-
-        imageUrls.push(await saveUpload(processed, filename, 'image/webp'));
+        // Nome original só como sufixo legível — sem espaços/acentos, que viram %20 na URL.
+        const safeName = path.parse(part.filename).name.replace(/[^a-zA-Z0-9_-]+/g, '-').slice(0, 60);
+        const filename = `${Date.now()}-${imageUrls.length}-${safeName || 'foto'}.webp`;
+        imageUrls.push(await saveListingPhoto(buffer, filename));
       } else if (part.type === 'field') {
         formData[part.fieldname] = part.value as string;
       }
@@ -449,6 +445,12 @@ export async function createListing(
 
     return reply.status(201).send({ ...newListing, buildingLeadOwnershipError });
   } catch (error) {
+    if (error instanceof InvalidImageError) {
+      return reply.status(400).send({ error: error.message });
+    }
+    if (error instanceof Error && error.name === 'RequestFileTooLargeError') {
+      return reply.status(413).send({ error: 'Cada foto pode ter no máximo 20 MB.' });
+    }
     console.error(error);
     return reply.status(400).send({
       error: 'Dados inválidos ou erro no banco.',

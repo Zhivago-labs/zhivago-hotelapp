@@ -529,7 +529,7 @@ export default async function ListingPage({ params }: Params) {
                   return (
                     <Link key={item.id} href={`/imovel/${item.id}`} className={styles.similarCard}>
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={item.images[0]?.url} alt={item.name} className={styles.similarImg} />
+                      <img src={item.images[0]?.url} alt={item.name} className={styles.similarImg} loading="lazy" />
                       <span className={styles.similarPrice}>{formatPrice(item)}</span>
                       <span className={styles.similarName}>{item.name}</span>
                       <span className={styles.similarSpecs}>

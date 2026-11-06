@@ -15,6 +15,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
+import { thumbnailImgProps } from "@/lib/images";
 import styles from "./PropertyPhotoViewer.module.css";
 
 export interface PhotoViewerImage {
@@ -419,7 +420,7 @@ export function PropertyPhotoViewer({
                     aria-label={`Ver foto ${i + 1}`}
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={img.url} alt="" className={styles.thumbnailImg} loading="lazy" />
+                    <img {...thumbnailImgProps(img.url)} alt="" className={styles.thumbnailImg} loading="lazy" />
                   </button>
                 ))}
               </div>

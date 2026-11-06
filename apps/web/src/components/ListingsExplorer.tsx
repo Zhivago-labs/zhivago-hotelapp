@@ -27,6 +27,7 @@ import {
   getRecentlyViewedIds,
   removeRecentSearch,
 } from "@/lib/recent-activity";
+import { thumbnailImgProps } from "@/lib/images";
 import styles from "./ListingsExplorer.module.css";
 
 // "aluguel" = aluguel mensal; "temporada" = diária (operationType DAILY_RENT), mesma divisão da busca da home.
@@ -593,7 +594,7 @@ export function ListingsExplorer({
               <Link key={listing.id} href={`/imovel/${listing.id}`} className={styles.recentCard}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={listing.images[0]?.url || "/placeholder.jpg"}
+                  {...thumbnailImgProps(listing.images[0]?.url)}
                   alt={listing.name}
                   className={styles.recentImage}
                   loading="lazy"
@@ -647,8 +648,8 @@ export function ListingsExplorer({
         </div>
       ) : (
         <div className={styles.grid}>
-          {filtered.map((listing) => (
-            <ListingCard key={listing.id} listing={listing} isAdmin={isAdmin} />
+          {filtered.map((listing, index) => (
+            <ListingCard key={listing.id} listing={listing} isAdmin={isAdmin} priority={index < 4} />
           ))}
         </div>
       )}

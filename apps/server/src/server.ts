@@ -42,10 +42,13 @@ await app.register(jwt, {
 await app.register(rateLimit, {
   max: 100,
   timeWindow: '1 minute',
+  // Fotos não contam no limite: uma página com vários anúncios + galeria passava fácil de 100
+  // requisições/min por IP e o navegador recebia 429 no lugar da imagem.
+  allowList: (req) => req.url.startsWith('/uploads/'),
 });
 
 app.register(multipart, {
-  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB por arquivo (foto de celular fica bem abaixo)
 });
 
 // Em produção (Cloud Run) os uploads vão para o GCS e são servidos direto pela URL pública do
@@ -54,6 +57,10 @@ if (!process.env['GCS_BUCKET_NAME']) {
   app.register(fastifyStatic, {
     root: path.join(__dirname, '..', 'uploads'),
     prefix: '/uploads/',
+    // Cada upload ganha nome único (timestamp) e nunca é sobrescrito — pode ficar em cache por 1
+    // ano sem revalidar. Antes era max-age=0: o navegador pedia cada foto de novo (os 304).
+    maxAge: '365d',
+    immutable: true,
   });
 }
 
