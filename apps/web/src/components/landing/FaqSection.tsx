@@ -19,11 +19,11 @@ const FAQ = [
   },
   {
     q: "Os anúncios são verificados?",
-    a: "Todo anúncio passa por aprovação antes de aparecer na busca: os de pessoas físicas pela equipe Zhivago e os de imobiliárias pela própria imobiliária. O selo “Verificado” aparece só em anúncios de imobiliárias aprovadas pela equipe Zhivago.",
+    a: "Pessoas físicas publicam diretamente; anúncios de imobiliárias são aprovados pela própria imobiliária. A verificação da imobiliária é separada dessa aprovação e não representa garantia de autenticidade ou segurança do imóvel.",
   },
   {
     q: "Posso anunciar meu imóvel?",
-    a: "Sim. Crie sua conta, cadastre o imóvel com fotos, preço e características e envie para aprovação. Depois de aprovado, ele aparece na busca.",
+    a: "Sim. Crie sua conta, cadastre o imóvel com fotos, preço e características e publique. Anúncios de imobiliárias precisam de aprovação da própria equipe antes de aparecer na busca.",
   },
   {
     q: "Como funciona a reserva por temporada?",

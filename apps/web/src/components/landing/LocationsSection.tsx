@@ -11,8 +11,8 @@ export function LocationsSection({ cities }: { cities: CitySummary[] }) {
   return (
     <section className={styles.section} aria-labelledby="locations-title">
       <div className={shared.wrap}>
-        <h2 id="locations-title" className={shared.sectionTitle}>
-          Encontre imóveis onde você quer morar
+        <h2 id="locations-title" className={styles.title}>
+          Explore também por cidade
         </h2>
         <ul className={styles.list}>
           {cities.slice(0, 8).map((city) => (

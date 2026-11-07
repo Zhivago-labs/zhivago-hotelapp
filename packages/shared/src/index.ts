@@ -319,6 +319,7 @@ export interface OrganizationMetrics {
 }
 
 export interface Listing {
+  isDemo?: boolean;
   id: string;
   name: string;
   description: string | null;

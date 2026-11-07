@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useMemo, useState } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   Home,
   Building2,
@@ -28,7 +28,10 @@ import {
   ArrowRight,
   Eye,
   AlertCircle,
+  MessageCircle,
 } from "lucide-react";
+import { useChatSocket } from "@/components/chat/ChatSocketProvider";
+import { listingDraft } from "@/lib/listing-draft";
 import type { MyOrganization } from "@/lib/organizations-api";
 import { createOrganizationBuildingAction, type CreateBuildingState } from "@/lib/actions/organizations";
 import { createListingAction } from "@/lib/actions/listings";
@@ -65,21 +68,23 @@ const ALL_STEPS = [
 
 /** Mini-formulário "+ Novo empreendimento" (seção 63 da spec) — cria sem sair do wizard. */
 function NewBuildingInlineForm({ onCreated, onCancel }: { onCreated: (b: BuildingOption) => void; onCancel: () => void }) {
-  const [state, formAction, pending] = useActionState<CreateBuildingState, FormData>(createOrganizationBuildingAction, undefined);
-
-  if (state && "building" in state) {
-    onCreated(state.building);
-  }
+  const [state, setState] = useState<CreateBuildingState>();
+  const [pending, startTransition] = useTransition();
+  const inlineRef = useRef<HTMLDivElement>(null);
+  const createBuilding = () => {
+    const inputs = inlineRef.current?.querySelectorAll<HTMLInputElement>("input");
+    if (!inputs) return;
+    const data = new FormData();
+    inputs.forEach(input => data.set(input.name, input.value));
+    startTransition(async () => {
+      const result = await createOrganizationBuildingAction(undefined, data);
+      if (result && "building" in result) onCreated(result.building);
+      else setState(result);
+    });
+  };
 
   return (
-    <form
-      action={formAction}
-      className={styles.row}
-      style={{ marginTop: "12px", alignItems: "flex-end" }}
-      onSubmit={() => {
-        /* o resultado é tratado via `state` acima, no próximo render */
-      }}
-    >
+    <div ref={inlineRef} className={styles.row} style={{ marginTop: "12px", alignItems: "flex-end" }}>
       <div>
         <label className={styles.label} htmlFor="newBuildingName">
           <span>Nome do empreendimento</span>
@@ -93,7 +98,7 @@ function NewBuildingInlineForm({ onCreated, onCancel }: { onCreated: (b: Buildin
         <input id="newBuildingAddress" name="address" type="text" className={styles.input} />
       </div>
       <div style={{ display: "flex", gap: "8px" }}>
-        <button type="submit" className={styles.secondaryButton} disabled={pending}>
+        <button type="button" onClick={createBuilding} className={styles.secondaryButton} disabled={pending}>
           {pending ? "Criando…" : "Criar"}
         </button>
         <button type="button" className={styles.secondaryButton} onClick={onCancel}>
@@ -101,15 +106,37 @@ function NewBuildingInlineForm({ onCreated, onCancel }: { onCreated: (b: Buildin
         </button>
       </div>
       {state && "error" in state && <p className={styles.error}>{state.error}</p>}
-    </form>
+    </div>
   );
 }
 
-export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | null; buildings: BuildingOption[] }) {
+export function NewListingForm({ myOrg, buildings, userId }: { myOrg: MyOrganization | null; buildings: BuildingOption[]; userId: string }) {
   const [state, formAction, pending] = useActionState(createListingAction, undefined);
+  const { openSidebar, unreadCount } = useChatSocket();
+
+  const footerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!footerRef.current) return;
+    const observer = new ResizeObserver(([entry]) => document.documentElement.style.setProperty("--listing-actions-height", (String(entry.borderBoxSize[0]?.blockSize ?? entry.contentRect.height) + "px")));
+    observer.observe(footerRef.current);
+    return () => { observer.disconnect(); document.documentElement.style.removeProperty("--listing-actions-height"); };
+  }, []);
+  const formRef = useRef<HTMLFormElement>(null);
+  const [draftMessage, setDraftMessage] = useState("");
+  const [draftAvailable, setDraftAvailable] = useState(false);
+  const [draftFiles, setDraftFiles] = useState<File[]>([]);
+  const [draftRevision, setDraftRevision] = useState(0);
+  const filesRef = useRef<File[]>([]);
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [structureConfirmed, setStructureConfirmed] = useState(false);
 
   // Controle de Etapa (Wizard)
-  const [currentStep, setCurrentStep] = useState(1);
+  const [currentStep, updateCurrentStep] = useState(1);
+  const [visitedSteps, setVisitedSteps] = useState<number[]>([1]);
+  const setCurrentStep = (next: number) => {
+    updateCurrentStep(next);
+    setVisitedSteps(previous => previous.includes(next) ? previous : [...previous, next]);
+  };
   const [stepError, setStepError] = useState<string | null>(null);
 
   // Estados dos seletores
@@ -133,10 +160,10 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
   const [description, setDescription] = useState("");
 
   // Características
-  const [bedrooms, setBedrooms] = useState(1);
+  const [bedrooms, setBedrooms] = useState(0);
   const [suites, setSuites] = useState(0);
-  const [bathrooms, setBathrooms] = useState(1);
-  const [parking, setParking] = useState(1);
+  const [bathrooms, setBathrooms] = useState(0);
+  const [parking, setParking] = useState(0);
   const [privateArea, setPrivateArea] = useState("");
   const [totalArea, setTotalArea] = useState("");
 
@@ -149,17 +176,17 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
   const [customMaxGuests, setCustomMaxGuests] = useState(2);
   const [minimumNights, setMinimumNights] = useState("1");
   const [cleaningFee, setCleaningFee] = useState("");
-  const [allowPetsDaily, setAllowPetsDaily] = useState(true);
+  const [allowPetsDaily, setAllowPetsDaily] = useState(false);
   const [allowSmoking, setAllowSmoking] = useState(false);
   const [allowParties, setAllowParties] = useState(false);
   const [quietHours, setQuietHours] = useState("22:00 às 08:00");
   const [customNotes, setCustomNotes] = useState("");
 
-  const [externalCameras, setExternalCameras] = useState(true);
-  const [smokeAlarm, setSmokeAlarm] = useState(true);
-  const [fireExtinguisher, setFireExtinguisher] = useState(true);
-  const [doorman24h, setDoorman24h] = useState(false);
-  const [firstAidKit, setFirstAidKit] = useState(false);
+  const [externalCameras, setExternalCameras] = useState<boolean | null>(null);
+  const [smokeAlarm, setSmokeAlarm] = useState<boolean | null>(null);
+  const [fireExtinguisher, setFireExtinguisher] = useState<boolean | null>(null);
+  const [doorman24h, setDoorman24h] = useState<boolean | null>(null);
+  const [firstAidKit, setFirstAidKit] = useState<boolean | null>(null);
 
   const [cancellationPolicy, setCancellationPolicy] = useState<"FLEXIBLE" | "MODERATE" | "STRICT">("FLEXIBLE");
 
@@ -175,12 +202,12 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
   const [minimumLeaseMonths, setMinimumLeaseMonths] = useState("");
   const [guaranteeTypes, setGuaranteeTypes] = useState<string[]>([]);
   const [isFurnished, setIsFurnished] = useState(false);
-  const [allowPetsMonthly, setAllowPetsMonthly] = useState(true);
+  const [allowPetsMonthly, setAllowPetsMonthly] = useState(false);
 
   // Preço e Endereço
   const [price, setPrice] = useState("");
   // Negociação de valor no chat — piso opcional e sigiloso
-  const [acceptsNegotiation, setAcceptsNegotiation] = useState(true);
+  const [acceptsNegotiation, setAcceptsNegotiation] = useState(false);
   const [minNegotiablePrice, setMinNegotiablePrice] = useState("");
   const [cep, setCep] = useState("");
   const [logradouro, setLogradouro] = useState("");
@@ -203,7 +230,80 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
     [myOrg]
   );
 
+  const visibleAmenities = amenities.filter(id => !["pet_friendly", "estacionamento", "cameras"].includes(id) && (modality === "diaria" || isFurnished || !["wifi", "tv", "cafeteira", "maquina_lavar", "cozinha"].includes(id)));
   const [imageCount, setImageCount] = useState(0);
+
+  const snapshot = () => ({ structureConfirmed, currentStep, type, modality, name, description, bedrooms, suites, bathrooms, parking, privateArea, totalArea, amenities, checkInTime, checkOutTime, customMaxGuests, minimumNights, cleaningFee, allowPetsDaily, allowSmoking, allowParties, quietHours, customNotes, externalCameras, smokeAlarm, fireExtinguisher, doorman24h, firstAidKit, cancellationPolicy, condoFee, iptuAnnual, acceptsFinancing, acceptsExchange, iptuMonthly, availableFrom, minimumLeaseMonths, guaranteeTypes, isFurnished, allowPetsMonthly, price, acceptsNegotiation, minNegotiablePrice, cep, logradouro, numero, complemento, bairro, cidade, uf, buildingId, hasSpecificAgent, assignedAgentId, assumeBuildingLeads, files: filesRef.current });
+  type DraftSnapshot = ReturnType<typeof snapshot>;
+  useEffect(() => { listingDraft<DraftSnapshot>(userId).then(d => setDraftAvailable(!!d)).catch(() => setDraftMessage("Não foi possível consultar o rascunho neste navegador.")); }, [userId]);
+  const saveDraft = async () => {
+    setSavingDraft(true);
+    try { await listingDraft(userId, snapshot()); setDraftAvailable(true); setDraftMessage("Rascunho salvo neste navegador, incluindo as fotos. Retome por Anunciar imóvel nesta conta."); }
+    catch { setDraftMessage("Não foi possível salvar o rascunho. Verifique o espaço e as permissões do navegador."); }
+    finally { setSavingDraft(false); }
+  };
+  const restoreDraft = async () => {
+    try {
+      const draft = await listingDraft<DraftSnapshot>(userId);
+      if (!draft) return;
+      setStructureConfirmed(draft.structureConfirmed);
+      setCurrentStep(draft.currentStep);
+      setType(draft.type);
+      setModality(draft.modality);
+      setName(draft.name);
+      setDescription(draft.description);
+      setBedrooms(draft.bedrooms);
+      setSuites(draft.suites);
+      setBathrooms(draft.bathrooms);
+      setParking(draft.parking);
+      setPrivateArea(draft.privateArea);
+      setTotalArea(draft.totalArea);
+      setAmenities(draft.amenities);
+      setCheckInTime(draft.checkInTime);
+      setCheckOutTime(draft.checkOutTime);
+      setCustomMaxGuests(draft.customMaxGuests);
+      setMinimumNights(draft.minimumNights);
+      setCleaningFee(draft.cleaningFee);
+      setAllowPetsDaily(draft.allowPetsDaily);
+      setAllowSmoking(draft.allowSmoking);
+      setAllowParties(draft.allowParties);
+      setQuietHours(draft.quietHours);
+      setCustomNotes(draft.customNotes);
+      setExternalCameras(draft.externalCameras);
+      setSmokeAlarm(draft.smokeAlarm);
+      setFireExtinguisher(draft.fireExtinguisher);
+      setDoorman24h(draft.doorman24h);
+      setFirstAidKit(draft.firstAidKit);
+      setCancellationPolicy(draft.cancellationPolicy);
+      setCondoFee(draft.condoFee);
+      setIptuAnnual(draft.iptuAnnual);
+      setAcceptsFinancing(draft.acceptsFinancing);
+      setAcceptsExchange(draft.acceptsExchange);
+      setIptuMonthly(draft.iptuMonthly);
+      setAvailableFrom(draft.availableFrom);
+      setMinimumLeaseMonths(draft.minimumLeaseMonths);
+      setGuaranteeTypes(draft.guaranteeTypes);
+      setIsFurnished(draft.isFurnished);
+      setAllowPetsMonthly(draft.allowPetsMonthly);
+      setPrice(draft.price);
+      setAcceptsNegotiation(draft.acceptsNegotiation);
+      setMinNegotiablePrice(draft.minNegotiablePrice);
+      setCep(draft.cep);
+      setLogradouro(draft.logradouro);
+      setNumero(draft.numero);
+      setComplemento(draft.complemento);
+      setBairro(draft.bairro);
+      setCidade(draft.cidade);
+      setUf(draft.uf);
+      setBuildingId(draft.buildingId);
+      setHasSpecificAgent(draft.hasSpecificAgent);
+      setAssignedAgentId(draft.assignedAgentId);
+      setAssumeBuildingLeads(draft.assumeBuildingLeads);
+      filesRef.current = draft.files; setDraftFiles(draft.files); setImageCount(draft.files.length);
+      setDraftRevision(previous => previous + 1);
+      setDraftMessage("Rascunho recuperado. Revise os dados antes de publicar.");
+    } catch { setDraftMessage("Não foi possível recuperar o rascunho."); }
+  };
 
   const handleCepBlur = async () => {
     const cleanCep = cep.replace(/\D/g, "");
@@ -235,25 +335,38 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
   const activeStep = steps[stepIndex].id;
   const isLastStep = stepIndex === steps.length - 1;
 
-  // Validação ao tentar avançar de etapa
+  const issuesForStep = (step: number): { field: string; message: string }[] => {
+    if (step === 1) return !name.trim() ? [{ field: "name", message: "Informe o título do imóvel." }] : [];
+    if (step === 2) return [
+      ...(!structureConfirmed ? [{ field: "structureConfirmed", message: "Confirme as quantidades de cômodos e vagas, inclusive quando forem zero." }] : []),
+      ...([privateArea, totalArea].some(value => value !== "" && (!Number.isFinite(Number(value)) || Number(value) < 0)) ? [{ field: "privateArea", message: "Informe áreas com valores não negativos." }] : []),
+    ];
+    if (step === 3) return [
+      ...(cep.replace(/\D/g, "").length !== 8 ? [{ field: "cep", message: "Informe um CEP com 8 dígitos." }] : []),
+      ...(!cidade.trim() ? [{ field: "cidade", message: "Informe a cidade." }] : []),
+      ...(!/^[A-Za-z]{2}$/.test(uf) ? [{ field: "uf", message: "Informe a UF com duas letras." }] : []),
+    ];
+    if (step === 4) return [
+      ...(!(Number(price) > 0 && Number.isFinite(Number(price))) ? [{ field: "price", message: "Informe um preço maior que zero." }] : []),
+      ...(modality === "diaria" && [externalCameras, smokeAlarm, fireExtinguisher, doorman24h, firstAidKit].some(v => v === null) ? [{ field: "safety", message: "Informe se o imóvel possui cada item de segurança." }] : []),
+      ...(modality === "diaria" && (!Number.isInteger(customMaxGuests) || customMaxGuests < 1) ? [{ field: "customMaxGuests", message: "Informe a capacidade de hóspedes." }] : []),
+      ...(modality === "diaria" && (!Number.isInteger(Number(minimumNights)) || Number(minimumNights) < 1) ? [{ field: "minimumNights", message: "Informe a estadia mínima em noites." }] : []),
+      ...((modality === "diaria" ? [cleaningFee] : modality === "venda" ? [condoFee, iptuAnnual] : [condoFee, iptuMonthly]).some(value => value !== "" && (!Number.isFinite(Number(value)) || Number(value) < 0)) ? [{ field: "price", message: "Encargos devem ter valores não negativos." }] : []),
+    ];
+    if (step === 6) return imageCount === 0 ? [{ field: "photos", message: "Adicione ao menos uma foto." }] : [];
+    return [];
+  };
+  const pendingIssues = steps.flatMap(step => issuesForStep(step.id).map(issue => ({ ...issue, step: step.id })));
+  const showErrors = (step: number) => {
+    const issues = issuesForStep(step);
+    if (!issues.length) return false;
+    setStepError(issues[0].message);
+    requestAnimationFrame(() => document.getElementById(issues[0].field)?.focus());
+    return true;
+  };
   const validateAndNext = () => {
     setStepError(null);
-    if (activeStep === 2) {
-      if (!name.trim()) {
-        setStepError("Por favor, informe o título do imóvel para continuar.");
-        return;
-      }
-    } else if (activeStep === 3) {
-      if (!cidade.trim() || !uf.trim()) {
-        setStepError("Por favor, preencha o CEP e confirme a Cidade e a UF.");
-        return;
-      }
-    } else if (activeStep === 4) {
-      if (!price.trim()) {
-        setStepError("Informe o valor do anúncio para continuar.");
-        return;
-      }
-    }
+    if (showErrors(activeStep)) return;
     if (!isLastStep) {
       setCurrentStep(steps[stepIndex + 1].id);
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -274,21 +387,26 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
     const submitter = (event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
     const intent = submitter?.value === "draft" ? "draft" : "publish";
 
-    if (imageCount === 0) {
+    if (intent === "draft") {
       event.preventDefault();
-      setStepError("Adicione ao menos uma foto do imóvel para salvar o anúncio.");
+      void saveDraft();
       return;
     }
-    if (intent === "publish" && !price.trim()) {
+    if (pendingIssues.length) {
       event.preventDefault();
-      setStepError("Informe o valor do anúncio para publicar.");
-      return;
+      setCurrentStep(pendingIssues[0].step);
+      setStepError(pendingIssues[0].message);
+      requestAnimationFrame(() => document.getElementById(pendingIssues[0].field)?.focus());
     }
   };
 
   return (
-    <form action={formAction} onSubmit={handleSubmit} className={styles.form}>
+    <form ref={formRef} noValidate action={formAction} onSubmit={handleSubmit} className={styles.form} aria-busy={pending || savingDraft}>
+      {pending && <p role="status">Enviando fotos e dados do imóvel. Aguarde a confirmação.</p>}
+      {draftAvailable && <button type="button" className={styles.secondaryButton} onClick={restoreDraft}>Recuperar rascunho deste navegador</button>}
+      <p>O rascunho fica salvo neste navegador e nesta conta. Salve antes de sair.</p>
       {/* Campos ocultos mantidos para envio total ao Server Action */}
+      <input type="hidden" name="structureConfirmed" value={String(structureConfirmed)} />
       <input type="hidden" name="category" value={category} />
       <input type="hidden" name="billingCycle" value={billingCycle} />
       <input type="hidden" name="operationType" value={operationType} />
@@ -350,7 +468,7 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
           <span className={styles.stepBadge}>
             Etapa {stepIndex + 1} de {steps.length}
           </span>
-          <span className={styles.progressPercentText}>{progressPercent}% concluído</span>
+          <span className={styles.progressPercentText}>Posição no formulário</span>
         </div>
 
         <div className={styles.progressBarBg}>
@@ -358,12 +476,14 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
         </div>
 
         <div className={styles.stepperTabs}>
-          {steps.map((step) => {
-            const isDone = activeStep > step.id;
+          {steps.map((step, index) => {
+            const isDone = issuesForStep(step.id).length === 0;
             const isActive = activeStep === step.id;
             return (
               <button
                 key={step.id}
+                aria-current={isActive ? "step" : undefined}
+                aria-label={`${index + 1}. ${step.title}: ${isDone ? "requisitos atendidos" : visitedSteps.includes(step.id) ? "visitada, incompleta" : "não visitada, incompleta"}`}
                 type="button"
                 className={`${styles.stepperTab} ${isActive ? styles.stepperTabActive : ""} ${
                   isDone ? styles.stepperTabDone : ""
@@ -373,7 +493,7 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
                   setCurrentStep(step.id);
                 }}
               >
-                <span className={styles.stepperDot}>{isDone ? <Check size={12} /> : step.id}</span>
+                <span className={styles.stepperDot}>{isDone ? <Check size={12} /> : index + 1}</span>
                 <span className={styles.stepperTabTitle}>{step.title}</span>
               </button>
             );
@@ -382,7 +502,7 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
       </div>
 
       {stepError && (
-        <div className={styles.stepErrorAlert}>
+        <div className={styles.stepErrorAlert} role="alert">
           <AlertCircle size={18} />
           <span>{stepError}</span>
         </div>
@@ -398,7 +518,7 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
               </div>
               <div>
                 <h2 className={styles.sectionTitle}>O que você quer fazer?</h2>
-                <p className={styles.sectionSubtitle}>A modalidade define o restante do formulário</p>
+                <p className={styles.sectionSubtitle}>A modalidade define o restante do formulário. Ao mudar, as escolhas ficam guardadas durante o preenchimento; somente os campos aplicáveis à modalidade atual serão enviados.</p>
               </div>
             </div>
 
@@ -406,6 +526,7 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
               <button
                 type="button"
                 className={`${styles.optionCard} ${modality === "diaria" ? styles.optionCardActive : ""}`}
+                aria-pressed={modality === "diaria"}
                 onClick={() => setModality("diaria")}
               >
                 <div className={styles.optionCardHeader}>
@@ -423,6 +544,7 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
               <button
                 type="button"
                 className={`${styles.optionCard} ${modality === "mensal" ? styles.optionCardActive : ""}`}
+                aria-pressed={modality === "mensal"}
                 onClick={() => setModality("mensal")}
               >
                 <div className={styles.optionCardHeader}>
@@ -440,6 +562,7 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
               <button
                 type="button"
                 className={`${styles.optionCard} ${modality === "venda" ? styles.optionCardActive : ""}`}
+                aria-pressed={modality === "venda"}
                 onClick={() => setModality("venda")}
               >
                 <div className={styles.optionCardHeader}>
@@ -463,7 +586,7 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
               </div>
               <div>
                 <h2 className={styles.sectionTitle}>Qual o tipo do seu imóvel?</h2>
-                <p className={styles.sectionSubtitle}>Selecione a categoria que melhor descreve seu espaço</p>
+                <p className={styles.sectionSubtitle}>Selecione a categoria que melhor descreve seu imóvel</p>
               </div>
             </div>
 
@@ -471,6 +594,7 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
               <button
                 type="button"
                 className={`${styles.optionCard} ${type === "casa" ? styles.optionCardActive : ""}`}
+                aria-pressed={type === "casa"}
                 onClick={() => setType("casa")}
               >
                 <div className={styles.optionCardHeader}>
@@ -488,6 +612,7 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
               <button
                 type="button"
                 className={`${styles.optionCard} ${type === "apartamento" ? styles.optionCardActive : ""}`}
+                aria-pressed={type === "apartamento"}
                 onClick={() => setType("apartamento")}
               >
                 <div className={styles.optionCardHeader}>
@@ -510,7 +635,7 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
                 <FileText size={22} />
               </div>
               <div>
-                <h2 className={styles.sectionTitle}>Título e descrição do espaço</h2>
+                <h2 className={styles.sectionTitle}>Título e descrição do imóvel</h2>
                 <p className={styles.sectionSubtitle}>Destaque os principais diferenciais que tornam seu imóvel único</p>
               </div>
             </div>
@@ -520,6 +645,8 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
             </label>
             <input
               id="name"
+              aria-invalid={!!stepError && issuesForStep(activeStep).some(i => i.field === "name")}
+              aria-describedby={stepError ? "name-error" : undefined}
               type="text"
               placeholder="Ex: Loft Aconchegante com Varanda Gourmet e Vista para o Mar"
               required
@@ -527,6 +654,7 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
               onChange={(e) => setName(e.target.value)}
               className={styles.input}
             />
+            {stepError && issuesForStep(activeStep).filter(i => i.field === "name").map(i => <p id="name-error" key={i.field} className={styles.error}>{i.message}</p>)}
 
             <label className={styles.label} htmlFor="description">
               <span>Descrição detalhada</span>
@@ -605,7 +733,7 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
                   <button
                     type="button"
                     className={styles.airbnbCircleBtn}
-                    onClick={() => setBedrooms(Math.max(0, bedrooms - 1))}
+                    onClick={() => { setStructureConfirmed(false); setBedrooms(Math.max(0, bedrooms - 1)); }}
                     disabled={bedrooms <= 0}
                     aria-label="Diminuir quartos"
                   >
@@ -615,7 +743,7 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
                   <button
                     type="button"
                     className={styles.airbnbCircleBtn}
-                    onClick={() => setBedrooms(bedrooms + 1)}
+                    onClick={() => { setStructureConfirmed(false); setBedrooms(bedrooms + 1); }}
                     aria-label="Aumentar quartos"
                   >
                     <Plus size={14} />
@@ -637,7 +765,7 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
                   <button
                     type="button"
                     className={styles.airbnbCircleBtn}
-                    onClick={() => setSuites(Math.max(0, suites - 1))}
+                    onClick={() => { setStructureConfirmed(false); setSuites(Math.max(0, suites - 1)); }}
                     disabled={suites <= 0}
                     aria-label="Diminuir suítes"
                   >
@@ -647,7 +775,7 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
                   <button
                     type="button"
                     className={styles.airbnbCircleBtn}
-                    onClick={() => setSuites(suites + 1)}
+                    onClick={() => { setStructureConfirmed(false); setSuites(suites + 1); }}
                     aria-label="Aumentar suítes"
                   >
                     <Plus size={14} />
@@ -669,7 +797,7 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
                   <button
                     type="button"
                     className={styles.airbnbCircleBtn}
-                    onClick={() => setBathrooms(Math.max(0, bathrooms - 1))}
+                    onClick={() => { setStructureConfirmed(false); setBathrooms(Math.max(0, bathrooms - 1)); }}
                     disabled={bathrooms <= 0}
                     aria-label="Diminuir banheiros"
                   >
@@ -679,7 +807,7 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
                   <button
                     type="button"
                     className={styles.airbnbCircleBtn}
-                    onClick={() => setBathrooms(bathrooms + 1)}
+                    onClick={() => { setStructureConfirmed(false); setBathrooms(bathrooms + 1); }}
                     aria-label="Aumentar banheiros"
                   >
                     <Plus size={14} />
@@ -701,7 +829,7 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
                   <button
                     type="button"
                     className={styles.airbnbCircleBtn}
-                    onClick={() => setParking(Math.max(0, parking - 1))}
+                    onClick={() => { setStructureConfirmed(false); setParking(Math.max(0, parking - 1)); }}
                     disabled={parking <= 0}
                     aria-label="Diminuir vagas de garagem"
                   >
@@ -711,7 +839,7 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
                   <button
                     type="button"
                     className={styles.airbnbCircleBtn}
-                    onClick={() => setParking(parking + 1)}
+                    onClick={() => { setStructureConfirmed(false); setParking(parking + 1); }}
                     aria-label="Aumentar vagas de garagem"
                   >
                     <Plus size={14} />
@@ -721,7 +849,10 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
             </div>
 
             <div style={{ marginTop: "24px", paddingTop: "24px", borderTop: "1px solid var(--border)" }}>
-              <AmenitiesSelector value={amenities} onChange={setAmenities} />
+              <label className={styles.toggleItem}><input id="structureConfirmed" type="checkbox" checked={structureConfirmed} aria-invalid={!!stepError && !structureConfirmed} aria-describedby={stepError && !structureConfirmed ? "structure-error" : undefined} onChange={e => setStructureConfirmed(e.target.checked)} />Confirmo as quantidades de quartos, suítes, banheiros e vagas informadas acima.</label>
+              {stepError && !structureConfirmed && <p id="structure-error" className={styles.error}>Confirme as quantidades de cômodos e vagas, inclusive quando forem zero.</p>}
+              <label className={styles.toggleItem}><input type="checkbox" checked={isFurnished} onChange={e => setIsFurnished(e.target.checked)} />Mobiliado — selecione para informar equipamentos incluídos</label>
+              <AmenitiesSelector value={amenities} onChange={setAmenities} modality={modality} furnished={isFurnished} />
             </div>
           </section>
         </div>
@@ -746,6 +877,8 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
             </label>
             <input
               id="cep"
+              aria-invalid={!!stepError && issuesForStep(activeStep).some(i => i.field === "cep")}
+              aria-describedby={stepError ? "cep-error" : undefined}
               type="text"
               placeholder="00000-000"
               maxLength={9}
@@ -755,6 +888,7 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
               onBlur={handleCepBlur}
               className={styles.input}
             />
+            {stepError && issuesForStep(activeStep).filter(i => i.field === "cep").map(i => <p id="cep-error" key={i.field} className={styles.error}>{i.message}</p>)}
 
             <div className={styles.row} style={{ marginTop: "16px" }}>
               <div style={{ gridColumn: "span 2" }}>
@@ -821,6 +955,8 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
                 </label>
                 <input
                   id="cidade"
+              aria-invalid={!!stepError && issuesForStep(activeStep).some(i => i.field === "cidade")}
+              aria-describedby={stepError ? "cidade-error" : undefined}
                   type="text"
                   placeholder="Nome da cidade"
                   required
@@ -828,6 +964,7 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
                   onChange={(e) => setCidade(e.target.value)}
                   className={styles.input}
                 />
+            {stepError && issuesForStep(activeStep).filter(i => i.field === "cidade").map(i => <p id="cidade-error" key={i.field} className={styles.error}>{i.message}</p>)}
               </div>
               <div>
                 <label className={styles.label} htmlFor="uf">
@@ -835,6 +972,8 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
                 </label>
                 <input
                   id="uf"
+              aria-invalid={!!stepError && issuesForStep(activeStep).some(i => i.field === "uf")}
+              aria-describedby={stepError ? "uf-error" : undefined}
                   type="text"
                   maxLength={2}
                   placeholder="SP"
@@ -843,6 +982,7 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
                   onChange={(e) => setUf(e.target.value.toUpperCase())}
                   className={styles.input}
                 />
+            {stepError && issuesForStep(activeStep).filter(i => i.field === "uf").map(i => <p id="uf-error" key={i.field} className={styles.error}>{i.message}</p>)}
               </div>
             </div>
           </section>
@@ -927,6 +1067,9 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
               <span className={styles.airbnbPriceSymbol}>R$</span>
               <input
                 id="price"
+                aria-label={modality === "diaria" ? "Diária em reais" : modality === "mensal" ? "Aluguel mensal em reais" : "Preço de venda em reais"}
+              aria-invalid={!!stepError && issuesForStep(activeStep).some(i => i.field === "price")}
+              aria-describedby={stepError ? "price-error" : undefined}
                 type="number"
                 min="0"
                 step="0.01"
@@ -936,6 +1079,7 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
                 onChange={(e) => setPrice(e.target.value)}
                 className={styles.airbnbPriceInput}
               />
+            {stepError && issuesForStep(activeStep).filter(i => i.field === "price").map(i => <p id="price-error" key={i.field} className={styles.error}>{i.message}</p>)}
             </div>
 
             <div className={styles.toggleGrid} style={{ marginTop: "16px" }}>
@@ -1250,25 +1394,26 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
 
                 <div style={{ marginTop: "24px", paddingTop: "20px", borderTop: "1px solid var(--border)" }}>
                   <h3 className={styles.airbnbSubHeading}>Segurança & Proteção</h3>
-                  <div className={styles.toggleGrid}>
+                  {stepError && issuesForStep(4).some(issue => issue.field === "safety") && <p id="safety-error" className={styles.error}>Informe se o imóvel possui cada item de segurança.</p>}
+                  <div id="safety" role="group" aria-label="Itens de segurança" aria-describedby={stepError ? "safety-error" : undefined} tabIndex={-1} className={styles.toggleGrid}>
                     <label className={styles.toggleItem}>
-                      <input type="checkbox" checked={externalCameras} onChange={(e) => setExternalCameras(e.target.checked)} />
+                      <select aria-label="Câmeras externas" value={externalCameras === null ? "" : String(externalCameras)} onChange={(e) => setExternalCameras(e.target.value === "" ? null : e.target.value === "true")}><option value="">Não informado</option><option value="true">Possui</option><option value="false">Não possui</option></select>
                       <span>Câmeras externas</span>
                     </label>
                     <label className={styles.toggleItem}>
-                      <input type="checkbox" checked={smokeAlarm} onChange={(e) => setSmokeAlarm(e.target.checked)} />
+                      <select aria-label="Alarme de fumaça" value={smokeAlarm === null ? "" : String(smokeAlarm)} onChange={(e) => setSmokeAlarm(e.target.value === "" ? null : e.target.value === "true")}><option value="">Não informado</option><option value="true">Possui</option><option value="false">Não possui</option></select>
                       <span>Alarme de fumaça</span>
                     </label>
                     <label className={styles.toggleItem}>
-                      <input type="checkbox" checked={fireExtinguisher} onChange={(e) => setFireExtinguisher(e.target.checked)} />
+                      <select aria-label="Extintor de incêndio" value={fireExtinguisher === null ? "" : String(fireExtinguisher)} onChange={(e) => setFireExtinguisher(e.target.value === "" ? null : e.target.value === "true")}><option value="">Não informado</option><option value="true">Possui</option><option value="false">Não possui</option></select>
                       <span>Extintor de incêndio</span>
                     </label>
                     <label className={styles.toggleItem}>
-                      <input type="checkbox" checked={doorman24h} onChange={(e) => setDoorman24h(e.target.checked)} />
+                      <select aria-label="Portaria 24h" value={doorman24h === null ? "" : String(doorman24h)} onChange={(e) => setDoorman24h(e.target.value === "" ? null : e.target.value === "true")}><option value="">Não informado</option><option value="true">Possui</option><option value="false">Não possui</option></select>
                       <span>Portaria 24h</span>
                     </label>
                     <label className={styles.toggleItem}>
-                      <input type="checkbox" checked={firstAidKit} onChange={(e) => setFirstAidKit(e.target.checked)} />
+                      <select aria-label="Kit primeiros socorros" value={firstAidKit === null ? "" : String(firstAidKit)} onChange={(e) => setFirstAidKit(e.target.value === "" ? null : e.target.value === "true")}><option value="">Não informado</option><option value="true">Possui</option><option value="false">Não possui</option></select>
                       <span>Kit primeiros socorros</span>
                     </label>
                   </div>
@@ -1382,8 +1527,28 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
       )}
 
       {/* ── ETAPA 6: FOTOS & REVISÃO ── */}
-      {activeStep === 6 && (
-        <div className={styles.stepContent}>
+      {(
+        <div className={styles.stepContent} hidden={activeStep !== 6}>
+          <section className={styles.section} aria-label="Revisão do anúncio">
+            <h2>Revise antes de publicar</h2>
+            <p>{isOrg ? "O anúncio será enviado para aprovação da própria imobiliária antes de aparecer na busca." : "Após a validação dos campos, seu anúncio será publicado diretamente, sem aprovação editorial prévia."} A verificação da imobiliária é independente e não garante a autenticidade do imóvel.</p>
+            {pendingIssues.length > 0 && <div role="status"><h3>Pendências para publicar</h3><ul>{pendingIssues.map(issue => <li key={issue.field}><button type="button" onClick={() => { setCurrentStep(issue.step); setStepError(issue.message); requestAnimationFrame(() => document.getElementById(issue.field)?.focus()); }}>{issue.message}</button></li>)}</ul></div>}
+            <dl>
+              <dt>Modalidade e apresentação <button type="button" onClick={() => setCurrentStep(1)}>Editar</button></dt>
+              <dd>{modality === "venda" ? "Venda" : modality === "mensal" ? "Aluguel mensal" : "Temporada"} · {type} · {name || "Título não informado"}<p>{description || "Descrição não informada"}</p></dd>
+              <dt>Características <button type="button" onClick={() => setCurrentStep(2)}>Editar</button></dt>
+              <dd>{structureConfirmed ? `${bedrooms} quartos, ${suites} suítes, ${bathrooms} banheiros e ${parking} vagas` : "Quantidades não confirmadas"}. Área privativa: {privateArea || "não informada"}; total: {totalArea || "não informada"}. {isFurnished ? "Mobiliado" : "Mobiliário não confirmado"}. Comodidades: {visibleAmenities.join(", ") || "nenhuma confirmada"}.</dd>
+              <dt>Localização <button type="button" onClick={() => setCurrentStep(3)}>Editar</button></dt>
+              <dd>{[logradouro, numero, complemento, bairro, cidade, uf, cep].filter(Boolean).join(" · ") || "Não informada"}</dd>
+              <dt>Valores e regras <button type="button" onClick={() => setCurrentStep(4)}>Editar</button></dt>
+              <dd>Preço: {Number(price) > 0 ? Number(price).toLocaleString("pt-BR", {style: "currency", currency: "BRL"}) : "não informado"}. Negociação: {acceptsNegotiation ? "aceita" : "não autorizada"}.
+                {modality === "venda" && <p>Condomínio: {condoFee || "não informado"}; IPTU anual: {iptuAnnual || "não informado"}; financiamento: {acceptsFinancing ? "sim" : "não confirmado"}; permuta: {acceptsExchange ? "sim" : "não confirmada"}.</p>}
+                {modality === "mensal" && <p>Condomínio: {condoFee || "não informado"}; IPTU mensal: {iptuMonthly || "não informado"}; disponibilidade: {availableFrom || "não informada"}; prazo mínimo: {minimumLeaseMonths || "não informado"}; garantias: {guaranteeTypes.join(", ") || "não informadas"}; pets: {allowPetsMonthly ? "permitidos" : "não autorizados"}.</p>}
+                {modality === "diaria" && <><p>Até {customMaxGuests} hóspedes; mínimo de {minimumNights} noites; limpeza: {cleaningFee || "não informada"}; entrada: {checkInTime}; saída: {checkOutTime}; pets: {allowPetsDaily ? "permitidos" : "não autorizados"}; fumar: {allowSmoking ? "permitido" : "não autorizado"}; festas: {allowParties ? "permitidas" : "não autorizadas"}; silêncio: {quietHours}; {customNotes}. Cancelamento: {cancellationPolicy}.</p><p>Segurança: {Object.entries({"Câmeras externas": externalCameras, "Alarme de fumaça": smokeAlarm, "Extintor": fireExtinguisher, "Portaria 24h": doorman24h, "Primeiros socorros": firstAidKit}).map(([label, value]) => `${label}: ${value === null ? "não informado" : value ? "possui" : "não possui"}`).join("; ")}.</p></>}
+              </dd>
+            </dl>
+            <p>{imageCount} foto(s) selecionada(s). A primeira foto será a capa.</p>
+          </section>
           <div className={styles.finalStepGrid}>
             <div className={styles.finalStepLeft}>
               <section className={styles.section}>
@@ -1392,12 +1557,12 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
                     <Camera size={22} />
                   </div>
                   <div>
-                    <h2 className={styles.sectionTitle}>Fotos do espaço</h2>
+                    <h2 className={styles.sectionTitle}>Fotos do imóvel</h2>
                     <p className={styles.sectionSubtitle}>Adicione fotos de alta qualidade para atrair mais interessados</p>
                   </div>
                 </div>
 
-                <MultiImageInput name="images" onFilesChange={setImageCount} />
+                <MultiImageInput key={draftRevision} name="images" initialFiles={draftFiles} onFilesChange={(count, files) => { setImageCount(count); filesRef.current = files; }} />
               </section>
             </div>
 
@@ -1410,7 +1575,7 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
 
                 <div className={styles.previewImagePlaceholder}>
                   <Camera size={32} />
-                  <span>Suas fotos aparecerão aqui</span>
+                  <span>{imageCount > 0 ? `${imageCount} foto(s) selecionada(s) na galeria` : "Adicione fotos na galeria"}</span>
                 </div>
 
                 <div className={styles.previewBody}>
@@ -1423,15 +1588,15 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
                   <div className={styles.previewSpecs}>
                     <span>{type === "casa" ? "Casa" : "Apartamento"}</span>
                     <span>•</span>
-                    <span>{bedrooms} {bedrooms === 1 ? "quarto" : "quartos"}</span>
+                    <span>{structureConfirmed ? `${bedrooms} quarto(s)` : "Quartos não confirmados"}</span>
                     <span>•</span>
-                    <span>{bathrooms} {bathrooms === 1 ? "banheiro" : "banheiros"}</span>
+                    <span>{structureConfirmed ? `${bathrooms} banheiro(s)` : "Banheiros não confirmados"}</span>
                   </div>
 
                   <div className={styles.previewPriceRow}>
                     <span className={styles.previewPriceLabel}>Valor:</span>
                     <span className={styles.previewPriceVal}>
-                      {price ? Number(price).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : "R$ 0"}
+                      {Number(price) > 0 ? Number(price).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : "Preço não informado"}
                       {modality === "diaria" ? " / noite" : modality === "mensal" ? " / mês" : ""}
                     </span>
                   </div>
@@ -1443,14 +1608,15 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
       )}
 
       {state?.error && (
-        <div className={styles.stepErrorAlert}>
+        <div className={styles.stepErrorAlert} role="alert">
           <AlertCircle size={18} />
           <span>{state.error}</span>
         </div>
       )}
 
       {/* ── BARRA FIXA DE NAVEGAÇÃO INFERIOR ── */}
-      <div className={styles.wizardNavFooter}>
+      <div ref={footerRef} className={styles.wizardNavFooter}>
+        {draftMessage && <p className={styles.actionStatus} role="status">{draftMessage}</p>}
         <div className={styles.wizardNavContainer}>
           {stepIndex > 0 ? (
             <button type="button" onClick={handlePrev} className={styles.secondaryButton}>
@@ -1462,6 +1628,8 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
           )}
 
           <div className={styles.wizardNavRight}>
+            <button type="button" className={styles.secondaryButton} onClick={() => openSidebar()} aria-label="Abrir Mensagens"><MessageCircle size={16} />Mensagens{unreadCount > 0 ? ` (${unreadCount})` : ""}</button>
+            <button type="button" className={styles.secondaryButton} disabled={pending || savingDraft} onClick={saveDraft}><Save size={16} />{savingDraft ? "Salvando…" : "Salvar rascunho"}</button>
             {!isLastStep ? (
               <button type="button" onClick={validateAndNext} className={styles.button}>
                 <span>Continuar</span>
@@ -1469,10 +1637,7 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
               </button>
             ) : (
               <>
-                <button type="submit" name="intent" value="draft" className={styles.secondaryButton} disabled={pending}>
-                  <Save size={16} />
-                  <span>{pending ? "Salvando…" : "Salvar rascunho"}</span>
-                </button>
+
                 <button type="submit" name="intent" value="publish" className={styles.button} disabled={pending}>
                   <CheckCircle2 size={16} />
                   <span>{pending ? "Publicando…" : "Publicar anúncio"}</span>

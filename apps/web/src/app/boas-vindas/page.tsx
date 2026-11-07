@@ -1,3 +1,4 @@
+import { safeRedirectTarget } from "@/lib/safe-redirect";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { OnboardingForm } from "@/components/auth/OnboardingForm";
@@ -18,14 +19,14 @@ export default async function WelcomePage({ searchParams }: Props) {
   const user = await getSessionUser();
 
   if (!user) {
-    redirect("/login?next=/boas-vindas");
+    redirect(`/login?next=${encodeURIComponent(`/boas-vindas${next ? `?next=${encodeURIComponent(safeRedirectTarget(next, "/imoveis"))}` : ""}`)}`);
   }
   if (user.onboardingCompleted) {
     const isAgencyAccount = user.accountType === "AGENCY" && user.role !== "ADMIN";
-    redirect(isAgencyAccount ? "/dashboard" : "/imoveis");
+    redirect(safeRedirectTarget(next, isAgencyAccount ? "/dashboard" : "/imoveis"));
   }
 
-  const safeNext = next && next.startsWith("/") && !next.startsWith("//") ? next : undefined;
+  const safeNext = safeRedirectTarget(next, "") || undefined;
 
   return (
     <main className={styles.main}>

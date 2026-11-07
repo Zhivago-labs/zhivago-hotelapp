@@ -39,6 +39,7 @@ export function RegisterForm({ next }: { next?: string }) {
         <button
           type="button"
           className={`${styles.airbnbTypeTab} ${accountType === "INDIVIDUAL" ? styles.airbnbTypeTabActive : ""}`}
+          aria-pressed={accountType === "INDIVIDUAL"}
           onClick={() => setAccountType("INDIVIDUAL")}
         >
           <User size={16} />
@@ -47,6 +48,7 @@ export function RegisterForm({ next }: { next?: string }) {
         <button
           type="button"
           className={`${styles.airbnbTypeTab} ${accountType === "AGENCY" ? styles.airbnbTypeTabActive : ""}`}
+          aria-pressed={accountType === "AGENCY"}
           onClick={() => setAccountType("AGENCY")}
         >
           <Building2 size={16} />

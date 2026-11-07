@@ -139,4 +139,8 @@
 
 .contentArea {
   width: 100%;
+  min-width: 0;
 }
+
+.layoutGrid { grid-template-columns: 360px minmax(0, 1fr); }
+@media (max-width: 960px) { .layoutGrid { grid-template-columns: minmax(0, 1fr); } }

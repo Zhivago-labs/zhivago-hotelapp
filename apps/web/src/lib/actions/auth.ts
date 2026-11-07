@@ -1,5 +1,6 @@
 "use server";
 
+import { safeRedirectTarget } from "@/lib/safe-redirect";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { getApiUrl } from "@/lib/api";
@@ -25,12 +26,6 @@ function extractErrorMessage(data: unknown, fallback: string): string {
     if (Array.isArray(error) && error[0]?.message) return String(error[0].message);
   }
   return fallback;
-}
-
-/** Só aceita caminhos internos (evita open redirect via ?next=). */
-function safeRedirectTarget(value: FormDataEntryValue | null, fallback: string): string {
-  const target = String(value ?? "");
-  return target.startsWith("/") && !target.startsWith("//") ? target : fallback;
 }
 
 export async function loginAction(

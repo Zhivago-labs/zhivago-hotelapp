@@ -14,7 +14,7 @@ import { AgencyTeaserSection } from "@/components/landing/AgencyTeaserSection";
 import { FaqSection } from "@/components/landing/FaqSection";
 import { LandingFooter } from "@/components/landing/LandingFooter";
 import { fraunces, inter } from "@/components/landing/fonts";
-import { byRelevance, citySummaries, locationSuggestions } from "@/components/landing/home-data";
+import { byRelevance, citySummaries, eligiblePublicListings, locationSuggestions } from "@/components/landing/home-data";
 import styles from "./page.module.css";
 
 export const metadata: Metadata = {
@@ -38,7 +38,7 @@ export default async function LandingPage() {
   let listings: Listing[] = [];
   let loadError = false;
   try {
-    listings = await getListings();
+    listings = eligiblePublicListings(await getListings());
   } catch {
     loadError = true;
   }
@@ -54,8 +54,8 @@ export default async function LandingPage() {
       <LandingNav />
       <main>
         <HomeHero suggestions={locationSuggestions(listings)} />
-        <LocationsSection cities={citySummaries(listings)} />
         <FeaturedListingsSection listings={featured} loadError={loadError} />
+        <LocationsSection cities={citySummaries(listings)} />
         <WhyZhivagoSection />
         <ChatSection />
         <ListYourPropertySection />

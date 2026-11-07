@@ -8,6 +8,10 @@ export interface CitySummary {
   count: number;
 }
 
+export function eligiblePublicListings(listings: Listing[]): Listing[] {
+  return listings.filter(listing => listing.status === "APPROVED" && !listing.isDemo);
+}
+
 interface Place {
   cidade?: string;
   uf?: string;
@@ -31,11 +35,11 @@ function placeOf(listing: Listing): Place {
 /** Cidades com anúncios publicados, contadas a partir do inventário real (sem números inventados). */
 export function citySummaries(listings: Listing[]): CitySummary[] {
   const byCity = new Map<string, CitySummary>();
-  for (const listing of listings) {
+  for (const listing of eligiblePublicListings(listings)) {
     const place = placeOf(listing);
     const city = place.cidade;
     if (!city) continue;
-    const key = city.toLowerCase();
+    const key = `${city.toLowerCase()}|${place.uf?.toLowerCase() ?? ""}`;
     const current = byCity.get(key);
     if (current) {
       current.count += 1;
@@ -51,7 +55,7 @@ export function citySummaries(listings: Listing[]): CitySummary[] {
 export function locationSuggestions(listings: Listing[], limit = 20): string[] {
   const seen = new Set<string>();
   const suggestions: string[] = [];
-  for (const value of listings.flatMap((listing) => {
+  for (const value of eligiblePublicListings(listings).flatMap((listing) => {
     const place = placeOf(listing);
     return [place.cidade, place.bairro];
   })) {

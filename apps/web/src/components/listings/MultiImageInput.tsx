@@ -7,25 +7,33 @@ import styles from "./MultiImageInput.module.css";
 export function MultiImageInput({
   name = "images",
   onFilesChange,
+  initialFiles,
 }: {
   name?: string;
-  onFilesChange?: (count: number) => void;
+  onFilesChange?: (count: number, files: File[]) => void;
+  initialFiles?: File[];
 }) {
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
-  const [files, setFiles] = useState<File[]>([]);
+  const [files, setFiles] = useState<File[]>(initialFiles ?? []);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
 
   // URLs de preview para as imagens selecionadas
-  const [previewUrls, setPreviewUrls] = useState<string[]>([]);
+  const [previewUrls, setPreviewUrls] = useState<string[]>(() => (initialFiles ?? []).map(file => URL.createObjectURL(file)));
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    const urls = files.map((file) => URL.createObjectURL(file));
-    setPreviewUrls(urls);
+    if (!initialFiles) return;
+    const transfer = new DataTransfer();
+    initialFiles.forEach(file => transfer.items.add(file));
+    if (inputRef.current) inputRef.current.files = transfer.files;
+  }, [initialFiles]);
+
+  useEffect(() => {
     return () => {
-      urls.forEach((url) => URL.revokeObjectURL(url));
+      previewUrls.forEach((url) => URL.revokeObjectURL(url));
     };
-  }, [files]);
+  }, [previewUrls]);
 
   // Navegação por teclado (ESC para fechar, Setas Esquerda/Direita para trocar de foto)
   useEffect(() => {
@@ -48,11 +56,18 @@ export function MultiImageInput({
     next.forEach((file) => dataTransfer.items.add(file));
     if (inputRef.current) inputRef.current.files = dataTransfer.files;
     setFiles(next);
-    onFilesChange?.(next.length);
+    setPreviewUrls(next.map(file => URL.createObjectURL(file)));
+    onFilesChange?.(next.length, next);
   };
 
   const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const picked = Array.from(event.target.files ?? []);
+    if (files.length + picked.length > 10 || picked.some(file => file.size > 20 * 1024 * 1024 || !file.type.startsWith("image/"))) {
+      setError("Selecione até 10 imagens, com no máximo 20 MB por arquivo.");
+      syncInput(files);
+      return;
+    }
+    setError("");
     syncInput([...files, ...picked]);
   };
 
@@ -72,6 +87,8 @@ export function MultiImageInput({
 
   return (
     <div className={styles.wrap}>
+      <p id="photos" tabIndex={-1}>Envie imagens (JPEG, PNG ou WebP, entre os formatos decodificados pelo servidor), até 20 MB cada e 10 fotos por anúncio. Para publicar, é necessária ao menos uma foto. A primeira será a capa. As fotos serão enviadas ao publicar.</p>
+      {error && <p role="alert">{error}</p>}
       <input
         ref={inputRef}
         id={inputId}
@@ -90,15 +107,23 @@ export function MultiImageInput({
             className={styles.thumb}
             onClick={() => setSelectedIndex(index)}
             title="Clique para ampliar esta foto"
+            role="group"
+            aria-label={`Foto ${index + 1}: ${file.name}`}
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
             {previewUrls[index] && (
+              // Local object URLs cannot be optimized by next/image.
+              // eslint-disable-next-line @next/next/no-img-element
               <img src={previewUrls[index]} alt={file.name} className={styles.thumbImage} />
             )}
 
             <div className={styles.thumbOverlay}>
               <Maximize2 size={16} />
               <span>Ampliar</span>
+            </div>
+            <div className={styles.photoActions}>
+              <button type="button" onClick={e => { e.stopPropagation(); setSelectedIndex(index); }} aria-label={`Ampliar ${file.name}`}>Ampliar</button>
+              <button type="button" onClick={e => { e.stopPropagation(); syncInput([file, ...files.filter((_, i) => i !== index)]); }} aria-label={`Usar ${file.name} como capa`}>{index === 0 ? "Capa" : "Usar como capa"}</button>
+              {index > 0 && <button type="button" aria-label={`Mover ${file.name} para a esquerda`} onClick={e => { e.stopPropagation(); const next = [...files]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; syncInput(next); }}>← Mover</button>}
             </div>
 
             <button
@@ -113,10 +138,10 @@ export function MultiImageInput({
           </div>
         ))}
 
-        <label htmlFor={inputId} className={styles.addTile}>
+        <button type="button" onClick={() => inputRef.current?.click()} className={styles.addTile}>
           <ImagePlus size={24} />
           <span>Adicionar fotos</span>
-        </label>
+        </button>
       </div>
 
       {/* ── LIGHTBOX MODAL DE VISUALIZAÇÃO AMPLIADA ── */}

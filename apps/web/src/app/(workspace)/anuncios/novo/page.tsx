@@ -38,7 +38,7 @@ export default async function NewListingPage() {
               <Sparkles size={14} />
               <span>Novo Anúncio</span>
             </div>
-            <h1 className={styles.title}>Anuncie seu espaço no Zhivago</h1>
+            <h1 className={styles.title}>Anuncie seu imóvel no Zhivago</h1>
             <p className={styles.subtitle}>
               Preencha os detalhes do imóvel para publicar no marketplace ou salvar como rascunho.
             </p>
@@ -51,7 +51,7 @@ export default async function NewListingPage() {
             </h3>
             <div className={styles.tipItem}>
               <Camera size={16} className={styles.tipIcon} />
-              <span>Adicione fotos nítidas e bem iluminadas para atrair até 3x mais reservas.</span>
+              <span>Fotos nítidas e bem iluminadas ajudam a apresentar melhor o imóvel.</span>
             </div>
             <div className={styles.tipItem}>
               <MapPin size={16} className={styles.tipIcon} />
@@ -67,6 +67,7 @@ export default async function NewListingPage() {
         {/* Lado Direito: Formulário com Cards Amplos */}
         <div className={styles.contentArea}>
           <NewListingForm
+            userId={user.id}
             myOrg={myOrg}
             buildings={buildings.map((b) => ({ id: b.id, name: b.name, address: b.address }))}
           />

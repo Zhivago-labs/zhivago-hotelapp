@@ -45,3 +45,8 @@
   font-size: 13px;
   color: var(--slate);
 }
+
+.title { font-size: 20px; font-weight: 600; }
+.list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.city { min-height: 0; padding: 10px 14px; }
+.section { padding: 24px 0; }

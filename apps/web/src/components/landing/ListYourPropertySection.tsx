@@ -4,7 +4,7 @@ import styles from "./ListYourPropertySection.module.css";
 
 const STEPS = [
   { title: "Cadastre", text: "Fotos, preço e as características do imóvel." },
-  { title: "Publique", text: "Depois de aprovado, o anúncio aparece na busca." },
+  { title: "Publique", text: "Pessoas físicas publicam diretamente; imobiliárias aprovam os anúncios da própria equipe." },
   { title: "Receba interessados", text: "As conversas chegam direto nas suas mensagens." },
 ];
 

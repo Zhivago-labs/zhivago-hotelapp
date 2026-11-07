@@ -81,6 +81,7 @@ model User {
 // ─── IMÓVEL ──────────────────────────────────────────────────────────────────
 
 model Listing {
+  isDemo       Boolean @default(false) // Explicitly curated examples, excluded from public catalog
   id           String   @id @default(uuid())
   name         String
   description  String?

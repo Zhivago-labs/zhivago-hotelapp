@@ -1,6 +1,7 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
+import { publicationIssues } from '../lib/listing-publication.js';
 import { sendNotification } from '../services/notification.service.js';
 import { logAdminAction } from '../lib/admin-log.js';
 
@@ -348,6 +349,9 @@ export async function approveListing(
 
   const listing = await prisma.listing.findUnique({ where: { id } });
   if (!listing) return reply.status(404).send({ error: 'Imóvel não encontrado.' });
+
+  const issues = publicationIssues(listing, await prisma.listingImage.count({ where: { listingId: id } }));
+  if (issues.length) return reply.status(400).send({ error: issues.join(' ') });
 
   const updated = await prisma.listing.update({
     where: { id },

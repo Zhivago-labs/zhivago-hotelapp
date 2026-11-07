@@ -52,7 +52,7 @@ export async function getUserProfile(
     const listings = await prisma.listing.findMany({
       where: {
         ...listingsWhere,
-        status: 'APPROVED',
+        status: 'APPROVED', isDemo: false,
       },
       orderBy: { createdAt: 'desc' },
       include: {
@@ -74,7 +74,7 @@ export async function getUserProfile(
     });
 
     const reviews = await prisma.review.findMany({
-      where: { listing: { ...listingsWhere, status: 'APPROVED' } },
+      where: { listing: { ...listingsWhere, status: 'APPROVED', isDemo: false } },
       include: {
         user: { select: { name: true, avatar: true } },
         listing: { select: { name: true, id: true } },

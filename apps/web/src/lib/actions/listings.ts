@@ -28,8 +28,7 @@ export async function createListingAction(
   const images = formData.getAll("images").filter((file): file is File => file instanceof File && file.size > 0);
   const category = String(formData.get("category") ?? "aluguel");
   const operationType = String(formData.get("operationType") ?? "");
-  // O backend só aceita "DRAFT" ou "PENDING" — todo anúncio novo entra em moderação
-  // e só fica público quando um admin aprova (nunca "APPROVED" direto na criação).
+  // PENDING é aprovado automaticamente para pessoa física. Imobiliárias moderam pela equipe.
   const status = formData.get("intent") === "draft" ? "DRAFT" : "PENDING";
 
   // O backend agora também aceita localização estruturada (seção 62 da spec), mas `location`
@@ -44,17 +43,17 @@ export async function createListingAction(
   const streetLine = [logradouro, numero].filter(Boolean).join(", ");
   const location = cidade && uf ? [streetLine, bairro, `${cidade}, ${uf}`].filter(Boolean).join(" - ") : "";
 
-  // Rascunho existe pra guardar progresso incompleto — só a publicação (status PENDING, que vai
-  // pra moderação) exige o anúncio completo. O backend em si só barra a falta de imagens.
+  // Publicação exige os campos completos; rascunhos aceitam informações parciais.
   if (status === "PENDING") {
-    if (!name || !price) {
+    if (!name || !(Number(price) > 0) || !Number.isFinite(Number(price))) {
       return { error: "Preencha título e preço para publicar." };
     }
-    if (!location) {
+    if (formData.get("structureConfirmed") !== "true") return { error: "Confirme as quantidades de cômodos e vagas." };
+    if (!location || cep.replace(/\D/g, "").length !== 8 || !/^[A-Za-z]{2}$/.test(uf)) {
       return { error: "Preencha o CEP e confirme cidade e UF do imóvel para publicar." };
     }
   }
-  if (images.length === 0) {
+  if (status === "PENDING" && images.length === 0) {
     return { error: "Selecione ao menos uma imagem para o anúncio." };
   }
 
@@ -86,7 +85,11 @@ export async function createListingAction(
   if (privateArea) payload.set("privateArea", privateArea);
   if (totalArea) payload.set("totalArea", totalArea);
   const amenitiesStr = String(formData.get("amenities") ?? "");
-  if (amenitiesStr) payload.set("amenities", amenitiesStr);
+  if (amenitiesStr) {
+    const chosen = JSON.parse(amenitiesStr) as string[];
+    const filtered = chosen.filter(id => !['pet_friendly', 'estacionamento', 'cameras'].includes(id) && (operationType === 'DAILY_RENT' || formData.get('isFurnished') === 'true' || !['wifi', 'tv', 'cafeteira', 'maquina_lavar', 'cozinha'].includes(id)));
+    payload.set('amenities', JSON.stringify(filtered));
+  }
 
   const checkInTime = String(formData.get("checkInTime") ?? "15:00");
   const checkOutTime = String(formData.get("checkOutTime") ?? "11:00");
@@ -97,6 +100,7 @@ export async function createListingAction(
   const minimumNights = String(formData.get("minimumNights") ?? "");
   const cleaningFee = String(formData.get("cleaningFee") ?? "");
 
+  if (operationType === "DAILY_RENT") {
   payload.set("checkInTime", checkInTime);
   payload.set("checkOutTime", checkOutTime);
   if (customMaxGuests) payload.set("customMaxGuests", customMaxGuests);
@@ -106,11 +110,13 @@ export async function createListingAction(
   if (minimumNights) payload.set("minimumNights", minimumNights);
   if (cleaningFee) payload.set("cleaningFee", cleaningFee);
 
+  }
+
   // Condições de VENDA (seção 66 da spec)
   const condoFee = String(formData.get("condoFee") ?? "");
   const iptuAnnual = String(formData.get("iptuAnnual") ?? "");
-  if (condoFee) payload.set("condoFee", condoFee);
-  if (iptuAnnual) payload.set("iptuAnnual", iptuAnnual);
+  if (operationType !== "DAILY_RENT" && condoFee) payload.set("condoFee", condoFee);
+  if (operationType === "SALE" && iptuAnnual) payload.set("iptuAnnual", iptuAnnual);
   if (operationType === "SALE") {
     payload.set("acceptsFinancing", String(formData.get("acceptsFinancing") === "true"));
     payload.set("acceptsExchange", String(formData.get("acceptsExchange") === "true"));
@@ -136,6 +142,8 @@ export async function createListingAction(
     payload.set("isFurnished", String(formData.get("isFurnished") === "true"));
     payload.set("allowPets", String(formData.get("allowPets") === "true"));
   }
+
+  payload.set("isFurnished", String(formData.get("isFurnished") === "true"));
 
   // Atendimento/CRM (seção 72 da spec) — só relevante pra imóvel de organização.
   const buildingId = String(formData.get("buildingId") ?? "").trim();

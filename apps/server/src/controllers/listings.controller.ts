@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { parse as parseCsv } from 'csv-parse/sync';
 
 import path from 'node:path';
+import { publicationIssues, omitOtherModalities } from '../lib/listing-publication.js';
 import { prisma } from '../lib/prisma.js';
 import { saveListingPhoto, InvalidImageError } from '../lib/images.js';
 import { sendNotification } from '../services/notification.service.js';
@@ -81,7 +82,7 @@ export async function getListings(
       // Só o que está disponível: vendido (SOLD) e alugado (RENTED) somem das telas públicas — o
       // link direto continua abrindo (getListingById) e o dono os vê no painel.
       where: {
-        status: 'APPROVED'
+        status: 'APPROVED', isDemo: false
       },
       orderBy: { createdAt: 'desc' },
       include: {
@@ -156,7 +157,7 @@ export async function getListingById(
       // sem token válido — segue como visitante anônimo
     }
 
-    const isPublicStatus = ['APPROVED', 'SOLD', 'RENTED'].includes(listing.status);
+    const isPublicStatus = !listing.isDemo && ['APPROVED', 'SOLD', 'RENTED'].includes(listing.status);
     const isAdmin = requesterRole === 'ADMIN';
 
     // Anúncio de organização (B2B): "dono" é o corretor responsável ou quem gerencia a
@@ -230,11 +231,11 @@ export async function getSimilarListings(request: FastifyRequest, reply: Fastify
   const { id } = request.params as { id: string };
 
   const listing = await prisma.listing.findUnique({ where: { id } });
-  if (!listing) return reply.status(404).send({ error: 'Imóvel não encontrado.' });
+  if (!listing || listing.isDemo || !['APPROVED', 'SOLD', 'RENTED'].includes(listing.status)) return reply.status(404).send({ error: 'Imóvel não encontrado.' });
 
   // Nunca sugerir modalidade comercial incompatível (seção 94) — filtro rígido, não só pontuação.
   const candidates = await prisma.listing.findMany({
-    where: { id: { not: id }, status: 'APPROVED', operationType: listing.operationType },
+    where: { id: { not: id }, status: 'APPROVED', isDemo: false, operationType: listing.operationType },
     include: PUBLIC_LISTING_INCLUDE,
     take: SIMILAR_LISTINGS_CANDIDATE_POOL,
     orderBy: { createdAt: 'desc' },
@@ -286,7 +287,7 @@ export async function createListing(
         // Sempre drena o stream do arquivo, mesmo além do limite, para não travar
         // as próximas parts do multipart (busboy exige que cada file part seja consumida).
         const buffer = await part.toBuffer();
-        if (imageUrls.length >= MAX_LISTING_IMAGES) continue;
+        if (imageUrls.length >= MAX_LISTING_IMAGES) return reply.status(400).send({ error: 'Envie no máximo 10 fotos.' });
 
         // Nome original só como sufixo legível — sem espaços/acentos, que viram %20 na URL.
         const safeName = path.parse(part.filename).name.replace(/[^a-zA-Z0-9_-]+/g, '-').slice(0, 60);
@@ -297,19 +298,19 @@ export async function createListing(
       }
     }
 
-    if (imageUrls.length === 0) {
+    if (formData.status !== 'DRAFT' && imageUrls.length === 0) {
       return reply.status(400).send({ error: 'Envie ao menos uma imagem para o anúncio.' });
     }
 
     const schema = z.object({
-      name: z.string(),
+      name: z.string().default(''),
       description: z.string().optional(),
-      price: z.coerce.number(),
+      price: z.coerce.number().default(0),
       type: z.string(),
       category: z.string(),
       billingCycle: z.string().optional(),
       operationType: z.enum(['SALE', 'MONTHLY_RENT', 'DAILY_RENT']).optional(),
-      location: z.string(),
+      location: z.string().default(''),
       cep: z.string().optional(),
       logradouro: z.string().optional(),
       numero: z.string().optional(),
@@ -352,6 +353,13 @@ export async function createListing(
     });
 
     const { status, buildingId, assignedAgentId, assumeBuildingLeads, ...data } = schema.parse(formData);
+    const operation = data.operationType ?? deriveOperationType(data.category, data.billingCycle);
+    omitOtherModalities(data, operation);
+    if (status !== 'DRAFT') {
+      const issues = publicationIssues({ ...data, operationType: operation }, imageUrls.length);
+      if (issues.length) return reply.status(400).send({ error: issues.join(' ') });
+    }
+
 
     // B2B (Organization/OrganizationMember): quem pertence a uma organização cria o anúncio em
     // nome dela — organizationId no lugar de ownerId, agentId é quem criou, nunca os dois campos
@@ -416,14 +424,14 @@ export async function createListing(
         privateArea: data.privateArea ?? null,
         totalArea: data.totalArea ?? null,
         amenities: data.amenities ?? null,
-        checkInTime: data.checkInTime ?? "15:00",
-        checkOutTime: data.checkOutTime ?? "11:00",
+        checkInTime: data.checkInTime ?? null,
+        checkOutTime: data.checkOutTime ?? null,
         customMaxGuests: data.customMaxGuests ?? null,
         minimumNights: data.minimumNights ?? null,
         cleaningFee: data.cleaningFee ?? null,
         houseRules: data.houseRules ?? null,
         safetyItems: data.safetyItems ?? null,
-        cancellationPolicy: data.cancellationPolicy ?? "FLEXIBLE",
+        cancellationPolicy: data.cancellationPolicy ?? null,
         condoFee: data.condoFee ?? null,
         iptuAnnual: data.iptuAnnual ?? null,
         acceptsFinancing: data.acceptsFinancing ?? false,
@@ -433,8 +441,8 @@ export async function createListing(
         minimumLeaseMonths: data.minimumLeaseMonths ?? null,
         guaranteeTypes: data.guaranteeTypes ?? null,
         isFurnished: data.isFurnished ?? false,
-        allowPets: data.allowPets ?? true,
-        acceptsNegotiation: data.acceptsNegotiation ?? true,
+        allowPets: data.allowPets ?? null,
+        acceptsNegotiation: data.acceptsNegotiation ?? false,
         minNegotiablePrice: data.minNegotiablePrice ?? null,
         operationType: data.operationType ?? deriveOperationType(data.category, data.billingCycle),
         createdById: userId,
@@ -611,6 +619,15 @@ export async function updateListing(
     updateData.operationType = deriveOperationType(nextCategory, nextBillingCycle);
   }
 
+  const operation = updateData.operationType ?? listing.operationType;
+  omitOtherModalities(updateData, operation);
+  const effectiveStatus = updateData.status ?? listing.status;
+  if (effectiveStatus === 'PENDING' || effectiveStatus === 'APPROVED') {
+    const imageCount = await prisma.listingImage.count({ where: { listingId: id } });
+    const issues = publicationIssues({ ...listing, ...updateData }, imageCount);
+    if (issues.length) return reply.status(400).send({ error: issues.join(' ') });
+  }
+
   // Mesma regra de moderação automática da criação: imóvel de pessoa física (sem organização)
   // que está sendo enviado pra análise (ex.: publicar um rascunho) já nasce aprovado.
   if (updateData.status === 'PENDING' && !listing.organizationId) {
@@ -740,6 +757,9 @@ export async function approveOrgListing(
   const denied = await requireOrgListingManager(userId, listing);
   if (denied) return reply.status(denied.code).send({ error: denied.error });
 
+  const issues = publicationIssues(listing, await prisma.listingImage.count({ where: { listingId: id } }));
+  if (issues.length) return reply.status(400).send({ error: issues.join(' ') });
+
   const updated = await prisma.listing.update({
     where: { id },
     data: { status: 'APPROVED', rejectReason: null },
@@ -865,6 +885,7 @@ export async function duplicateListing(
   const duplicate = await prisma.listing.create({
     data: {
       name: `${listing.name} (cópia)`,
+      isDemo: listing.isDemo,
       description: listing.description,
       price: listing.price,
       type: listing.type,

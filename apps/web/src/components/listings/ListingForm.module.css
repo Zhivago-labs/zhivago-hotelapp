@@ -734,3 +734,17 @@
   opacity: 0.6;
   cursor: default;
 }
+
+.form :focus-visible { outline: 3px solid var(--accent, #ff385c); outline-offset: 3px; }
+.form [hidden] { display: none !important; }
+.wizardNavFooter { position: fixed; bottom: 0; padding: 12px; }
+.form { padding-bottom: calc(var(--listing-actions-height, 120px) + 24px); }
+.form, .stepContent, .finalStepLeft, .previewSidebar, .finalStepGrid > * { min-width: 0; }
+.form dd { margin-inline-start: 0; overflow-wrap: anywhere; }
+.previewPriceRow { flex-wrap: wrap; }
+.previewPriceVal { overflow-wrap: anywhere; }
+@media(max-width: 640px) { .airbnbRow { flex-wrap: wrap; gap: 12px; } .section { padding: 18px; } }
+.wizardNavContainer, .wizardNavRight { flex-wrap: wrap; gap: 8px; }
+.wizardNavRight { justify-content: flex-end; }
+.actionStatus { max-width: 1280px; margin: 0 auto 8px; font-size: 13px; overflow-wrap: anywhere; }
+@media(max-width: 640px) { .wizardNavContainer > *, .wizardNavRight { flex: 1 1 auto; } .wizardNavRight button { padding: 12px; flex: 1; } }

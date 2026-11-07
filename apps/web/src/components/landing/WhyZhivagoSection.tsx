@@ -7,13 +7,13 @@ import styles from "./WhyZhivagoSection.module.css";
 const ITEMS = [
   {
     icon: ClipboardCheck,
-    title: "Anúncios aprovados antes de publicar",
-    text: "Nenhum anúncio entra direto no ar: cada um passa por aprovação antes de aparecer na busca.",
+    title: "Publicação com regras claras",
+    text: "Pessoas físicas publicam diretamente. Anúncios de imobiliárias passam pela aprovação da própria equipe.",
   },
   {
     icon: BadgeCheck,
     title: "Imobiliárias verificadas",
-    text: "Imobiliárias aprovadas pela equipe Zhivago exibem o selo de verificação nos anúncios.",
+    text: "O selo identifica imobiliárias verificadas pela equipe Zhivago. Ele não garante a autenticidade de cada imóvel.",
   },
   {
     icon: MessageCircle,
