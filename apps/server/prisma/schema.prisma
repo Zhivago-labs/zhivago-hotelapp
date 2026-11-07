@@ -364,6 +364,10 @@ model Organization {
   name     String
   type     String @default("AGENCY") // "AGENCY" | "INDIVIDUAL" — reservado p/ CONSTRUTORA, INCORPORADORA no futuro
   document String // CNPJ
+  legalName String?
+  address String?
+  businessHours String?
+  whatsapp String?
 
   email       String?
   phone       String?

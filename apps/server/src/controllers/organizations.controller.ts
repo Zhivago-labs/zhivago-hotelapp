@@ -68,6 +68,7 @@ export async function getMyOrganization(
     include: {
       organization: {
         include: {
+          listings: { where: { operationType: 'DAILY_RENT' }, select: { operationType: true }, take: 1 },
           members: {
             where: { status: 'ACTIVE' },
             include: { user: { select: { id: true, name: true, email: true, avatar: true } } },
@@ -84,7 +85,7 @@ export async function getMyOrganization(
     return reply.status(404).send({ error: 'Você não pertence a nenhuma organização.' });
   }
 
-  if (!membership) {
+  if (!membership || membership.status !== 'ACTIVE') {
     // Para contas AGENCY que já preencheram CNPJ no cadastro (Fase A "de verdade"), auto-inicializa
     // a organização com esses dados. Checar `document` (não só `accountType`) evita criar uma
     // organização fantasma para alguém que só virou AGENCY por ter aceitado um convite (ver
@@ -94,7 +95,7 @@ export async function getMyOrganization(
     if (user && user.accountType === 'AGENCY' && user.document) {
       const organization = await prisma.organization.create({
         data: {
-          name: user.companyName || user.name,
+          name: user.companyName || "Imobiliária",
           logo: user.logoUrl,
           coverUrl: user.coverUrl,
           description: user.publicDescription,
@@ -118,7 +119,7 @@ export async function getMyOrganization(
     return reply.status(404).send({ error: 'Você não pertence a nenhuma organização.' });
   }
 
-  return reply.send({ role: membership.role, organization: membership.organization });
+  return reply.send({ role: membership.role, organization: { ...membership.organization, hasSeason: membership.organization.listings.length > 0 } });
 }
 
 // ─── CONVITES (caminho único: sempre OrganizationInvite → aceito → OrganizationMember) ───────
@@ -342,8 +343,9 @@ export async function removeMember(
   }
 
   const owner = await prisma.organizationMember.findFirst({
-    where: { organizationId: membership.organizationId, role: 'OWNER' },
+    where: { organizationId: membership.organizationId, role: 'OWNER', status: 'ACTIVE' },
   });
+  if (!owner) return reply.status(409).send({ error: 'A imobiliária precisa de um proprietário ativo antes de remover membros.' });
 
   // Leads ainda abertos com este membro precisam de um responsável antes dele sair — sem isso
   // ficariam "presos" com alguém que não tem mais acesso (ver resolveLeadAccess/canViewLeadAccess
@@ -402,7 +404,7 @@ export async function getOrganizationListings(
     include: {
       images: { orderBy: { order: 'asc' } },
       agent: { select: { id: true, name: true, email: true, avatar: true } },
-      _count: { select: { conversations: true } },
+      _count: { select: { conversations: true, leads: true } },
     },
   });
 
@@ -418,16 +420,17 @@ export async function getMyAssignedListings(
   const { id: userId } = request.user as { id: string };
 
   const membership = await getMembership(userId);
-  if (!membership) {
+  if (!membership || membership.status !== 'ACTIVE') {
     return reply.status(404).send({ error: 'Você não pertence a nenhuma organização.' });
   }
 
   const listings = await prisma.listing.findMany({
-    where: { agentId: userId },
+    where: { organizationId: membership.organizationId, agentId: userId },
     orderBy: { createdAt: 'desc' },
     include: {
       images: { orderBy: { order: 'asc' } },
-      _count: { select: { conversations: true } },
+      agent: { select: { id: true, name: true, avatar: true } },
+      _count: { select: { conversations: true, leads: true } },
     },
   });
 
@@ -476,11 +479,11 @@ export async function updateMemberReceiveLeads(
   if (!parsed.success) return reply.status(400).send({ error: parsed.error.errors });
 
   const callerMembership = await getMembership(userId);
-  if (!callerMembership) return reply.status(404).send({ error: 'Você não pertence a nenhuma organização.' });
+  if (!callerMembership || callerMembership.status !== 'ACTIVE') return reply.status(404).send({ error: 'Você não pertence a nenhuma organização.' });
 
   const targetMembership =
     targetUserId === userId ? callerMembership : await getMembership(targetUserId);
-  if (!targetMembership || targetMembership.organizationId !== callerMembership.organizationId) {
+  if (!targetMembership || targetMembership.status !== 'ACTIVE' || targetMembership.organizationId !== callerMembership.organizationId) {
     return reply.status(404).send({ error: 'Esse usuário não é membro da sua organização.' });
   }
 

@@ -2,12 +2,13 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Camera, ImagePlus, Trash2, Building2, Phone, Save } from "lucide-react";
+import { Camera, MediaImagePlus as ImagePlus, Trash as Trash2, Building as Building2, Phone, FloppyDisk as Save } from "iconoir-react";
 import { getPublicApiUrl } from "@/lib/public-api";
 import forms from "@/components/settings/SettingsForms.module.css";
 import styles from "./ShowcaseForm.module.css";
 
 type Values = {
+  legalName?: string | null; address?: string | null; businessHours?: string | null; whatsapp?: string | null;
   name: string;
   logo: string | null;
   coverUrl: string | null;
@@ -97,7 +98,7 @@ export function ShowcaseForm({ initial, token }: { initial: Values; token: strin
     <form onSubmit={submit} className={forms.form}>
       {/* ── Capa e logo, no mesmo arranjo da vitrine ── */}
       <section className={styles.section} aria-labelledby="showcase-images">
-        <h2 id="showcase-images" className={styles.sectionTitle}><Camera size={18} /> Capa e logo</h2>
+        <h2 id="showcase-images" className={styles.sectionTitle}><Camera width={18} height={18} /> Capa e logo</h2>
 
         <div className={styles.cover}>
           {values.coverUrl ? (
@@ -109,11 +110,11 @@ export function ShowcaseForm({ initial, token }: { initial: Values; token: strin
           {uploading === "cover" && <span className={styles.overlaySpinner} aria-label="Enviando capa" />}
           <div className={styles.coverActions}>
             <button type="button" className={styles.overlayButton} disabled={busy} onClick={() => coverInput.current?.click()}>
-              <ImagePlus size={15} /> {values.coverUrl ? "Trocar capa" : "Enviar capa"}
+              <ImagePlus width={15} height={15} /> {values.coverUrl ? "Trocar capa" : "Enviar capa"}
             </button>
             {values.coverUrl && (
               <button type="button" className={styles.overlayButton} disabled={busy} onClick={() => set({ coverUrl: null })} aria-label="Remover capa">
-                <Trash2 size={15} />
+                <Trash2 width={15} height={15} />
               </button>
             )}
           </div>
@@ -132,11 +133,11 @@ export function ShowcaseForm({ initial, token }: { initial: Values; token: strin
           <div className={styles.logoActions}>
             <div className={styles.buttonRow}>
               <button type="button" className={forms.avatarButton} disabled={busy} onClick={() => logoInput.current?.click()}>
-                <ImagePlus size={15} /> {values.logo ? "Trocar logo" : "Enviar logo"}
+                <ImagePlus width={15} height={15} /> {values.logo ? "Trocar logo" : "Enviar logo"}
               </button>
               {values.logo && (
                 <button type="button" className={forms.avatarButton} disabled={busy} onClick={() => set({ logo: null })}>
-                  <Trash2 size={15} /> Remover
+                  <Trash2 width={15} height={15} /> Remover
                 </button>
               )}
             </div>
@@ -154,7 +155,7 @@ export function ShowcaseForm({ initial, token }: { initial: Values; token: strin
 
       {/* ── Informações ── */}
       <section className={styles.section} aria-labelledby="showcase-info">
-        <h2 id="showcase-info" className={styles.sectionTitle}><Building2 size={18} /> Informações</h2>
+        <h2 id="showcase-info" className={styles.sectionTitle}><Building2 width={18} height={18} /> Informações</h2>
         <div className={forms.fieldRow}>
           <div className={forms.fieldGroup}>
             <label className={forms.label} htmlFor="showcase-name">Nome da imobiliária</label>
@@ -178,10 +179,10 @@ export function ShowcaseForm({ initial, token }: { initial: Values; token: strin
 
       {/* ── Contato ── */}
       <section className={styles.section} aria-labelledby="showcase-contact">
-        <h2 id="showcase-contact" className={styles.sectionTitle}><Phone size={18} /> Contato público</h2>
+        <h2 id="showcase-contact" className={styles.sectionTitle}><Phone width={18} height={18} /> Contato público</h2>
         <div className={forms.fieldRow}>
           <div className={forms.fieldGroup}>
-            <label className={forms.label} htmlFor="showcase-phone">WhatsApp comercial (com DDD)</label>
+            <label className={forms.label} htmlFor="showcase-phone">Telefone comercial (com DDD)</label>
             <input id="showcase-phone" className={forms.input} type="tel" maxLength={30} placeholder="(11) 99999-0000"
               value={values.phone || ""} onChange={(e) => set({ phone: e.target.value })} />
           </div>
@@ -191,15 +192,23 @@ export function ShowcaseForm({ initial, token }: { initial: Values; token: strin
               value={values.email || ""} onChange={(e) => set({ email: e.target.value })} />
           </div>
         </div>
-        <p className={forms.avatarHint}>O botão “Falar com a imobiliária” da vitrine abre o WhatsApp; sem WhatsApp, usa o e-mail.</p>
+        <p className={forms.avatarHint}>O contato da vitrine usa o WhatsApp cadastrado, o telefone comercial ou o e-mail comercial.</p>
       </section>
 
+      {initial.legalName !== undefined && <section className={styles.section} aria-label="Dados da empresa">
+        <h2 className={styles.sectionTitle}>Dados da empresa</h2>
+        <p className={forms.avatarHint}>Razão social e endereço completo são internos. Nome comercial, logo, capa, descrição, cidade, telefone, WhatsApp, e-mail e horário de atendimento são públicos. Nenhum dado pessoal é copiado.</p>
+        {([["legalName", "Razão social (interna)", 200], ["address", "Endereço completo (interno)", 500], ["businessHours", "Horário de atendimento (público)", 500], ["whatsapp", "WhatsApp comercial (público, com DDD)", 30]] as const).map(([key, label, maxLength]) => <div className={forms.fieldGroup} key={key}>
+          <label className={forms.label} htmlFor={key}>{label}</label>
+          <input id={key} className={forms.input} maxLength={maxLength} type={key === "whatsapp" ? "tel" : "text"} value={values[key] || ""} onChange={event => set({ [key]: event.target.value })} />
+        </div>)}
+      </section>}
       {error && <p role="alert" className={forms.errorAlert}>{error}</p>}
       {success && <p role="status" className={forms.successAlert}>{success}</p>}
 
       <div className={styles.footer}>
         <button type="submit" className={forms.submitButton} disabled={busy}>
-          <Save size={16} /> {pending ? "Salvando…" : "Salvar alterações"}
+          <Save width={16} height={16} /> {pending ? "Salvando…" : "Salvar alterações"}
         </button>
         {dirty && !pending && <span className={styles.unsaved}>Há alterações não salvas</span>}
       </div>

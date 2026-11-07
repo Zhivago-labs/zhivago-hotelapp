@@ -91,7 +91,7 @@ export async function getListings(
             name: true,
             avatar: true,
             accountType: true,
-            companyName: true,
+            companyName: true, logoUrl: true,
             creci: true,
             verified: true,
           },
@@ -128,7 +128,7 @@ export async function getListingById(
             email: true,
             phone: true,
             accountType: true,
-            companyName: true,
+            companyName: true, logoUrl: true,
             creci: true,
             verified: true,
           },
@@ -169,7 +169,7 @@ export async function getListingById(
       } else {
         const membership = await prisma.organizationMember.findUnique({ where: { userId: requesterId } });
         isOwner =
-          membership?.organizationId === listing.organizationId &&
+          membership?.status === 'ACTIVE' && membership.organizationId === listing.organizationId &&
           (membership.role === 'OWNER' || membership.role === 'ADMIN');
       }
     }
@@ -220,7 +220,7 @@ const SIMILAR_LISTINGS_CANDIDATE_POOL = 300;
 
 const PUBLIC_LISTING_INCLUDE = {
   owner: {
-    select: { id: true, name: true, avatar: true, accountType: true, companyName: true, creci: true, verified: true },
+    select: { id: true, name: true, avatar: true, accountType: true, companyName: true, logoUrl: true, creci: true, verified: true },
   },
   organization: { select: { id: true, name: true, logo: true, verified: true } },
   images: { orderBy: { order: 'asc' as const } },
@@ -271,6 +271,10 @@ export async function createListing(
   const { id: userId, role } = request.user as { id: string; role: string };
   if (role === 'ADMIN') {
     return reply.status(403).send({ error: 'Administradores não podem criar anúncios.' });
+  }
+  const activeMembership = await prisma.organizationMember.findUnique({ where: { userId } });
+  if (activeMembership && (activeMembership.status !== 'ACTIVE' || !['OWNER', 'ADMIN', 'BROKER'].includes(activeMembership.role))) {
+    return reply.status(403).send({ error: 'Sem permissão para criar anúncios nesta imobiliária.' });
   }
   const parts = request.parts();
   const imageUrls: string[] = [];
@@ -362,6 +366,9 @@ export async function createListing(
     // "Responsável por este imóvel" (seção 73) só se aplica a organização, e só se o usuário
     // escolhido de fato pertencer a ela — senão cai no padrão (quem criou é o agent).
     let resolvedAgentId = membership ? userId : null;
+    if (membership && assignedAgentId && assignedAgentId !== userId && !['OWNER', 'ADMIN'].includes(membership.role)) {
+      return reply.status(403).send({ error: 'Somente proprietário ou administrador pode redistribuir o responsável pelo imóvel.' });
+    }
     if (membership && assignedAgentId) {
       const chosen = await prisma.organizationMember.findUnique({ where: { userId: assignedAgentId } });
       if (chosen && chosen.organizationId === membership.organizationId) {
@@ -471,10 +478,10 @@ export async function createListing(
  */
 export async function myListingsWhere(userId: string) {
   const membership = await prisma.organizationMember.findUnique({ where: { userId } });
-  if (!membership) return { ownerId: userId };
+  if (!membership || membership.status !== 'ACTIVE') return { ownerId: userId };
   return membership.role === 'OWNER' || membership.role === 'ADMIN'
     ? { organizationId: membership.organizationId }
-    : { agentId: userId };
+    : { organizationId: membership.organizationId, agentId: userId };
 }
 
 export async function getMyListings(
@@ -511,7 +518,7 @@ export async function canManageOrgListing(
 ): Promise<boolean> {
   if (!listing.organizationId) return false;
   const membership = await prisma.organizationMember.findUnique({ where: { userId } });
-  if (!membership || membership.organizationId !== listing.organizationId) return false;
+  if (!membership || membership.status !== 'ACTIVE' || membership.organizationId !== listing.organizationId) return false;
   if (membership.role === 'OWNER' || membership.role === 'ADMIN') return true;
   return membership.role === 'BROKER' && listing.agentId === userId;
 }
@@ -616,8 +623,17 @@ export async function updateListing(
   let buildingLeadOwnershipError: string | null = null;
   if (listing.organizationId) {
     if (assignedAgentId !== undefined) {
+      if (assignedAgentId && assignedAgentId !== listing.agentId) {
+        const actor = await prisma.organizationMember.findUnique({ where: { userId } });
+        if (!actor || actor.status !== 'ACTIVE' || !['OWNER', 'ADMIN'].includes(actor.role)) {
+          return reply.status(403).send({ error: 'Somente proprietário ou administrador pode redistribuir o responsável pelo imóvel.' });
+        }
+      }
       const chosen = await prisma.organizationMember.findUnique({ where: { userId: assignedAgentId } });
-      updateData.agentId = chosen && chosen.organizationId === listing.organizationId ? assignedAgentId : listing.agentId;
+      if (assignedAgentId && (!chosen || chosen.status !== 'ACTIVE' || chosen.organizationId !== listing.organizationId)) {
+        return reply.status(400).send({ error: 'Escolha um membro ativo desta imobiliária.' });
+      }
+      updateData.agentId = chosen && chosen.status === 'ACTIVE' && chosen.organizationId === listing.organizationId ? assignedAgentId : listing.agentId;
     }
     if (buildingId !== undefined) {
       if (buildingId === null) {
@@ -657,7 +673,7 @@ export async function reassignListingAgent(
 
   const membership = await prisma.organizationMember.findUnique({ where: { userId } });
   if (
-    !membership ||
+    !membership || membership.status !== 'ACTIVE' ||
     membership.organizationId !== listing.organizationId ||
     (membership.role !== 'OWNER' && membership.role !== 'ADMIN')
   ) {
@@ -669,7 +685,7 @@ export async function reassignListingAgent(
   if (!parsed.success) return reply.status(400).send({ error: parsed.error.errors });
 
   const newAgentMembership = await prisma.organizationMember.findFirst({
-    where: { userId: parsed.data.agentId, organizationId: listing.organizationId },
+    where: { userId: parsed.data.agentId, organizationId: listing.organizationId, status: 'ACTIVE' },
   });
   if (!newAgentMembership) {
     return reply.status(400).send({ error: 'O corretor precisa ser membro da mesma organização.' });
@@ -699,7 +715,7 @@ async function requireOrgListingManager(
     return { error: 'Este imóvel não pertence a uma organização.', code: 400 };
   }
   const membership = await prisma.organizationMember.findUnique({ where: { userId } });
-  if (!membership || membership.organizationId !== listing.organizationId) {
+  if (!membership || membership.status !== 'ACTIVE' || membership.organizationId !== listing.organizationId) {
     return { error: 'Sem permissão sobre este imóvel.', code: 403 };
   }
   if (membership.role !== 'OWNER' && membership.role !== 'ADMIN') {
@@ -918,9 +934,12 @@ export async function importListings(
   reply: FastifyReply
 ): Promise<void> {
   const { id: ownerId } = request.user as { id: string };
-
+  const importMembership = await prisma.organizationMember.findUnique({ where: { userId: ownerId } });
+  if (importMembership && (importMembership.status !== 'ACTIVE' || !['OWNER', 'ADMIN', 'BROKER'].includes(importMembership.role))) {
+    return reply.status(403).send({ error: 'Sem permissão para importar anúncios nesta imobiliária.' });
+  }
   const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { accountType: true } });
-  if (!owner || owner.accountType !== 'AGENCY') {
+  if (!owner || (owner.accountType !== 'AGENCY' && !importMembership)) {
     return reply.status(403).send({ error: 'Importação em lote é exclusiva para contas Imobiliária.' });
   }
 
@@ -1027,7 +1046,9 @@ export async function importListings(
               ...data,
               operationType: deriveOperationType(data.category, data.billingCycle),
               createdById: ownerId,
-              ownerId,
+              ownerId: importMembership ? null : ownerId,
+              organizationId: importMembership?.organizationId ?? null,
+              agentId: importMembership ? ownerId : null,
               status: 'DRAFT',
               images: { create: imageUrls.map((url, order) => ({ url, order })) },
             },
@@ -1065,7 +1086,7 @@ export async function deleteListing(
   if (!isOwner && !isAdmin && listing.organizationId) {
     const membership = await prisma.organizationMember.findUnique({ where: { userId } });
     canManageOrgHere =
-      membership?.organizationId === listing.organizationId &&
+      membership?.status === 'ACTIVE' && membership.organizationId === listing.organizationId &&
       (membership.role === 'OWNER' || membership.role === 'ADMIN');
   }
 

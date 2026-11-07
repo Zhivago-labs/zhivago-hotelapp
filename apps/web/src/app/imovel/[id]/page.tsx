@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import {
   ArrowLeft,
@@ -223,8 +223,8 @@ export default async function ListingPage({ params }: Params) {
   // organização, representada pelo corretor responsável (`agent`) como contato/link de perfil.
   const advertiser = listing.owner
     ? {
-        name: listing.owner.companyName || listing.owner.name,
-        avatar: listing.owner.avatar,
+        name: listing.owner.accountType === "AGENCY" ? listing.owner.companyName || "Imobiliária" : listing.owner.name,
+        avatar: listing.owner.accountType === "AGENCY" ? listing.owner.logoUrl ?? null : listing.owner.avatar,
         isAgency: listing.owner.accountType === "AGENCY",
         verified: listing.owner.verified ?? false,
         profileHref: `/imobiliaria/${listing.owner.id}`,
@@ -232,7 +232,7 @@ export default async function ListingPage({ params }: Params) {
     : listing.organization && listing.agent
       ? {
           name: listing.organization.name,
-          avatar: listing.organization.logo ?? listing.agent.avatar,
+          avatar: listing.organization.logo,
           isAgency: true,
           verified: listing.organization.verified,
           profileHref: `/imobiliaria/${listing.agent.id}`,
@@ -241,9 +241,7 @@ export default async function ListingPage({ params }: Params) {
 
   // Contas de imobiliária só enxergam o próprio inventário — qualquer anúncio de
   // outro dono é bloqueado, mesmo por link direto.
-  if (user?.accountType === "AGENCY" && user.role !== "ADMIN" && !isOwner) {
-    redirect("/dashboard");
-  }
+
 
   const hasDiscount = Boolean(listing.originalPrice && Number(listing.originalPrice) > listing.price);
   const discountPercent = hasDiscount

@@ -1,4 +1,3 @@
-import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import type { Listing, ListingType } from "@zhivago/shared";
 import { getListings } from "@/lib/api";
@@ -27,9 +26,7 @@ export default async function ImoveisPage({ searchParams }: Props) {
   const user = await getSessionUser();
 
   // Contas de imobiliária são "back-office": gerenciam o próprio inventário
-  if (user?.accountType === "AGENCY" && user.role !== "ADMIN") {
-    redirect("/dashboard");
-  }
+
 
   // ?q=&tipo=&categoria=&precoMin=&precoMax= vêm da busca do hero da home — validados aqui e
   // usados pra inicializar o filtro do ListingsExplorer, em vez de servir só de decoração.

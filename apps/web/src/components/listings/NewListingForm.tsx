@@ -1335,6 +1335,7 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
               <button
                 type="button"
                 className={`${styles.optionCard} ${hasSpecificAgent ? styles.optionCardActive : ""}`}
+                disabled={!!myOrg && !["OWNER", "ADMIN"].includes(myOrg.role)}
                 onClick={() => setHasSpecificAgent(true)}
               >
                 <p className={styles.optionCardTitle}>Responsável por este imóvel</p>
@@ -1349,6 +1350,7 @@ export function NewListingForm({ myOrg, buildings }: { myOrg: MyOrganization | n
                 </label>
                 <select
                   id="assignedAgentSelect"
+                disabled={!!myOrg && !["OWNER", "ADMIN"].includes(myOrg.role)}
                   value={assignedAgentId}
                   onChange={(e) => setAssignedAgentId(e.target.value)}
                   className={styles.input}

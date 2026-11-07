@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Building2, Plus, Upload } from "lucide-react";
 import type { OwnedListing } from "@/lib/listings-api";
 import { OwnerListingCard } from "./OwnerListingCard";
-import styles from "@/app/dashboard/page.module.css";
+import styles from "@/app/(workspace)/dashboard/page.module.css";
 
 type Props = {
   initialListings: OwnedListing[];

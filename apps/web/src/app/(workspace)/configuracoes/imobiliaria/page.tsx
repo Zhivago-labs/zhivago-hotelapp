@@ -1,7 +1,8 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { ArrowLeft, Store, ExternalLink } from "lucide-react";
+import { ArrowLeft, Building as Store, OpenNewWindow as ExternalLink } from "iconoir-react";
 import { requireAuth } from "@/lib/session";
+import { getMyOrganization } from "@/lib/organizations-api";
 import { getAgencyProfile } from "@/lib/api";
 import { canEditShowcase } from "@/lib/showcase";
 import { ShowcaseForm } from "./ShowcaseForm";
@@ -11,7 +12,7 @@ export const metadata: Metadata = { title: "Minha imobiliária — Zhivago" };
 
 export default async function CompanySettings() {
   const { token, user } = await requireAuth("/configuracoes/imobiliaria");
-  const profile = await getAgencyProfile(user.id);
+  const [profile, membership] = await Promise.all([getAgencyProfile(user.id), getMyOrganization(token)]);
   const allowed = canEditShowcase(profile, user);
   const org = profile?.organization;
   const showcaseHref = `/imobiliaria/${user.id}`;
@@ -21,15 +22,15 @@ export default async function CompanySettings() {
       <div className={styles.container}>
         <div className={styles.header}>
           <Link href="/configuracoes" className={styles.backLink}>
-            <ArrowLeft size={18} /> Voltar às configurações
+            <ArrowLeft width={18} height={18} /> Voltar às configurações
           </Link>
           <div className={styles.titleRow}>
             <h1 className={styles.title}>
-              <Store size={28} className={styles.titleIcon} /> Minha imobiliária
+              <Store width={28} height={28} className={styles.titleIcon} /> Minha imobiliária
             </h1>
             {allowed && (
               <Link href={showcaseHref} className={styles.backLink} target="_blank">
-                Ver vitrine pública <ExternalLink size={15} />
+                Ver vitrine pública <ExternalLink width={15} height={15} />
               </Link>
             )}
           </div>
@@ -50,7 +51,8 @@ export default async function CompanySettings() {
             <ShowcaseForm
               token={token}
               initial={{
-                name: org?.name || profile.user.companyName || user.name,
+                ...(membership ? { legalName: membership.organization.legalName, address: membership.organization.address, businessHours: membership.organization.businessHours, whatsapp: membership.organization.whatsapp } : {}),
+                name: org?.name || profile.user.companyName || "Imobiliária",
                 logo: org ? org.logo : profile.user.logoUrl,
                 coverUrl: org ? org.coverUrl : profile.user.coverUrl,
                 description: org ? org.description : profile.user.publicDescription,

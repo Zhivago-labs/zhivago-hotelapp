@@ -36,13 +36,13 @@ function statusInfo(phase: BookingPhase): { label: string; bg: string; text: str
   return { label: "Confirmada", bg: "rgba(34, 197, 94, 0.08)", text: "#22c55e", border: "rgba(34, 197, 94, 0.2)" };
 }
 
-export function ReceivedBookingItem({ booking }: { booking: ReceivedBooking }) {
+export function ReceivedBookingItem({ booking, readOnly = false }: { booking: ReceivedBooking; readOnly?: boolean }) {
   const [discountModalOpen, setDiscountModalOpen] = useState(false);
   const phase = bookingPhase(booking);
   const info = statusInfo(phase);
-  const canCancel = phase === "PENDING" || phase === "CONFIRMED";
-  const canRespond = phase === "PENDING";
-  const canDiscount = phase === "PENDING" || phase === "CONFIRMED";
+  const canCancel = !readOnly && (phase === "PENDING" || phase === "CONFIRMED");
+  const canRespond = !readOnly && (phase === "PENDING");
+  const canDiscount = !readOnly && (phase === "PENDING" || phase === "CONFIRMED");
   const hasActiveDiscount = booking.discountedPrice != null && booking.discountedPrice < booking.price;
   const durationText = getDurationLabel(booking.startDate, booking.endDate);
 

@@ -1,3 +1,5 @@
+import { redirect } from "next/navigation";
+import { getMyOrganization } from "@/lib/organizations-api";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Plus, Building2 } from "lucide-react";
@@ -10,6 +12,7 @@ export const metadata: Metadata = { title: "Meus Anúncios | Zhivago" };
 
 export default async function MyListingsPage() {
   const { token, user } = await requireAuth("/meus-anuncios");
+  if (await getMyOrganization(token)) redirect("/empresa/imoveis");
   const isAgency = user.accountType === "AGENCY";
 
   let listings: OwnedListing[] = [];

@@ -3,16 +3,18 @@
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import assert from 'node:assert/strict';
 const artifacts = resolve('.tmp/showcase-browser');
 await mkdir(artifacts, { recursive: true });
+// Perfil do Edge limpo a cada execução: favoritos/cookies de uma rodada anterior quebram as asserções.
+await rm(resolve(artifacts, 'edge-profile'), { recursive: true, force: true });
 const base = 'http://localhost:3107';
 const owner = { id: 'owner', name: 'Responsável de teste', avatar: null };
 const profile = {
   user: { ...owner, accountType: 'AGENCY', companyName: 'Imobiliária de teste', createdAt: '2025-01-01T00:00:00Z', phone: null, publicPhone: null, publicEmail: null, logoUrl: null, coverUrl: null, publicDescription: null, publicLocation: null, creci: null, verified: false },
-  organization: { id: 'org', name: 'Imobiliária de teste', logo: null, coverUrl: null, description: 'Descrição usada somente no teste isolado.', publicLocation: 'São Paulo, SP', phone: '11999990000', email: null, verified: false, createdAt: '2025-01-01T00:00:00Z', members: [{ role: 'OWNER', user: owner }, { role: 'BROKER', user: { id: 'broker', name: 'Corretor de teste', avatar: null } }] },
+  organization: { id: 'org', name: 'Imobiliária de teste', logo: null, coverUrl: null, description: 'Descrição usada somente no teste isolado.', publicLocation: 'São Paulo, SP', phone: '11999990000', whatsapp: '11999990000', businessHours: null, email: null, verified: false, createdAt: '2025-01-01T00:00:00Z', members: [{ role: 'OWNER', user: owner }, { role: 'BROKER', user: { id: 'broker', name: 'Corretor de teste', avatar: null } }] },
   reviews: [],
   listings: ['SALE', 'MONTHLY_RENT', 'DAILY_RENT'].map((operationType, i) => ({ id: `listing-${i}`, name: ['Casa de venda', 'Apartamento mensal', 'Casa de temporada'][i], operationType, category: i ? 'aluguel' : 'venda', type: i === 1 ? 'apartamento' : 'casa', location: ['Centro, Santos', 'Pinheiros, São Paulo', 'Praia, Guarujá'][i], cidade: ['Santos', 'São Paulo', 'Guarujá'][i], bairro: ['Centro', 'Pinheiros', 'Praia'][i], uf: 'SP', price: [500000, 2500, 300][i], billingCycle: i === 2 ? 'noite' : 'mês', images: [{ id: 'photo-1', url: 'http://localhost:4337/fixture.svg', order: 0 }, { id: 'photo-2', url: 'http://localhost:4337/fixture.svg?second', order: 1 }], bedrooms: 2, bathrooms: 1, parking: 1, viewCount: 3 - i, createdAt: '2025-01-01T00:00:00Z', organizationId: 'org', organization: { id: 'org', name: 'Imobiliária de teste', verified: false }, status: 'APPROVED', amenities: null })),
 };

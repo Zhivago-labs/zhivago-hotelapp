@@ -29,7 +29,7 @@ import { OwnerListingsSection } from "./OwnerListingsSection";
 import { ReceivedBookingItem } from "./ReceivedBookingItem";
 import { ExportBookingsButton } from "./ExportBookingsButton";
 import { AgencyBadge } from "../AgencyBadge";
-import styles from "@/app/dashboard/page.module.css";
+import styles from "@/app/(workspace)/dashboard/page.module.css";
 
 function monthLabel(monthKey: string): string {
   const [year, month] = monthKey.split("-");

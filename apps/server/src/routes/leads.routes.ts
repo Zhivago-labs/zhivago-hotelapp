@@ -15,6 +15,7 @@ import {
 } from '../controllers/leads.controller.js';
 
 export async function leadsRoutes(app: FastifyInstance): Promise<void> {
+  app.get('/leads/workspace', { preHandler: [authenticate] }, getOrganizationLeads);
   // GET /leads — todos os leads da organização, filtro opcional ?status= (requer OWNER/ADMIN/MANAGER/ASSISTANT)
   app.get(
     '/leads',

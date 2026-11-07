@@ -56,6 +56,7 @@ export interface AgencyProfile {
     id: string; name: string; logo: string | null; verified: boolean;
     coverUrl: string | null; description: string | null; publicLocation: string | null;
     phone: string | null; email: string | null; createdAt: string;
+    whatsapp: string | null; businessHours: string | null;
     members: { role: string; user: { id: string; name: string; avatar: string | null } }[];
   } | null;
   listings: Listing[];

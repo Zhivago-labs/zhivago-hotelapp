@@ -2,6 +2,10 @@ import { getApiUrl } from "@/lib/api";
 import type { ListingImage } from "@zhivago/shared";
 
 export interface OwnedListing {
+  operationType?: "SALE" | "MONTHLY_RENT" | "DAILY_RENT";
+  organizationId?: string | null;
+  agentId?: string | null;
+  agent?: { id: string; name: string; email?: string; avatar?: string | null } | null;
   id: string;
   name: string;
   description: string | null;
@@ -18,7 +22,7 @@ export interface OwnedListing {
   amenities?: string | null;
   status: string;
   viewCount: number;
-  _count: { conversations: number };
+  _count: { conversations: number; leads?: number };
   createdAt: string;
   updatedAt: string;
 }

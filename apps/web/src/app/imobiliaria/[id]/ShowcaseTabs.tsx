@@ -30,7 +30,7 @@ export function ShowcaseTabs({ profile }: { profile: AgencyProfile }) {
       {tab === "sobre" && <>
         <h2>Sobre</h2>
         <p className={styles.description}>{description || "A imobiliária ainda não cadastrou uma descrição pública."}</p>
-        {location && <p>{location}</p>}
+        {location && <p>{location}</p>}{org?.businessHours && <p>Atendimento: {org.businessHours}</p>}
         {profile.user.creci && !org && <p>CRECI: {profile.user.creci}</p>}
         {profile.reviews.length > 0 && <div className={styles.reviews}>
           <h3>Avaliações dos imóveis</h3>

@@ -15,10 +15,10 @@ export default async function NewListingPage() {
   const myOrg = await getMyOrganization(token);
   const buildings = myOrg ? await getOrganizationBuildings(token) : [];
 
-  if (user.role === "ADMIN") {
+  if (user.role === "ADMIN" || (myOrg && !["OWNER", "ADMIN", "BROKER"].includes(myOrg.role))) {
     return (
       <main className={styles.main}>
-        <p className={styles.restricted}>Administradores não podem anunciar imóveis.</p>
+        <p className={styles.restricted}>Seu papel não permite criar anúncios.</p>
       </main>
     );
   }

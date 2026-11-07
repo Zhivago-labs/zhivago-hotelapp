@@ -13,7 +13,7 @@ import styles from "./page.module.css";
 type Params = { params: Promise<{ id: string }> };
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const profile = await getAgencyProfile((await params).id);
-  return { title: profile ? profile.organization?.name || profile.user.companyName || profile.user.name : "Perfil não encontrado" };
+  return { title: profile ? profile.organization?.name || (profile.user.accountType === "AGENCY" ? profile.user.companyName || "Imobiliária" : profile.user.name) : "Perfil não encontrado" };
 }
 export default async function AgencyPage({ params }: Params) {
   const { id } = await params;
@@ -22,16 +22,17 @@ export default async function AgencyPage({ params }: Params) {
   const viewer = await getSessionUser();
   const { user, organization: org } = profile;
   const business = !!org || user.accountType === "AGENCY";
-  const name = org?.name || user.companyName || user.name;
+  const name = org?.name || (business ? user.companyName || "Imobiliária" : user.name);
   const logo = org ? org.logo : business ? user.logoUrl : user.avatar;
   const cover = org ? org.coverUrl : user.coverUrl;
   const description = org ? org.description : user.publicDescription;
   const location = org ? org.publicLocation : user.publicLocation;
   const phone = org ? org.phone : business ? user.publicPhone : user.phone;
+  const whatsapp = org ? org.whatsapp : phone;
   const email = org ? org.email : user.publicEmail;
-  const digits = phone?.replace(/\D/g, "");
+  const digits = whatsapp?.replace(/\D/g, "");
   const international = digits ? (digits.length <= 11 ? `55${digits}` : digits) : null;
-  const contact = international ? `https://wa.me/${international}?text=${encodeURIComponent(`Olá! Vi a vitrine de ${name} no Zhivago e gostaria de informações sobre os imóveis.`)}` : email ? `mailto:${email}` : profile.listings[0] ? `/imovel/${profile.listings[0].id}#anunciante` : null;
+  const contact = international ? `https://wa.me/${international}?text=${encodeURIComponent(`Olá! Vi a vitrine de ${name} no Zhivago e gostaria de informações sobre os imóveis.`)}` : phone ? `tel:${phone.replace(/[^+\d]/g, "")}` : email ? `mailto:${email}` : profile.listings[0] ? `/imovel/${profile.listings[0].id}#anunciante` : null;
   const canEdit = !!viewer && canEditShowcase(profile, viewer);
   const responsible = org?.members.find(member => member.role === "OWNER")?.user ?? user;
   const since = new Date(org?.createdAt || user.createdAt).toLocaleDateString("pt-BR", { month: "long", year: "numeric", timeZone: "UTC" });

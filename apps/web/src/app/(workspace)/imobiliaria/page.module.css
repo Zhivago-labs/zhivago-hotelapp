@@ -21,8 +21,8 @@
 .filterBar .filterInput { flex: 1 1 180px; min-height: 40px; }
 .filterBar .filterButton { min-height: 40px; display: inline-flex; align-items: center; }
 .board:focus-visible, .main a:focus-visible, .main input:focus-visible, .main select:focus-visible, .main button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-.column[data-status="NEW"] { border-top: 3px solid #3b82f6; }
-.column[data-status="CONTACTED"], .column[data-status="QUALIFIED"] { border-top: 3px solid #8b5cf6; }
+.column[data-status="NEW"] { border-top: 3px solid var(--accent); }
+.column[data-status="CONTACTED"], .column[data-status="QUALIFIED"] { border-top: 3px solid var(--foreground); }
 .column[data-status="VISIT_SCHEDULED"], .column[data-status="PROPOSAL"], .column[data-status="NEGOTIATION"] { border-top: 3px solid #d97706; }
 .column[data-status="WON"] { border-top: 3px solid #16a34a; }
 .column[data-status="LOST"] { border-top: 3px solid #64748b; }
@@ -325,3 +325,11 @@
   .board { scroll-snap-type: x proximity; }
   .column { scroll-snap-align: start; }
 }
+
+.main { padding:24px; max-width:none; }
+.pageHeader { margin-bottom:12px; }
+.pageHeader .subtitle { margin:4px 0; }
+.filterBar { padding:10px; border-radius:6px; }
+.statsGrid { margin-bottom:12px; }
+.statTile { padding:12px; }
+@media(max-width:760px) { .main { padding:20px 14px 60px; } }

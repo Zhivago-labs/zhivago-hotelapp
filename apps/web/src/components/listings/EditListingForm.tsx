@@ -963,7 +963,8 @@ export function EditListingForm({
             <button
               type="button"
               className={`${styles.optionCard} ${hasSpecificAgent ? styles.optionCardActive : ""}`}
-              onClick={() => setHasSpecificAgent(true)}
+              disabled={!!myOrg && !["OWNER", "ADMIN"].includes(myOrg.role)}
+                onClick={() => setHasSpecificAgent(true)}
             >
               <p className={styles.optionCardTitle}>Responsável por este imóvel</p>
               <p className={styles.optionCardSubtitle}>Escolha uma pessoa específica da equipe</p>
@@ -977,6 +978,7 @@ export function EditListingForm({
               </label>
               <select
                 id="assignedAgentSelect"
+                disabled={!!myOrg && !["OWNER", "ADMIN"].includes(myOrg.role)}
                 value={assignedAgentId}
                 onChange={(e) => setAssignedAgentId(e.target.value)}
                 className={styles.input}

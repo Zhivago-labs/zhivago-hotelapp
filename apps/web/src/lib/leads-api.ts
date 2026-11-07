@@ -8,6 +8,7 @@ export interface OrganizationLeadsFilters {
   status?: string;
   brokerId?: string;
   buildingId?: string;
+  listingId?: string;
   search?: string;
   from?: string;
   to?: string;
@@ -21,7 +22,7 @@ export async function getOrganizationLeads(token: string, filters: OrganizationL
     if (value !== undefined && value !== "") params.set(key, String(value));
   }
   const query = params.toString() ? `?${params.toString()}` : "";
-  const res = await fetch(`${getApiUrl()}/leads${query}`, {
+  const res = await fetch(`${getApiUrl()}/leads/workspace${query}`, {
     headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
   });

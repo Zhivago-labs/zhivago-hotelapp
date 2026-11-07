@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { requireAuth } from "@/lib/session";
 import { getMyStats, getMyListings, getReceivedBookings } from "@/lib/listings-api";
@@ -7,7 +8,7 @@ import styles from "./page.module.css";
 
 export const metadata: Metadata = { title: "Meu Dashboard | Zhivago" };
 
-type Props = { searchParams: Promise<{ page?: string; q?: string; tab?: string }> };
+type Props = { searchParams: Promise<{ page?: string; q?: string; tab?: string; openChat?: string }> };
 
 export default async function DashboardPage({ searchParams }: Props) {
   const { token, user } = await requireAuth("/dashboard");
@@ -22,6 +23,8 @@ export default async function DashboardPage({ searchParams }: Props) {
     );
   }
 
+  const activeMembership = await getMyOrganization(token);
+  if (activeMembership) { const params = await searchParams; redirect(params.openChat ? `/empresa/mensagens?openChat=${encodeURIComponent(params.openChat)}` : params.tab === "bookings" ? "/empresa/reservas" : "/empresa"); }
   const { page: pageParam, q } = await searchParams;
   const page = Math.max(1, Number(pageParam) || 1);
   const search = q ?? "";

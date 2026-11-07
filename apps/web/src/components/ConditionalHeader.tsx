@@ -8,5 +8,5 @@ const HIDDEN_ROUTES = ["/", "/para-imobiliarias", "/login", "/cadastro", "/esque
 export function ConditionalHeader({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   if (HIDDEN_ROUTES.includes(pathname)) return null;
-  return <>{children}</>;
+  return <div data-public-header>{children}</div>;
 }

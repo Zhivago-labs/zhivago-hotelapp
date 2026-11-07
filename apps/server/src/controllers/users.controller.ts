@@ -41,7 +41,7 @@ export async function getUserProfile(
       where: { userId: id, status: 'ACTIVE' },
       include: { organization: { select: {
         id: true, name: true, logo: true, verified: true, coverUrl: true,
-        description: true, publicLocation: true, phone: true, email: true, createdAt: true,
+        description: true, publicLocation: true, phone: true, email: true, createdAt: true, businessHours: true, whatsapp: true,
         members: { where: { status: 'ACTIVE' }, select: {
           role: true, user: { select: { id: true, name: true, avatar: true } },
         }, orderBy: { createdAt: 'asc' } },
@@ -83,7 +83,7 @@ export async function getUserProfile(
       take: 15,
     });
 
-    return reply.send({ user, organization: membership?.organization ?? null, listings, reviews });
+    return reply.send({ user: { ...user, phone: user.accountType === 'AGENCY' || membership ? null : user.phone }, organization: membership?.organization ?? null, listings, reviews });
   } catch (error) {
     console.error('Erro ao buscar perfil:', error);
     return reply.status(500).send({ error: 'Erro ao buscar perfil de usuário.' });
@@ -403,6 +403,10 @@ export async function updateShowcase(request: FastifyRequest, reply: FastifyRepl
   const schema = z.object({
     name: z.string().trim().min(2).max(120),
     logo: image, coverUrl: image,
+    legalName: z.string().trim().max(200).nullable().optional(),
+    address: z.string().trim().max(500).nullable().optional(),
+    businessHours: z.string().trim().max(500).nullable().optional(),
+    whatsapp: z.string().trim().max(30).regex(/^[+\d\s().-]*$/).refine(value => /^\d{10,15}$/.test(value.replace(/\D/g, ''))).nullable().optional(),
     description: z.string().trim().max(3000).nullable(),
     publicLocation: z.string().trim().max(200).nullable(),
     phone: z.string().trim().max(30).regex(/^[+\d\s().-]*$/)
@@ -413,10 +417,14 @@ export async function updateShowcase(request: FastifyRequest, reply: FastifyRepl
   if (!parsed.success) return reply.status(400).send({ error: 'Confira os campos da vitrine.' });
   const target = await resolveShowcaseTarget(id);
   if ('error' in target) return reply.status(403).send({ error: target.error });
-  const { name, logo, coverUrl, description, publicLocation, phone, email } = parsed.data;
+  const { name, logo, coverUrl, description, publicLocation, phone, email, ...companyDetails } = parsed.data;
   if (target.organizationId) {
     await prisma.organization.update({ where: { id: target.organizationId }, data: {
       name, logo, coverUrl, description, publicLocation, phone, email,
+      ...(companyDetails.legalName !== undefined ? { legalName: companyDetails.legalName } : {}),
+      ...(companyDetails.address !== undefined ? { address: companyDetails.address } : {}),
+      ...(companyDetails.businessHours !== undefined ? { businessHours: companyDetails.businessHours } : {}),
+      ...(companyDetails.whatsapp !== undefined ? { whatsapp: companyDetails.whatsapp } : {}),
     } });
   } else {
     await prisma.user.update({ where: { id }, data: {

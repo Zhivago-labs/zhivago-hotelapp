@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { getMembership } from '../lib/organizations.js';
+import { workspaceMembership, workspaceLeadScope } from '../lib/workspace.js';
 import {
   transferLead,
   getCurrentAssignment,
@@ -72,47 +73,40 @@ export async function getOrganizationLeads(
   request: FastifyRequest,
   reply: FastifyReply
 ): Promise<void> {
-  const membership = (request as FastifyRequest & { orgMembership: { organizationId: string } }).orgMembership;
-  const { status, brokerId, buildingId, search, from, to, page: pageParam, limit: limitParam } = request.query as {
-    status?: string;
-    brokerId?: string;
-    buildingId?: string;
-    search?: string;
-    from?: string;
-    to?: string;
-    page?: string;
-    limit?: string;
-  };
-
-  const page = Math.max(1, Number(pageParam) || 1);
-  const limit = Math.min(LEADS_MAX_LIMIT, Math.max(1, Number(limitParam) || LEADS_DEFAULT_LIMIT));
-
-  const where = {
-    organizationId: membership.organizationId,
+  const membership = await workspaceMembership(request);
+  if (!membership) return reply.status(403).send({ error: 'Vínculo ativo necessário.' });
+  const parsed = z.object({
+    status: z.enum(LEAD_STATUSES).optional(), brokerId: z.string().optional(),
+    buildingId: z.string().optional(), listingId: z.string().optional(), search: z.string().max(120).optional(),
+    from: z.string().datetime().optional(), to: z.string().datetime().optional(),
+    page: z.coerce.number().int().positive().default(1),
+    limit: z.coerce.number().int().positive().max(LEADS_MAX_LIMIT).default(LEADS_DEFAULT_LIMIT),
+  }).safeParse(request.query);
+  if (!parsed.success) return reply.status(400).send({ error: 'Filtros inválidos.' });
+  const { status, brokerId, buildingId, listingId, search, from, to, page, limit } = parsed.data;
+  const scope = workspaceLeadScope(membership);
+  const where: Prisma.LeadWhereInput = { AND: [scope, {
     ...(status ? { status } : {}),
     ...(brokerId ? { assignments: { some: { brokerId, unassignedAt: null } } } : {}),
     ...(buildingId ? { listing: { buildingId } } : {}),
-    ...(search ? { user: { name: { contains: search, mode: 'insensitive' as const } } } : {}),
-    ...(from || to
-      ? { createdAt: { ...(from ? { gte: new Date(from) } : {}), ...(to ? { lte: new Date(to) } : {}) } }
-      : {}),
-  };
-
-  const [items, total] = await Promise.all([
-    prisma.lead.findMany({
-      where,
-      include: LEAD_INCLUDE,
-      orderBy: { createdAt: 'desc' },
-      skip: (page - 1) * limit,
-      take: limit,
-    }),
-    prisma.lead.count({ where }),
-  ]);
-
-  return reply.send({ items: items.map(withSlaStatus), total, page, limit });
+    ...(listingId ? { listingId } : {}),
+    ...(search ? { user: { name: { contains: search, mode: 'insensitive' } } } : {}),
+    ...(from || to ? { createdAt: { ...(from ? { gte: new Date(from) } : {}), ...(to ? { lte: new Date(to) } : {}) } } : {}),
+  }] };
+  // A single transaction keeps the page and full filtered totals on the same snapshot.
+  const [items, rows, allTotal] = await prisma.$transaction([
+    prisma.lead.findMany({ where, include: LEAD_INCLUDE, orderBy: [{ createdAt: 'desc' }, { id: 'asc' }], skip: (page - 1) * limit, take: limit }),
+    prisma.lead.findMany({ where, select: { status: true, assignments: { where: { unassignedAt: null }, select: { assignedAt: true, firstContactAt: true } } } }),
+    prisma.lead.count({ where: scope }),
+  ], { isolationLevel: 'RepeatableRead' });
+  const active = rows.filter(row => row.status !== 'WON' && row.status !== 'LOST');
+  const byStatus: Record<string, number> = Object.fromEntries(LEAD_STATUSES.map(status => [status, 0]));
+  for (const row of rows) byStatus[row.status] = (byStatus[row.status] ?? 0) + 1;
+  return reply.send({ items: items.map(withSlaStatus), total: rows.length, allTotal, page, limit,
+    summary: { active: active.length, unassigned: active.filter(row => !row.assignments.length).length,
+      overdue: active.filter(row => computeSlaStatus(row.assignments[0]) === 'OVERDUE').length, byStatus },
+  });
 }
-
-// ─── MEUS LEADS (requer pertencer a uma organização, qualquer papel) ─────────────────────────
 
 export async function getMyLeads(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   const { id: userId } = request.user as { id: string };

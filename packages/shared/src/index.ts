@@ -95,6 +95,11 @@ export interface OrganizationMember {
 }
 
 export interface Organization {
+  hasSeason?: boolean;
+  legalName: string | null;
+  address: string | null;
+  businessHours: string | null;
+  whatsapp: string | null;
   id: string;
   name: string;
   type: OrganizationType;
@@ -149,6 +154,7 @@ export interface ListingOwner {
   phone?: string | null;
   accountType?: AccountType;
   companyName?: string | null;
+  logoUrl?: string | null;
   creci?: string | null;
   verified?: boolean;
 }
@@ -220,6 +226,8 @@ export interface Lead {
 
 // `GET /leads` (org-wide) agora pagina e filtra no servidor (seção 118/119 da spec).
 export interface PaginatedLeads {
+  allTotal: number;
+  summary: { active: number; overdue: number; unassigned: number; byStatus: Record<string, number> };
   items: Lead[];
   total: number;
   page: number;

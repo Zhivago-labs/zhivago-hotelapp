@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { authenticate } from '../middlewares/authenticate.js';
 import { requireOrgRole } from '../lib/organizations.js';
+import { getWorkspace, getWorkspaceContacts, getWorkspaceBookings, getWorkspaceMessages } from '../controllers/workspace.controller.js';
 import {
   createOrganization,
   getMyOrganization,
@@ -25,6 +26,10 @@ import {
 } from '../controllers/organizations.controller.js';
 
 export async function organizationsRoutes(app: FastifyInstance): Promise<void> {
+  app.get('/organizations/workspace', { preHandler: [authenticate] }, getWorkspace);
+  app.get('/organizations/contacts', { preHandler: [authenticate] }, getWorkspaceContacts);
+  app.get('/organizations/bookings', { preHandler: [authenticate] }, getWorkspaceBookings);
+  app.get('/organizations/messages', { preHandler: [authenticate] }, getWorkspaceMessages);
   // POST /organizations — criar organização (requer auth + conta Imobiliária, opt-in)
   app.post('/organizations', { preHandler: [authenticate] }, createOrganization);
 

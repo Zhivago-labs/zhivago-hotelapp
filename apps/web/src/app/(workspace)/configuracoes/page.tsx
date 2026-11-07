@@ -87,7 +87,7 @@ export default async function SettingsPage() {
               initialAvatar={user.avatar}
               initialCompanyName={user.companyName}
               initialCreci={user.creci}
-              isAgency={user.accountType === "AGENCY"}
+              isAgency={false}
               token={token}
             />
           </section>

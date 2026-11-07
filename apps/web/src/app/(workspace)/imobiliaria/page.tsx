@@ -1,8 +1,8 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { requireAuth } from "@/lib/session";
-import { getMyOrganization, getOrganizationBuildings } from "@/lib/organizations-api";
-import { getOrganizationLeads, getMyLeads, getOrganizationMetrics } from "@/lib/leads-api";
+import { getMyOrganization, getOrganizationBuildings, getOrganizationListings, getMyAssignedListings } from "@/lib/organizations-api";
+import { getOrganizationLeads, getOrganizationMetrics } from "@/lib/leads-api";
 import { LeadStatusSelect } from "@/components/dashboard/LeadStatusSelect";
 import { SlaBadge } from "@/components/dashboard/SlaBadge";
 import { LineChart } from "@/components/dashboard/LineChart";
@@ -43,23 +43,16 @@ function formatNextAction(task: Lead["tasks"][number]): string {
 }
 
 type Props = {
-  searchParams: Promise<{ view?: string; brokerId?: string; buildingId?: string; search?: string; status?: string; page?: string }>;
+  searchParams: Promise<{ view?: string; brokerId?: string; buildingId?: string; listingId?: string; search?: string; status?: string; page?: string }>;
 };
 
 export default async function ImobiliariaPipelinePage({ searchParams }: Props) {
   const params = await searchParams;
-  const { view: viewParam, brokerId, buildingId } = params;
+  const { view: viewParam, brokerId, buildingId, listingId } = params;
   const search = params.search?.trim();
   const status = COLUMNS.some((column) => column.status === params.status) ? params.status : undefined;
   const pageNumber = Number(params.page);
   const page = Number.isSafeInteger(pageNumber) && pageNumber > 0 ? pageNumber : 1;
-  const tabHref = (view: string) => {
-    const query = new URLSearchParams({ view });
-    for (const [key, value] of Object.entries({ brokerId, buildingId, search, status })) {
-      if (value) query.set(key, value);
-    }
-    return `/imobiliaria?${query}`;
-  };
   const { token } = await requireAuth("/imobiliaria");
 
   const membership = await getMyOrganization(token);
@@ -79,37 +72,7 @@ export default async function ImobiliariaPipelinePage({ searchParams }: Props) {
 
   return (
     <main className={styles.main}>
-      <Link href="/equipe" className={styles.backLink}>
-        ← Voltar à equipe
-      </Link>
-      <div className={styles.pageHeader}>
-        <div>
-          <p className={styles.eyebrow}>{membership.organization.name}</p>
-          <h1 className={styles.title}>Central da imobiliária</h1>
-          <p className={styles.subtitle}>Acompanhe oportunidades e organize o próximo atendimento.</p>
-        </div>
-        <Link href="/equipe" className={styles.filterButton}>Ver equipe →</Link>
-      </div>
-
-      {hasOrgWideView && (
-        <div className={styles.viewTabs}>
-          <Link
-            href={tabHref("pipeline")}
-            aria-current={view === "pipeline" ? "page" : undefined}
-            className={`${styles.viewTab} ${view === "pipeline" ? styles.viewTabActive : ""}`}
-          >
-            Kanban
-          </Link>
-          <Link
-            href={tabHref("metricas")}
-            aria-current={view === "metricas" ? "page" : undefined}
-            className={`${styles.viewTab} ${view === "metricas" ? styles.viewTabActive : ""}`}
-          >
-            Métricas
-          </Link>
-        </div>
-      )}
-
+      <div className={styles.pageHeader}><div><h1 className={styles.title}>Kanban</h1><p className={styles.subtitle}>Oportunidades e próximos atendimentos.</p></div></div>
       {view === "metricas" ? (
         <MetricsView token={token} />
       ) : (
@@ -119,7 +82,7 @@ export default async function ImobiliariaPipelinePage({ searchParams }: Props) {
           canManage={canManage}
           membership={membership}
           page={page}
-          filters={{ brokerId, buildingId, search, status }}
+          filters={{ brokerId, buildingId, listingId, search, status }}
         />
       )}
     </main>
@@ -139,26 +102,19 @@ async function PipelineView({
   canManage: boolean;
   membership: MyOrganization;
   page: number;
-  filters: { brokerId?: string; buildingId?: string; search?: string; status?: string };
+  filters: { brokerId?: string; buildingId?: string; listingId?: string; search?: string; status?: string };
 }) {
   // Paginação do resultado completo; os filtros são preservados entre páginas.
-  const [leadsResult, buildings] = await Promise.all([
-    hasOrgWideView
-      ? getOrganizationLeads(token, { ...filters, page, limit: 100 })
-      : getMyLeads(token).then((items) => {
-          const filtered = items.filter((lead) =>
-            (!filters.search || lead.user.name.toLocaleLowerCase("pt-BR").includes(filters.search.toLocaleLowerCase("pt-BR"))) &&
-            (!filters.status || lead.status === filters.status)
-          );
-          return { items: filtered, total: filtered.length, page: 1, limit: Math.max(1, filtered.length) };
-        }),
+  const [leadsResult, buildings, listings] = await Promise.all([
+    getOrganizationLeads(token, { ...filters, page, limit: 100 }),
     hasOrgWideView ? getOrganizationBuildings(token) : Promise.resolve([]),
+    hasOrgWideView ? getOrganizationListings(token) : getMyAssignedListings(token),
   ]);
   const leads = leadsResult.items;
   const brokers = hasOrgWideView
     ? membership.organization.members.filter((m) => m.status === "ACTIVE" && m.role !== "ASSISTANT")
     : [];
-  const activeLeads = leads.filter((lead) => lead.status !== "WON" && lead.status !== "LOST");
+
   const totalPages = Math.max(1, Math.ceil(leadsResult.total / leadsResult.limit));
   const pageHref = (nextPage: number) => {
     const query = new URLSearchParams({ view: "pipeline", page: String(nextPage) });
@@ -174,12 +130,12 @@ async function PipelineView({
           : "Seus leads atualmente atribuídos, agrupados por etapa do funil."}
       </p>
 
-      <div className={styles.statsGrid} aria-label="Resumo dos leads exibidos">
+      <div className={styles.statsGrid} aria-label="Resumo de todos os resultados filtrados">
         {[
           ["Oportunidades no resultado", leadsResult.total],
-          ["Em andamento nesta página", activeLeads.length],
-          ["SLA vencido nesta página", activeLeads.filter((lead) => lead.slaStatus === "OVERDUE").length],
-          ["Sem responsável nesta página", activeLeads.filter((lead) => !lead.assignments.length).length],
+          ["Em andamento", leadsResult.summary.active],
+          ["SLA vencido", leadsResult.summary.overdue],
+          ["Sem responsável", leadsResult.summary.unassigned],
         ].map(([label, value]) => (
           <div className={styles.statTile} key={label}><p className={styles.statValue}>{value}</p><p className={styles.statLabel}>{label}</p></div>
         ))}
@@ -204,6 +160,7 @@ async function PipelineView({
             ))}
           </select>
           </>}
+          <select name="listingId" aria-label="Imóvel" defaultValue={filters.listingId ?? ""} className={styles.filterInput}><option value="">Todos os imóveis</option>{listings.map(listing => <option key={listing.id} value={listing.id}>{listing.name}</option>)}</select>
           <select name="status" aria-label="Etapa do funil" defaultValue={filters.status ?? ""} className={styles.filterInput}>
             <option value="">Todas as etapas</option>
             {COLUMNS.map((column) => <option key={column.status} value={column.status}>{column.label}</option>)}
@@ -219,7 +176,7 @@ async function PipelineView({
           <button type="submit" className={styles.filterButton}>
             Filtrar
           </button>
-          {(filters.brokerId || filters.buildingId || filters.search || filters.status) && (
+          {(filters.brokerId || filters.buildingId || filters.listingId || filters.search || filters.status) && (
             <Link href="/imobiliaria?view=pipeline" className={styles.filterButton}>
               Limpar
             </Link>
@@ -227,18 +184,14 @@ async function PipelineView({
         </form>
 
       <div className={styles.resultBar}>
-        <p>{leads.length} de {leadsResult.total} leads · Contagens por etapa referentes a esta página</p>
-        {hasOrgWideView && (totalPages > 1 || page > 1) && <nav aria-label="Paginação dos leads" className={styles.pagination}>
+        <p>{leads.length} de {leadsResult.total} oportunidades · Totais por etapa em todos os resultados filtrados</p>
+        {(totalPages > 1 || page > 1) && <nav aria-label="Paginação dos leads" className={styles.pagination}>
           {page > 1 && <Link href={pageHref(Math.min(page - 1, totalPages))}>← Anterior</Link>}
           <span>Página {page} de {totalPages}</span>
           {page < totalPages && <Link href={pageHref(page + 1)}>Próxima →</Link>}
         </nav>}
       </div>
-      {leads.length === 0 && <div className={styles.emptyState}>
-        <h2>Nenhuma oportunidade nesta página</h2>
-        <p>Ajuste os filtros ou volte ao início do pipeline.</p>
-        <Link href="/imobiliaria" className={styles.filterButton}>Voltar ao pipeline</Link>
-      </div>}
+      {leadsResult.total === 0 && <p className={styles.subtitle}>{leadsResult.allTotal === 0 ? "Nenhum lead recebido ainda." : "Nenhum resultado para os filtros selecionados."}</p>}
       <div className={styles.board} role="region" aria-label="Funil de oportunidades, role para ver todas as etapas" tabIndex={0}>
         {COLUMNS.map((column) => {
           const columnLeads = leads.filter((lead) => lead.status === column.status);
@@ -246,7 +199,7 @@ async function PipelineView({
             <div key={column.status} className={styles.column} data-status={column.status}>
               <div className={styles.columnHeader}>
                 <span>{column.label}</span>
-                <span className={styles.columnCount}>{columnLeads.length}</span>
+                <span className={styles.columnCount}>{leadsResult.summary.byStatus[column.status] ?? 0}</span>
               </div>
 
               <div className={styles.columnBody}>
