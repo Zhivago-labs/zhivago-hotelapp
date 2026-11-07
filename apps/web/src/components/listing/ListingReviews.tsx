@@ -5,6 +5,7 @@ import { Star, MessageSquare, AlertCircle, CheckCircle2 } from "lucide-react";
 import { getPublicApiUrl } from "@/lib/public-api";
 import { useChatSocket } from "@/components/chat/ChatSocketProvider";
 import type { SessionUser } from "@/lib/session";
+import { InlineLoading } from "@/components/feedback/InlineLoading";
 import styles from "./ListingReviews.module.css";
 
 interface ReviewUser {
@@ -163,10 +164,7 @@ export function ListingReviews({ listingId, category, user }: ListingReviewsProp
       </div>
 
       {loading ? (
-        <div className={styles.loadingBox}>
-          <span className={styles.spinner} />
-          <span>Carregando avaliações…</span>
-        </div>
+        <InlineLoading>Carregando avaliações…</InlineLoading>
       ) : reviews.length === 0 ? (
         <p className={styles.noReviews}>Nenhuma avaliação enviada para este imóvel ainda.</p>
       ) : (

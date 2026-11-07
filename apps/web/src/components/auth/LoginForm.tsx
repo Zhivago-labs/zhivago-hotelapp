@@ -6,6 +6,7 @@ import Image from "next/image";
 import { Eye, EyeOff } from "lucide-react";
 import { loginAction } from "@/lib/actions/auth";
 import { GoogleSignInButton } from "./GoogleSignInButton";
+import { FeedbackNotice } from "@/components/feedback/FeedbackNotice";
 import styles from "./AuthForm.module.css";
 
 export function LoginForm({ next }: { next?: string }) {
@@ -79,7 +80,7 @@ export function LoginForm({ next }: { next?: string }) {
         </Link>
       </div>
 
-      {state?.error && <p className={styles.error}>{state.error}</p>}
+      {state?.error && <FeedbackNotice>{state.error}</FeedbackNotice>}
 
       {/* Botão Coral Airbnb */}
       <button type="submit" className={styles.airbnbButton} disabled={pending}>

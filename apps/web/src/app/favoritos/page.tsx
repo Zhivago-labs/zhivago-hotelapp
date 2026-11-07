@@ -2,7 +2,10 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Heart, Search, ArrowLeft, Building2 } from "lucide-react";
+import { Heart, ArrowLeft } from "lucide-react";
+import { LoadingState } from "@/components/feedback/LoadingState";
+import { PageState } from "@/components/feedback/PageState";
+import { ErrorState } from "@/components/ErrorState";
 import { useFavorites } from "@/components/favorites/FavoritesContext";
 import { getPublicApiUrl } from "@/lib/public-api";
 import { ListingCard } from "@/components/ListingCard";
@@ -13,16 +16,20 @@ export default function FavoritesPage() {
   const { favorites } = useFavorites();
   const [listings, setListings] = useState<Listing[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    fetch(`${getPublicApiUrl()}/listings`)
-      .then((res) => (res.ok ? res.json() : []))
+    const controller = new AbortController();
+    fetch(`${getPublicApiUrl()}/listings`, { signal: controller.signal })
+      .then((res) => { if (!res.ok) throw new Error("Falha ao buscar favoritos"); return res.json(); })
       .then((data: Listing[]) => {
         setListings(data);
         setLoading(false);
       })
-      .catch(() => setLoading(false));
-  }, []);
+      .catch(() => { if (!controller.signal.aborted) { setLoadError(true); setLoading(false); } });
+    return () => controller.abort();
+  }, [attempt]);
 
   const favoriteListings = listings.filter((l) => favorites.includes(l.id));
 
@@ -39,9 +46,9 @@ export default function FavoritesPage() {
               <Heart size={28} className={styles.titleIcon} />
               Meus Favoritos
             </h1>
-            <span className={styles.countBadge}>
+            {!loading && !loadError && <span className={styles.countBadge}>
               {favoriteListings.length} {favoriteListings.length === 1 ? "imóvel" : "imóveis"}
-            </span>
+            </span>}
           </div>
           <p className={styles.subtitle}>
             Seus imóveis salvos para comparar valores, características e estadias.
@@ -49,24 +56,11 @@ export default function FavoritesPage() {
         </div>
 
         {loading ? (
-          <div className={styles.loadingBox}>
-            <span className={styles.spinner} />
-            <span>Carregando seus imóveis favoritos…</span>
-          </div>
+          <LoadingState variant="cards" title="Carregando seus favoritos…" description="Reunindo os imóveis que você salvou." />
+        ) : loadError ? (
+          <ErrorState title="Seus favoritos não carregaram" message="Não conseguimos buscar os imóveis agora. Tente novamente para ver sua lista." onRetry={() => { setLoadError(false); setLoading(true); setAttempt(value => value + 1); }} />
         ) : favoriteListings.length === 0 ? (
-          <div className={styles.emptyCard}>
-            <div className={styles.emptyIconCircle}>
-              <Building2 size={36} />
-            </div>
-            <h2 className={styles.emptyTitle}>Sua lista de favoritos está vazia</h2>
-            <p className={styles.emptyText}>
-              Você ainda não salvou nenhum imóvel. Clique no ícone de coração nos anúncios para salvar os seus imóveis preferidos!
-            </p>
-            <Link href="/imoveis" className={styles.exploreButton}>
-              <Search size={18} />
-              Explorar Imóveis
-            </Link>
-          </div>
+          <PageState kind="favorites" title="Seus próximos favoritos começam aqui" message="Toque no coração de um anúncio para salvá-lo e comparar os imóveis depois." href="/imoveis" />
         ) : (
           <div className={styles.grid}>
             {favoriteListings.map((listing) => (

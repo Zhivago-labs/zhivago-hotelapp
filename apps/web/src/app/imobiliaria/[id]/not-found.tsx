@@ -1,3 +1,3 @@
-import Link from "next/link";
+import { PageState } from "@/components/feedback/PageState";
 import styles from "./page.module.css";
-export default function NotFound() { return <main className={styles.main}><h1>Perfil não encontrado</h1><p>Esta imobiliária não está disponível.</p><Link href="/imoveis">Explorar imóveis</Link></main>; }
+export default function NotFound() { return <main className={styles.main}><PageState kind="not-found" title="Perfil não encontrado" message="Esta imobiliária não está disponível no momento. Você pode continuar a busca por outros imóveis." href="/imoveis" /></main>; }

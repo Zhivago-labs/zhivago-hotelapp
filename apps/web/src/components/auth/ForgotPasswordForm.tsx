@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2 } from "lucide-react";
 import { getPublicApiUrl } from "@/lib/public-api";
 import { useRouter } from "next/navigation";
+import { FeedbackNotice } from "@/components/feedback/FeedbackNotice";
 import styles from "./AuthForm.module.css";
 
 export function ForgotPasswordForm() {
@@ -69,12 +69,9 @@ export function ForgotPasswordForm() {
         </div>
       </div>
 
-      {error && <p className={styles.error}>{error}</p>}
+      {error && <FeedbackNotice>{error}</FeedbackNotice>}
       {success && (
-        <div className={styles.successBox}>
-          <CheckCircle2 size={16} />
-          <span>{success}</span>
-        </div>
+        <FeedbackNotice kind="success">{success}</FeedbackNotice>
       )}
 
       <button type="submit" className={styles.airbnbButton} disabled={pending}>

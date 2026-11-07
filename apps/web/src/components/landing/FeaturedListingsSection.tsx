@@ -1,3 +1,4 @@
+import { ErrorState } from "@/components/ErrorState";
 import Link from "next/link";
 import type { Listing } from "@zhivago/shared";
 import { ListingCard } from "@/components/ListingCard";
@@ -27,7 +28,7 @@ export function FeaturedListingsSection({
         </div>
 
         {loadError ? (
-          <p className={styles.state}>Não foi possível carregar os imóveis agora. Tente novamente em instantes.</p>
+          <ErrorState message="Não conseguimos buscar os imóveis agora. Tente novamente em instantes." />
         ) : listings.length === 0 ? (
           <div className={styles.empty}>
             <p className={styles.state}>Ainda não há imóveis publicados por aqui. Que tal ser o primeiro a anunciar?</p>

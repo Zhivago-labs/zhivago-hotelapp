@@ -6,6 +6,7 @@ import Image from "next/image";
 import { Eye, EyeOff, User, Building2 } from "lucide-react";
 import { registerAction } from "@/lib/actions/auth";
 import { GoogleSignInButton } from "./GoogleSignInButton";
+import { FeedbackNotice } from "@/components/feedback/FeedbackNotice";
 import styles from "./AuthForm.module.css";
 
 export function RegisterForm({ next }: { next?: string }) {
@@ -181,7 +182,7 @@ export function RegisterForm({ next }: { next?: string }) {
         <a href="/privacidade" target="_blank" rel="noopener noreferrer">Política de Privacidade</a>.
       </p>
 
-      {state?.error && <p className={styles.error}>{state.error}</p>}
+      {state?.error && <FeedbackNotice>{state.error}</FeedbackNotice>}
 
       {/* Botão Coral Airbnb */}
       <button type="submit" className={styles.airbnbButton} disabled={pending}>

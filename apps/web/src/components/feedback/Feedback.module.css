@@ -1,0 +1,41 @@
+.page { width:100%; max-width:1200px; margin:0 auto; padding:clamp(24px,5vw,64px) clamp(16px,4vw,32px) 96px; }
+.loading { width:100%; min-width:0; }
+.inlineLoading { display:inline-flex; align-items:center; justify-content:center; gap:10px; padding:20px 0; color:var(--muted); font-size:13px; line-height:1.5; }
+.inlineLoading .spinner { width:18px; height:18px; flex-shrink:0; }
+.loadingHeader { display:flex; align-items:center; gap:14px; margin-bottom:28px; }
+.mark { display:grid; place-items:center; flex:0 0 auto; width:46px; height:46px; color:var(--accent); background:var(--accent-light); border:1px solid var(--accent-light-border); border-radius:14px; }
+.spinner { width:22px; height:22px; border:2px solid var(--accent-light-border); border-top-color:var(--accent); border-radius:50%; animation:spin 1s linear infinite; }
+.loadingTitle { font-size:16px; font-weight:600; letter-spacing:-.3px; color:var(--foreground); }
+.description { font-size:14px; line-height:1.65; color:var(--muted); margin-top:5px; overflow-wrap:anywhere; }
+.skeletons { display:grid; gap:16px; }
+.cards { grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr)); }
+.skeletonCard { min-width:0; border:1px solid var(--border); background:var(--card-bg); border-radius:16px; overflow:hidden; }
+.skeletonBody { padding:22px; display:grid; gap:14px; }
+.bone { display:block; height:12px; border-radius:6px; background:linear-gradient(100deg,var(--surface-subtle) 15%,var(--border) 45%,var(--surface-subtle) 75%); background-size:250% 100%; animation:shimmer 1.8s ease-in-out infinite; }
+.short { width:40%; }
+.medium { width:72%; }
+.image { height:auto; aspect-ratio:16 / 10; border-radius:0; }
+.field { height:46px; border-radius:10px; }
+.cover { height:160px; border-radius:16px; margin-bottom:18px; }
+.row { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+.state { width:100%; max-width:600px; margin:24px auto; padding:clamp(28px,5vw,48px) clamp(20px,4vw,40px); display:flex; flex-direction:column; align-items:center; text-align:center; border:1px solid var(--border); border-radius:20px; background:var(--card-bg); box-shadow:var(--shadow-premium); }
+.state .mark { width:60px; height:60px; border-radius:18px; margin-bottom:24px; }
+.eyebrow { font-size:11px; font-weight:600; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); margin-bottom:10px; }
+.title { max-width:440px; font-size:clamp(22px,4vw,28px); line-height:1.25; letter-spacing:-.7px; font-weight:600; color:var(--foreground); }
+.state .description { margin-top:12px; max-width:440px; }
+.actions { display:flex; justify-content:center; flex-wrap:wrap; gap:10px; margin-top:26px; }
+.primary, .secondary { display:inline-flex; justify-content:center; align-items:center; gap:8px; min-height:44px; padding:12px 18px; border:1px solid transparent; border-radius:10px; font:inherit; font-size:14px; font-weight:600; cursor:pointer; transition:background .15s,border-color .15s; }
+.primary { background:var(--foreground); color:#fff; }
+.primary:hover { background:#263246; }
+.secondary { background:var(--card-bg); color:var(--foreground); border-color:var(--border); }
+.secondary:hover { background:var(--hover-bg); border-color:var(--border-hover); }
+.primary:disabled { opacity:.65; cursor:wait; }
+.state :focus-visible, .notice :focus-visible { outline:3px solid var(--accent); outline-offset:4px; }
+.notice { display:flex; align-items:flex-start; gap:10px; padding:14px 16px; border:1px solid var(--accent-light-border); border-radius:12px; background:var(--accent-light); color:#9f1239; font-size:13px; line-height:1.65; overflow-wrap:anywhere; }
+.notice svg { flex-shrink:0; margin-top:3px; }
+.success { background:#f0fdf4; border-color:#bbf7d0; color:#166534; }
+.info { background:var(--surface-subtle); border-color:var(--border); color:var(--foreground); }
+@keyframes spin { to { transform:rotate(360deg); } }
+@keyframes shimmer { from { background-position:100% 0; } to { background-position:-100% 0; } }
+@media(max-width:480px) { .row { grid-template-columns:1fr; } .actions { width:100%; } .actions > * { width:100%; } .state { margin:12px auto; } }
+@media(prefers-reduced-motion:reduce) { .spinner,.bone { animation:none; } .primary,.secondary { transition:none; } }

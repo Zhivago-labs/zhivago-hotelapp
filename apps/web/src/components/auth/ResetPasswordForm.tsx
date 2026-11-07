@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { CheckCircle2 } from "lucide-react";
 import { getPublicApiUrl } from "@/lib/public-api";
+import { FeedbackNotice } from "@/components/feedback/FeedbackNotice";
 import styles from "./AuthForm.module.css";
 
 export function ResetPasswordForm({ initialEmail }: { initialEmail?: string }) {
@@ -124,7 +125,7 @@ export function ResetPasswordForm({ initialEmail }: { initialEmail?: string }) {
         </div>
       </div>
 
-      {error && <p className={styles.error}>{error}</p>}
+      {error && <FeedbackNotice>{error}</FeedbackNotice>}
 
       <button type="submit" className={styles.airbnbButton} disabled={pending}>
         <span>{pending ? "Redefinindo…" : "Criar Nova Senha"}</span>

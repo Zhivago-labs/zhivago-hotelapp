@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { ChevronLeft, ChevronRight, Lock } from "lucide-react";
 import { getPublicApiUrl } from "@/lib/public-api";
+import { InlineLoading } from "@/components/feedback/InlineLoading";
 import styles from "./RentalBookingCalendar.module.css";
 
 interface BookedRange {
@@ -185,10 +186,7 @@ export function RentalBookingCalendar({
       </div>
 
       {loading ? (
-        <div className={styles.loadingBox}>
-          <span className={styles.spinner} />
-          <span>Carregando calendário…</span>
-        </div>
+        <InlineLoading>Carregando calendário…</InlineLoading>
       ) : (
         <div className={styles.daysGrid}>
           {daysInMonth.map(({ dateStr, dayNum, isCurrentMonth }) => {

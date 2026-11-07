@@ -1,3 +1,4 @@
+import { ErrorState } from "@/components/ErrorState";
 import { redirect } from "next/navigation";
 import { getMyOrganization } from "@/lib/organizations-api";
 import type { Metadata } from "next";
@@ -45,9 +46,7 @@ export default async function MyListingsPage() {
       </div>
 
       {loadError ? (
-        <p className={styles.error}>
-          Não foi possível carregar seus imóveis no momento. Tente novamente em instantes.
-        </p>
+        <ErrorState title="Seus anúncios não carregaram" message="Não conseguimos buscar seus imóveis agora. Tente novamente para continuar." />
       ) : (
         <OwnerListingsSection initialListings={listings} isAgency={isAgency} hideHeader={true} />
       )}

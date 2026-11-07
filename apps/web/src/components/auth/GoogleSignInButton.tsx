@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { FirebaseError } from "firebase/app";
 import { getGoogleIdToken, isFirebaseConfigured } from "@/lib/firebase-client";
 import { firebaseLoginAction } from "@/lib/actions/auth";
+import { FeedbackNotice } from "@/components/feedback/FeedbackNotice";
 import styles from "./AuthForm.module.css";
 
 /** Popup fechado/cancelado pelo próprio usuário não é erro a exibir. */
@@ -58,7 +59,7 @@ export function GoogleSignInButton({ next }: { next?: string }) {
         </svg>
         <span>{busy ? "Conectando ao Google…" : "Continuar com Google"}</span>
       </button>
-      {error && <p className={styles.error}>{error}</p>}
+      {error && <FeedbackNotice>{error}</FeedbackNotice>}
     </>
   );
 }

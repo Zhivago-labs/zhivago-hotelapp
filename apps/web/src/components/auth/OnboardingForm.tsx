@@ -4,6 +4,7 @@ import { useActionState, useState } from "react";
 import Image from "next/image";
 import { User, Building2 } from "lucide-react";
 import { completeOnboardingAction } from "@/lib/actions/auth";
+import { FeedbackNotice } from "@/components/feedback/FeedbackNotice";
 import styles from "./AuthForm.module.css";
 
 type UsageType = "INDIVIDUAL" | "AGENCY";
@@ -107,7 +108,7 @@ export function OnboardingForm({ firstName, next }: { firstName: string; next?: 
         <a href="/privacidade" target="_blank" rel="noopener noreferrer">Política de Privacidade</a>.
       </p>
 
-      {state?.error && <p className={styles.error}>{state.error}</p>}
+      {state?.error && <FeedbackNotice>{state.error}</FeedbackNotice>}
 
       <button type="submit" className={styles.airbnbButton} disabled={pending}>
         <span>{pending ? "Salvando…" : "Concordar e continuar"}</span>
