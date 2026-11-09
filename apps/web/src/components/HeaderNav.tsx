@@ -180,6 +180,10 @@ export function HeaderNav({ user, isAgencyAccount }: HeaderNavProps) {
                     </Link>
                   )}
 
+                  <Link href="/imoveis-comprados" className={styles.mobileNavLink} onClick={() => setMobileOpen(false)}>
+                    <Building2 size={18} /><span>Imóveis comprados</span>
+                  </Link>
+
                   {user.accountType !== "AGENCY" && user.role !== "ADMIN" && (
                     <Link href="/minhas-reservas" className={styles.mobileNavLink} onClick={() => setMobileOpen(false)}>
                       <CalendarRange size={18} />

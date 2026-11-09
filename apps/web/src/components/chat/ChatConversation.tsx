@@ -76,7 +76,8 @@ function formatTime(value: string): string {
 async function patchConversation(token: string, id: string, path: string): Promise<boolean> {
   const res = await fetch(`${getPublicApiUrl()}/conversations/${id}/${path}`, {
     method: "PATCH",
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: "{}",
   });
   return res.ok;
 }
@@ -90,7 +91,8 @@ async function patchRequest(
   try {
     const res = await fetch(`${getPublicApiUrl()}/${kind}/${id}/${action}`, {
       method: "PATCH",
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: "{}",
     });
     if (res.ok) return null;
     const data = await res.json().catch(() => null);
@@ -127,6 +129,8 @@ export function ChatConversation({ conversation: initialConversation, initialMes
   const nearBottomRef = useRef(true);
   const firstScrollRef = useRef(true);
   const resyncSeqRef = useRef(0);
+  const readRequestRef = useRef(false);
+  const readMessageIdsRef = useRef(new Set<string>());
 
   const conversationId = conversation.id;
   const isParticipant = conversation.participants.some((p) => p.id === currentUser.id);
@@ -198,11 +202,37 @@ export function ChatConversation({ conversation: initialConversation, initialMes
   const authHeaders = { Authorization: `Bearer ${token}` };
 
   const markAsRead = useCallback(() => {
-    if (!isParticipant) return;
-    patchConversation(token, conversationId, "read")
-      .then(() => refreshUnreadCount())
-      .catch(() => {});
+    const root = scrollRef.current;
+    if (!isParticipant || document.visibilityState !== "visible" || !root || readRequestRef.current) return;
+    const bounds = root.getBoundingClientRect();
+    const messageIds = Array.from(root.querySelectorAll<HTMLElement>("[data-unread-message-id]"))
+      .filter((element) => {
+        const rect = element.getBoundingClientRect();
+        return rect.bottom > Math.max(bounds.top, 0) && rect.top < Math.min(bounds.bottom, window.innerHeight)
+          && rect.right > Math.max(bounds.left, 0) && rect.left < Math.min(bounds.right, window.innerWidth);
+      })
+      .map((element) => element.dataset.unreadMessageId!)
+      .slice(0, 100);
+    if (messageIds.length === 0) return;
+    readRequestRef.current = true;
+    fetch(`${getPublicApiUrl()}/conversations/${conversationId}/read`, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ messageIds }),
+    }).then((response) => {
+      if (!response.ok) return;
+      setMessages((prev) => prev.map((message) => messageIds.includes(message.id) ? { ...message, isRead: true } : message));
+      refreshUnreadCount();
+    }).catch(() => {}).finally(() => { readRequestRef.current = false; });
   }, [token, conversationId, isParticipant, refreshUnreadCount]);
+
+  useEffect(() => {
+    const root = scrollRef.current;
+    if (!root) return;
+    const observer = new IntersectionObserver(() => markAsRead(), { root, threshold: 0.1 });
+    root.querySelectorAll("[data-unread-message-id]").forEach((element) => observer.observe(element));
+    return () => observer.disconnect();
+  }, [messages, markAsRead]);
 
   const loadDetail = useCallback(async () => {
     const res = await fetch(`${getPublicApiUrl()}/conversations/${conversationId}`, {
@@ -240,7 +270,9 @@ export function ChatConversation({ conversation: initialConversation, initialMes
         loadNegotiations(),
       ]);
       if (!msgRes.ok || seq !== resyncSeqRef.current) return;
-      const server: ChatMessage[] = await msgRes.json();
+      const server: ChatMessage[] = (await msgRes.json() as ChatMessage[]).map((message) => ({
+        ...message, isRead: message.isRead || readMessageIdsRef.current.has(message.id),
+      }));
       if (seq !== resyncSeqRef.current) return;
       setMessages((prev) => replaceServerMessages(prev, server));
       markAsRead();
@@ -282,7 +314,7 @@ export function ChatConversation({ conversation: initialConversation, initialMes
 
     const handleReceive = (message: ChatMessage) => {
       if (message.conversationId !== conversationId) return;
-      setMessages((prev) => mergeMessages(prev, [message]));
+      setMessages((prev) => mergeMessages(prev, [{ ...message, isRead: message.isRead || readMessageIdsRef.current.has(message.id) }]));
       if (message.senderId !== currentUser.id) markAsRead();
       // Card de reserva/proposta novo muda o que o viewer pode fazer (comandos de "/").
       if (CARD_TYPES.has(message.type)) loadDetail().catch(() => {});
@@ -303,12 +335,19 @@ export function ChatConversation({ conversation: initialConversation, initialMes
       loadDetail().catch(() => {});
     };
 
+    const handleRead = (receipt: { conversationId: string; readerId: string; messageIds: string[] }) => {
+      if (receipt.conversationId !== conversationId) return;
+      receipt.messageIds.forEach((id) => readMessageIdsRef.current.add(id));
+      setMessages((prev) => prev.map((message) => receipt.messageIds.includes(message.id) ? { ...message, isRead: true } : message));
+    };
+    socket.on("messagesRead", handleRead);
     socket.on("receiveMessage", handleReceive);
     socket.on("negotiationUpdated", handleNegotiation);
     socket.on("messageUpdated", handleMessageUpdated);
     socket.on("connect", resync);
     return () => {
       socket.off("receiveMessage", handleReceive);
+      socket.off("messagesRead", handleRead);
       socket.off("negotiationUpdated", handleNegotiation);
       socket.off("messageUpdated", handleMessageUpdated);
       socket.off("connect", resync);
@@ -317,24 +356,26 @@ export function ChatConversation({ conversation: initialConversation, initialMes
 
   // Rolagem: só desce sozinho se o usuário já estava no fim (ou se a última mensagem é dele) —
   // antes qualquer mensagem nova arrancava quem estava lendo o histórico lá de cima.
+  const lastMessageId = messages.at(-1)?.id;
+  const lastMessageSender = messages.at(-1)?.senderId;
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const last = messages.at(-1);
-    if (firstScrollRef.current || nearBottomRef.current || last?.senderId === currentUser.id) {
+    if (firstScrollRef.current || nearBottomRef.current || lastMessageSender === currentUser.id) {
       el.scrollTo({ top: el.scrollHeight, behavior: firstScrollRef.current ? "auto" : "smooth" });
       firstScrollRef.current = false;
       setShowJumpToLatest(false);
     } else {
       setShowJumpToLatest(true);
     }
-  }, [messages, currentUser.id]);
+  }, [messages.length, lastMessageId, lastMessageSender, currentUser.id]);
 
   const handleScroll = () => {
     const el = scrollRef.current;
     if (!el) return;
     nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
     if (nearBottomRef.current) setShowJumpToLatest(false);
+    markAsRead();
   };
 
   const jumpToLatest = () => {
@@ -406,7 +447,7 @@ export function ChatConversation({ conversation: initialConversation, initialMes
             return;
           }
           if (response.message) {
-            const confirmed = response.message;
+            const confirmed = { ...response.message, isRead: response.message.isRead || readMessageIdsRef.current.has(response.message.id) };
             setMessages((prev) => mergeMessages(prev.filter((m) => m.clientId !== clientId), [confirmed]));
           } else {
             // Comando executado — o resultado chega pelos eventos de cada fluxo; atualiza os comandos.
@@ -541,7 +582,8 @@ export function ChatConversation({ conversation: initialConversation, initialMes
     try {
       const res = await fetch(`${getPublicApiUrl()}/offers/${roundId}/${action}`, {
         method: "PATCH",
-        headers: authHeaders,
+        headers: { ...authHeaders, "Content-Type": "application/json" },
+        body: "{}",
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
@@ -891,6 +933,7 @@ export function ChatConversation({ conversation: initialConversation, initialMes
                   </div>
                 )}
                 <div
+                  data-unread-message-id={message.senderId !== currentUser.id && !message.isRead ? message.id : undefined}
                   className={[
                     styles.messageRow,
                     alignRight ? styles.messageRowMine : "",
@@ -901,7 +944,7 @@ export function ChatConversation({ conversation: initialConversation, initialMes
                     <div className={styles.cardWrapper}>
                       {isAuditor && <p className={styles.senderLabelOutside}>{message.sender.name}</p>}
                       {renderCard(message)}
-                      <p className={styles.cardTime}>{formatTime(message.createdAt)}</p>
+                      <p className={styles.cardTime}>{formatTime(message.createdAt)}{message.senderId === currentUser.id && !message.localStatus && <span className={styles.receipt}>{message.isRead ? "Visualizada" : "Enviada"}</span>}</p>
                     </div>
                   ) : (
                     <div
@@ -915,9 +958,10 @@ export function ChatConversation({ conversation: initialConversation, initialMes
                     >
                       {isAuditor && !groupedWithPrevious && <p className={styles.senderLabel}>{message.sender.name}</p>}
                       <p className={styles.content}>{message.content}</p>
-                      {!groupedWithNext && (
+                      {(!groupedWithNext || message.senderId === currentUser.id) && (
                         <p className={styles.time}>
                           {message.localStatus === "sending" ? "Enviando…" : formatTime(message.createdAt)}
+                          {message.senderId === currentUser.id && !message.localStatus && <span className={styles.receipt}>{message.isRead ? "Visualizada" : "Enviada"}</span>}
                         </p>
                       )}
                     </div>

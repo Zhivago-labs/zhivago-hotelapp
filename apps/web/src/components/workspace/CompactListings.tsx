@@ -12,10 +12,10 @@ import { deleteListingAction, publishListingAction, unpublishListingAction, dupl
 import styles from "./Workspace.module.css";
 const statusLabels: Record<string, string> = { DRAFT: "Rascunho", PENDING: "Em análise", APPROVED: "Publicado", REJECTED: "Rejeitado", SOLD: "Vendido", RENTED: "Alugado" };
 const operations: Record<string, string> = { SALE: "Venda", MONTHLY_RENT: "Aluguel", DAILY_RENT: "Temporada" };
-export function CompactListings({ listings, role, userId }: { listings: OwnedListing[]; role: string; userId: string }) {
+export function CompactListings({ listings, role, userId, initialStatus = "" }: { listings: OwnedListing[]; role: string; userId: string; initialStatus?: string }) {
   const [query, setQuery] = useState("");
   const [operation, setOperation] = useState("");
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = useState(initialStatus);
   const [agent, setAgent] = useState("");
   const [discount, setDiscount] = useState<OwnedListing | null>(null);
   const admin = ["OWNER", "ADMIN"].includes(role);

@@ -1,4 +1,5 @@
 :root {
+  --paper: #fbf7f1;
   /* Cores de Superfície e Fundo */
   --background: #f8fafc;
   --foreground: #0f172a;
@@ -97,11 +98,11 @@ button, input, select, textarea {
   flex: 1;
   display: flex;
   flex-direction: column;
-  animation: fadeIn 0.2s ease-out forwards;
+  opacity: 1;
 }
 
 .animate-fade-in {
-  animation: fadeIn 0.2s ease-out forwards;
+  opacity: 1;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,0 +1,26 @@
+.main { width:100%; max-width:1080px; margin:0 auto; padding:32px 24px 80px; }
+.header { display:grid; gap:12px; margin-bottom:28px; }
+.header h1 { display:flex; align-items:center; gap:12px; font-size:clamp(24px,4vw,30px); }
+.header h1 svg { color:var(--accent); flex-shrink:0; }
+.header p, .body p, .details dt, .empty p { color:var(--muted); font-size:14px; line-height:1.5; }
+.header > span, .badge { color:var(--accent-hover); font-size:13px; font-weight:600; }
+.grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:24px; }
+.card { min-width:0; background:var(--card-bg); border:1px solid var(--border); border-radius:var(--radius-lg); overflow:hidden; }
+.image { position:relative; aspect-ratio:16/10; background:var(--surface-subtle); display:grid; place-items:center; color:var(--muted); }
+.image img { object-fit:cover; }
+.body { display:grid; gap:12px; padding:20px; }
+.badge { justify-self:start; background:var(--accent-light); border-radius:var(--radius-sm); padding:5px 8px; }
+.body h2 { font-size:20px; overflow-wrap:anywhere; }
+.location { display:flex; align-items:flex-start; gap:6px; }
+.location svg { flex-shrink:0; margin-top:2px; }
+.details { display:grid; gap:12px; border-top:1px solid var(--border); padding-top:16px; }
+.details dd { font-size:15px; font-weight:600; margin-top:3px; }
+.actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:8px; }
+.primary, .secondary { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:44px; padding:10px 16px; border-radius:var(--radius-md); font-size:14px; font-weight:600; }
+.primary { background:var(--accent); color:var(--accent-contrast); }
+.secondary { border:1px solid var(--border); }
+.secondary:hover { background:var(--hover-bg); }
+.empty { display:grid; justify-items:center; gap:16px; text-align:center; padding:48px 24px; border:1px solid var(--border); border-radius:var(--radius-lg); background:var(--card-bg); }
+.empty > svg { color:var(--accent); }
+.main :focus-visible { outline:2px solid var(--accent); outline-offset:4px; }
+@media(max-width:640px) { .main { padding:24px 16px 64px; } .grid { grid-template-columns:minmax(0,1fr); } }

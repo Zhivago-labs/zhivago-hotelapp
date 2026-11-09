@@ -6,6 +6,43 @@ import { saveUpload } from '../lib/storage.js';
 import { effectiveBookingPrice, bookingPhase } from '../lib/bookings.js';
 import { myListingsWhere } from './listings.controller.js';
 
+export async function getMyPurchases(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  const { id: userId } = request.user as { id: string };
+  try {
+    const purchases = await prisma.negotiation.findMany({
+      where: {
+        customerId: userId,
+        operationType: 'SALE',
+        status: 'AGREED',
+        offers: { some: { buyerId: userId, status: 'ACCEPTED' } },
+      },
+      orderBy: { updatedAt: 'desc' },
+      select: {
+        id: true, conversationId: true, updatedAt: true,
+        offers: {
+          where: { buyerId: userId, status: 'ACCEPTED' },
+          orderBy: { createdAt: 'desc' }, take: 1,
+          select: { value: true, paymentMethod: true },
+        },
+        listing: { select: {
+          id: true, name: true, location: true, type: true,
+          bedrooms: true, bathrooms: true, parking: true,
+          images: { orderBy: { order: 'asc' }, take: 1, select: { url: true } },
+        } },
+      },
+    });
+    return reply.send(purchases.flatMap(({ offers, listing, updatedAt, ...purchase }) => {
+      const accepted = offers[0];
+      if (!accepted) return [];
+      const { images, ...property } = listing;
+      return [{ ...purchase, confirmedAt: updatedAt.toISOString(), ...accepted, listing: { ...property, image: images[0]?.url ?? null } }];
+    }));
+  } catch (error) {
+    request.log.error(error, 'Erro ao buscar compras');
+    return reply.status(500).send({ error: 'Não foi possível carregar seus imóveis comprados.' });
+  }
+}
+
 export async function getUserProfile(
   request: FastifyRequest,
   reply: FastifyReply

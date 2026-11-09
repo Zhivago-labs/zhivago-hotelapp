@@ -2,7 +2,7 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { z } from 'zod';
 import { ensureLead, getCurrentAssignment, canManageListingConversation } from '../lib/leads.js';
-import { CHAT_COMMANDS, findActionablePending, findPendingRound } from '../socket.js';
+import { CHAT_COMMANDS, findActionablePending, findPendingRound, getIO } from '../socket.js';
 
 const LEAD_STATUSES_WITHOUT_NEGOTIATE_COMMAND = new Set(['NEGOTIATION', 'WON', 'LOST']);
 const COMMAND_BY_TRIGGER = Object.fromEntries(CHAT_COMMANDS.map((c) => [c.trigger, c]));
@@ -374,14 +374,31 @@ export async function markAsRead(request: FastifyRequest, reply: FastifyReply) {
       return reply.status(403).send({ message: 'Access denied' });
     }
 
-    await prisma.message.updateMany({
+    const parsed = z.object({ messageIds: z.array(z.string().min(1)).max(100).optional() }).safeParse(request.body ?? {});
+    if (!parsed.success) return reply.status(400).send({ message: 'Invalid read receipt' });
+
+    // Snapshot the exact messages before updating: a message arriving during this
+    // request must not be included in the receipt for an earlier view.
+    const unread = await prisma.message.findMany({
       where: {
         conversationId,
         senderId: { not: userId },
-        isRead: false
+        isRead: false,
+        ...(parsed.data.messageIds ? { id: { in: parsed.data.messageIds } } : {}),
       },
-      data: { isRead: true }
+      select: { id: true },
     });
+    const messageIds = unread.map((message) => message.id);
+    if (messageIds.length > 0) {
+      await prisma.message.updateMany({
+        where: { conversationId, id: { in: messageIds }, senderId: { not: userId } },
+        data: { isRead: true },
+      });
+      const io = getIO();
+      for (const participant of conversation.participants) {
+        io.to(`room_${participant.id}`).emit('messagesRead', { conversationId, readerId: userId, messageIds });
+      }
+    }
 
     return reply.send({ success: true });
   } catch (error) {

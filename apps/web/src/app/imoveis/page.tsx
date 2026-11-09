@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
-import type { Listing, ListingType } from "@zhivago/shared";
+import type { ListingType } from "@zhivago/shared";
 import { getListings } from "@/lib/api";
 import { getSessionUser } from "@/lib/session";
-import { ListingsExplorer, type Category } from "@/components/ListingsExplorer";
+import type { Category } from "@/components/ListingsExplorer";
+import { StreamingListingsExplorer } from "@/components/StreamingListingsExplorer";
 import styles from "./page.module.css";
 
 export const metadata: Metadata = { title: "Explorar imóveis" };
@@ -21,8 +22,6 @@ function parsePrice(value?: string): string {
 }
 
 export default async function ImoveisPage({ searchParams }: Props) {
-  let listings: Listing[];
-  let loadError = false;
   const user = await getSessionUser();
 
   // Contas de imobiliária são "back-office": gerenciam o próprio inventário
@@ -34,12 +33,10 @@ export default async function ImoveisPage({ searchParams }: Props) {
   const initialType = LISTING_TYPES.includes(tipo as ListingType) ? (tipo as ListingType) : null;
   const initialCategory = CATEGORIES.includes(categoria as Category) ? (categoria as Category) : "todos";
 
-  try {
-    listings = await getListings();
-  } catch {
-    loadError = true;
-    listings = [];
-  }
+  const result = getListings().then(
+    (listings) => ({ listings, loadError: false }),
+    () => ({ listings: [], loadError: true }),
+  );
 
   return (
     <main className={styles.main}>
@@ -48,10 +45,9 @@ export default async function ImoveisPage({ searchParams }: Props) {
         <p className={styles.subtitle}>Casas e apartamentos para comprar, alugar ou ficar por temporada.</p>
       </div>
 
-      <ListingsExplorer
-        listings={listings}
+      <StreamingListingsExplorer
+        result={result}
         isAdmin={user?.role === "ADMIN"}
-        loadError={loadError}
         initialQuery={q ?? ""}
         initialType={initialType}
         initialCategory={initialCategory}

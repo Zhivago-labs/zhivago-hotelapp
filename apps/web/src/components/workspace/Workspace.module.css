@@ -28,6 +28,7 @@
 .filters { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin:16px 0; }
 .filters input, .filters select, .filters button, .secondary { border:1px solid var(--border); border-radius:7px; background:var(--card-bg); color:var(--foreground); padding:10px 12px; font:inherit; font-size:13px; }
 .filters button { cursor:pointer; }
+.filters > a[aria-current] { background:var(--accent-light); border-color:var(--accent); color:var(--accent-hover); font-weight:600; }
 .metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px; margin:24px 0; }
 .metric { padding:18px; border:1px solid var(--border); border-radius:8px; background:var(--card-bg); }
 .metric strong { display:block; font-size:28px; margin-bottom:6px; }

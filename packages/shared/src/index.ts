@@ -40,6 +40,24 @@ export type OfferStatus =
 export type NegotiationStatus = 'OPEN' | 'AGREED' | 'CLOSED' | 'EXPIRED';
 export type NegotiationSide = 'CUSTOMER' | 'LISTING';
 
+export interface PurchasedProperty {
+  id: string;
+  conversationId: string | null;
+  confirmedAt: string;
+  value: number;
+  paymentMethod: string | null;
+  listing: {
+    id: string;
+    name: string;
+    location: string;
+    image: string | null;
+    type: string;
+    bedrooms: number;
+    bathrooms: number;
+    parking: number;
+  };
+}
+
 export interface NegotiationRound {
   id: string;
   value: number;

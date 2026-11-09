@@ -53,7 +53,7 @@ export function WorkspaceShell({ membership, user, hasSeason, children }: { memb
         return <Link href={href} key={href} aria-current={active ? "page" : undefined} onClick={() => setOpen(false)}><Icon width={20} height={20} strokeWidth={1.5} aria-hidden="true" />{label}</Link>;
       })}</nav>
       <Link href="/imoveis" className={styles.publicLink}><ArrowLeft width={18} height={18} />Voltar ao site público</Link>
-      <details className={styles.personal}><summary>{user.avatar ? <Image unoptimized src={user.avatar} alt="" width={32} height={32} /> : <User width={24} height={24} />}<span>{user.name}<small>Conta pessoal</small></span></summary><Link href="/configuracoes" onClick={() => setOpen(false)}>Minha conta</Link><form action={logoutAction}><button type="submit"><LogOut width={18} height={18} />Sair</button></form></details>
+      <details className={styles.personal}><summary>{user.avatar ? <Image unoptimized src={user.avatar} alt="" width={32} height={32} /> : <User width={24} height={24} />}<span>{user.name}<small>Conta pessoal</small></span></summary><Link href="/configuracoes" onClick={() => setOpen(false)}>Minha conta</Link><Link href="/imoveis-comprados" onClick={() => setOpen(false)}>Imóveis comprados</Link><form action={logoutAction}><button type="submit"><LogOut width={18} height={18} />Sair</button></form></details>
     </aside>
     {open && <button className={styles.scrim} aria-label="Fechar navegação" onClick={() => setOpen(false)} />}
     <div className={styles.content}>{children}</div>

@@ -18,7 +18,7 @@ const byCreatedAt = (a: ChatMessage, b: ChatMessage) =>
 export function mergeMessages(prev: LocalChatMessage[], incoming: ChatMessage[]): LocalChatMessage[] {
   if (incoming.length === 0) return prev;
   const byId = new Map(prev.map((m) => [m.id, m]));
-  for (const message of incoming) byId.set(message.id, { ...byId.get(message.id), ...message, localStatus: undefined });
+  for (const message of incoming) byId.set(message.id, { ...byId.get(message.id), ...message, isRead: message.isRead || byId.get(message.id)?.isRead === true, localStatus: undefined });
   return [...byId.values()].sort(byCreatedAt);
 }
 
@@ -40,7 +40,8 @@ export function replaceServerMessages(prev: LocalChatMessage[], server: ChatMess
           Math.abs(new Date(s.createdAt).getTime() - new Date(m.createdAt).getTime()) < 60_000
       )
   );
-  return [...server, ...local].sort(byCreatedAt);
+  const alreadyRead = new Set(prev.filter((m) => m.isRead).map((m) => m.id));
+  return [...server.map((m) => ({ ...m, isRead: m.isRead || alreadyRead.has(m.id) })), ...local].sort(byCreatedAt);
 }
 
 export function parseMetadata<T = Record<string, unknown>>(raw: string | null): T | null {

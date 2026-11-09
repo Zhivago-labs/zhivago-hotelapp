@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { getUserProfile, getMyStats, getMyBookings, updatePushToken, getReceivedBookings } from '../controllers/users.controller.js';
+import { getUserProfile, getMyStats, getMyBookings, getMyPurchases, updatePushToken, getReceivedBookings } from '../controllers/users.controller.js';
 import { authenticate } from '../middlewares/authenticate.js';
 import { updateShowcase, uploadShowcaseImage } from '../controllers/users.controller.js';
 
@@ -11,6 +11,7 @@ export async function usersRoutes(app: FastifyInstance): Promise<void> {
 
   // GET /users/me/bookings - MINHAS VIAGENS (HÓSPEDE)
   app.get('/users/me/bookings', { preHandler: [authenticate] }, getMyBookings);
+  app.get('/users/me/purchases', { preHandler: [authenticate] }, getMyPurchases);
 
   // PATCH /users/me/push-token - ATUALIZAR TOKEN PUSH
   app.patch('/users/me/push-token', { preHandler: [authenticate] }, updatePushToken);

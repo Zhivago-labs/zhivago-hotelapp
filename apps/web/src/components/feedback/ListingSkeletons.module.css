@@ -1,0 +1,7 @@
+.bone { display: block; min-height: 21.6px; border-radius: var(--radius-xs); background: linear-gradient(100deg, var(--surface-subtle) 15%, var(--border) 45%, var(--surface-subtle) 75%); background-size: 250% 100%; animation: shimmer 1.8s ease-in-out infinite; }
+.tag { width: 42%; min-height: 21px; }
+.location { width: 72%; min-height: 15px; }
+.features { width: 55%; min-height: 15px; }
+.price { width: 48%; min-height: 19px; }
+@keyframes shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { .bone { animation: none; } }

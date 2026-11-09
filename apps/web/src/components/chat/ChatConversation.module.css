@@ -332,6 +332,8 @@
   text-align: right;
 }
 
+.receipt { margin-left: 8px; font-weight: 600; }
+
 .failedRow {
   display: flex;
   justify-content: flex-end;

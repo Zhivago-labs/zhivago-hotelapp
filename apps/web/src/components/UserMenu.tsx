@@ -107,6 +107,10 @@ export function UserMenu({ user }: UserMenuProps) {
               </Link>
             )}
 
+            <Link href="/imoveis-comprados" className={styles.dropdownLink} onClick={() => setIsOpen(false)}>
+              <Building2 size={16} /><span>Imóveis comprados</span>
+            </Link>
+
             {user.accountType !== "AGENCY" && user.role !== "ADMIN" && (
               <Link
                 href="/minhas-reservas"

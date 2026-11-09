@@ -20,6 +20,7 @@ import {
 import type { Listing, ListingType } from "@zhivago/shared";
 import { AVAILABLE_AMENITIES } from "./listings/AmenitiesSelector";
 import { ListingCard } from "./ListingCard";
+import { ListingSkeletons } from "./feedback/ListingSkeletons";
 import { ErrorState } from "./ErrorState";
 import {
   addRecentSearch,
@@ -85,6 +86,7 @@ export function ListingsExplorer({
   initialMinPrice = "",
   initialMaxPrice = "",
   showcase = false,
+  loading = false,
 }: {
   listings: Listing[];
   isAdmin?: boolean;
@@ -97,6 +99,7 @@ export function ListingsExplorer({
   initialMinPrice?: string;
   initialMaxPrice?: string;
   showcase?: boolean;
+  loading?: boolean;
 }) {
   const [query, setQuery] = useState(initialQuery);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -276,11 +279,12 @@ export function ListingsExplorer({
 
   // ?pagina=N na URL (sem criar entrada no histórico), pra recarregar/voltar manter a página.
   useEffect(() => {
+    if (loading) return;
     const url = new URL(window.location.href);
     if (page > 1) url.searchParams.set("pagina", String(page));
     else url.searchParams.delete("pagina");
     if (url.href !== window.location.href) window.history.replaceState(window.history.state, "", url);
-  }, [page]);
+  }, [page, loading]);
 
   const goToPage = (next: number) => {
     setPageState({ key: filterKey, page: next });
@@ -682,7 +686,7 @@ export function ListingsExplorer({
       {!loadError && (
         <div className={styles.resultsHeader} ref={resultsRef}>
           <span className={styles.resultsCount}>
-            {filtered.length} {filtered.length === 1 ? "imóvel encontrado" : "imóveis encontrados"}
+            {loading ? <span style={{ visibility: "hidden" }} aria-hidden="true">0 imóveis encontrados</span> : <>{filtered.length} {filtered.length === 1 ? "imóvel encontrado" : "imóveis encontrados"}</>}
           </span>
 
           <label className={styles.sortLabel}>
@@ -702,7 +706,9 @@ export function ListingsExplorer({
         </div>
       )}
 
-      {loadError ? (
+      {loading ? (
+        <ListingSkeletons />
+      ) : loadError ? (
         <ErrorState message="Tente novamente em alguns instantes. Seus filtros continuam aplicados." />
       ) : filtered.length === 0 ? (
         <div className={styles.emptyStateContainer}>
