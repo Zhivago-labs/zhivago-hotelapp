@@ -4,20 +4,28 @@ Referência rápida pro dia a dia. Pra entender *por que* a infra é assim (deci
 veja `docs/deploy-vps-hostinger.md` — este documento aqui é só "quais comandos rodar quando eu mexer em X".
 
 > Até 2026-10-17 o backend rodava no Google Cloud Run + Neon (`docs/deploy-cloud-run-neon.md`, histórico).
-> Tudo do Google Cloud foi apagado; `cloudbuild.yaml` não é mais usado.
+> Tudo do Google Cloud foi apagado (o `cloudbuild.yaml` foi removido em 2026-11-09).
+
+> **Desde 2026-11-09 cada parte tem o próprio repositório** — não há mais cópia entre eles:
+> - `Zhivago-labs/zhivago-hotelapp` (este) — **só o backend** (`apps/server`, `packages/shared`, `deploy/vps`); a VPS puxa daqui.
+> - `Zhivago-labs/zhivago-web` (clone em `C:\Users\Fábio de Melo\zhivago-web`) — **só o site**; a Netlify publica daqui.
+> - `Zhivago-labs/zhivago-mobile` (clone em `C:\Users\Fábio de Melo\zhivago-mobile`) — **só o app**.
+>
+> `packages/shared` (tipos compartilhados) existe em cada repositório: quando mudar um tipo usado pelo
+> site e pelo servidor, altere nos dois.
 
 ## 0. Onde cada coisa mora
 
 | Peça | Onde roda | Como atualiza |
 |---|---|---|
-| `apps/web` (Next.js) | Netlify — `https://zhivago.com.br` (e `https://zhivag0.netlify.app`) | push na `main` do repo **`zhivago-web`** (não do `hotelapp`) → build e deploy automáticos (seção 1) |
+| `apps/web` (Next.js) | Netlify — `https://zhivago.com.br` (e `https://zhivag0.netlify.app`) | push na `main` do repo **`zhivago-web`** → build e deploy automáticos (seção 1) |
 | `apps/server` (Fastify + Prisma + Socket.IO) | VPS Hostinger `177.7.45.213`, Docker Compose em `/opt/zhivago/deploy/vps` | `atualizar.sh` na VPS (seção 2) |
 | Banco de dados | Postgres 18 no Docker da própria VPS (serviço `db`) | migrations aplicadas pelo `atualizar.sh` |
 | Uploads (avatar, fotos de imóvel) | Disco da VPS: `/opt/zhivago/deploy/vps/uploads`, servidos em `/uploads/` | nada a fazer |
 | Segredos de produção | `/opt/zhivago/deploy/vps/.env` na VPS (só root lê; nunca vai pro Git) | editar o arquivo + recriar o `api` (seção 4) |
 | HTTPS | Caddy (certificado Let's Encrypt automático) | nada a fazer |
 | Backup | `backup.sh` todo dia 03:00 UTC (cron do root), 14 dias em `deploy/vps/backups` | seção 5 |
-| `apps/mobile` (Expo) | não publicado | quando publicar: `EXPO_PUBLIC_API_URL=https://api.zhivago.com.br` |
+| `apps/mobile` (Expo, repo `zhivago-mobile`) | não publicado | quando publicar: `EXPO_PUBLIC_API_URL=https://api.zhivago.com.br` |
 
 URL do backend em produção: `https://api.zhivago.com.br` (DNS: registro A `api` → `177.7.45.213` na Netlify).
 
@@ -28,14 +36,10 @@ terminal do navegador no hPanel → VPS → Gerenciar).
 
 ## 1. Atualizar só o frontend (`apps/web`)
 
-⚠️ A Netlify está ligada ao repositório **`Zhivago-labs/zhivago-web`** (clone em `C:\Users\Fábio de Melo\zhivago-web`),
-não ao `hotelapp`. Push só no `hotelapp` **não publica o site**.
+O site mora no repositório **`Zhivago-labs/zhivago-web`** (clone em `C:\Users\Fábio de Melo\zhivago-web`).
 
-1. Commitar e dar push na `main` do `hotelapp` (onde o trabalho é feito).
-2. Copiar os arquivos alterados de `apps/web` e `packages/shared` para o `zhivago-web` (antes, `git fetch` +
-   `git log main..origin/main` lá, pra não sobrescrever algo feito direto nele), conferir com
-   `npx tsc --noEmit` em `apps/web`, commitar como "(sync de hotelapp <commit>)" e dar push.
-3. A Netlify builda e publica sozinha. Acompanhe em **app.netlify.com** → o site → **Deploys**.
+1. Fazer a mudança no `zhivago-web`, conferir com `npx tsc --noEmit` em `apps/web`, commitar e dar push na `main`.
+2. A Netlify builda e publica sozinha. Acompanhe em **app.netlify.com** → o site → **Deploys**.
 
 Variáveis de ambiente da Netlify (Site configuration → Environment variables) — o endereço da API está em
 **duas**, e as duas têm que ser iguais:
@@ -58,7 +62,7 @@ ssh root@177.7.45.213 /opt/zhivago/deploy/vps/atualizar.sh
 
 O script faz, em ordem:
 
-1. `git pull` — se nada mudou, ou só mudou coisa fora do backend (ex.: só `apps/web`), para aqui;
+1. `git pull` — se nada mudou, ou só mudou coisa fora do backend (ex.: só `docs/`), para aqui;
 2. backup do banco + uploads (`backup.sh`);
 3. build da imagem nova — **a versão atual continua no ar** durante o build;
 4. `prisma migrate deploy`, se o commit trouxe migration nova;

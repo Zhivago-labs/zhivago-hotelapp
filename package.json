@@ -1,14 +1,14 @@
 {
-  "name": "zhivago",
+  "name": "zhivago-backend",
   "private": true,
   "version": "1.0.0",
   "workspaces": [
-    "apps/*",
-    "packages/*"
+    "apps/server",
+    "packages/shared"
   ],
   "scripts": {
-    "dev:mobile": "npm run start --workspace=apps/mobile",
-    "dev:web": "npm run dev --workspace=apps/web",
-    "dev:server": "npm run dev --workspace=apps/server"
+    "dev": "npm run dev --workspace=apps/server",
+    "build": "npm run build --workspace=apps/server",
+    "start": "npm run start --workspace=apps/server"
   }
 }
