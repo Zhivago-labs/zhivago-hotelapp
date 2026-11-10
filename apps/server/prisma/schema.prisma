@@ -70,6 +70,7 @@ model User {
   // "organização ativa" na sessão/JWT. Documentado como escolha de V1, não limite definitivo —
   // ver docs/crm-b2b-organizacoes-leads.md, seção "Multi-organização".
   organizationMembership OrganizationMember?
+  organizationJoinRequests OrganizationJoinRequest[]
   leads                  Lead[]
   adminActionLogs        AdminActionLog[]
 
@@ -385,8 +386,13 @@ model Organization {
   leadDistributionMode String  @default("MANUAL")
   leadRoundRobinCursor String?
 
+  // Código de convite da equipe (ex.: "HRZ7-K3PQ"), gerado sob demanda pela tela Equipe. Quem digita
+  // o código cria um OrganizationJoinRequest; só vira membro (BROKER) depois que OWNER/ADMIN aprova.
+  joinCode String? @unique
+
   members   OrganizationMember[] @relation("OrganizationMembers")
   invites   OrganizationInvite[]
+  joinRequests OrganizationJoinRequest[]
   listings  Listing[]
   leads     Lead[]
   buildings OrganizationBuilding[]
@@ -476,6 +482,26 @@ model OrganizationInvite {
 
   @@index([organizationId])
   @@index([email])
+}
+
+// Pedido para entrar numa imobiliária usando o código de convite (Organization.joinCode).
+// Fica PENDING até OWNER/ADMIN aprovar (vira OrganizationMember BROKER) ou recusar. Um usuário tem no
+// máximo um pedido PENDING por vez (garantido no controller).
+model OrganizationJoinRequest {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  status    String    @default("PENDING") // "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED"
+  decidedBy String?   // userId de quem aprovou/recusou
+  decidedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, status])
+  @@index([userId, status])
 }
 
 // ─── CRM B2B: LEADS (Fase 2, ver docs/crm-b2b-organizacoes-leads.md) ──────────

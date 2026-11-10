@@ -24,6 +24,16 @@ import {
   setBuildingBackup,
   getOrganizationAuditLog,
 } from '../controllers/organizations.controller.js';
+import {
+  getJoinCode,
+  regenerateJoinCode,
+  createJoinRequest,
+  getMyJoinRequest,
+  cancelMyJoinRequest,
+  listJoinRequests,
+  approveJoinRequest,
+  rejectJoinRequest,
+} from '../controllers/join-requests.controller.js';
 
 export async function organizationsRoutes(app: FastifyInstance): Promise<void> {
   app.get('/organizations/workspace', { preHandler: [authenticate] }, getWorkspace);
@@ -153,4 +163,16 @@ export async function organizationsRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: [authenticate, requireOrgRole('OWNER', 'ADMIN')] },
     getOrganizationAuditLog
   );
+
+  // ─── Código de convite + pedidos para entrar (aprovados pelo OWNER/ADMIN) ───
+  const manage = { preHandler: [authenticate, requireOrgRole('OWNER', 'ADMIN')] };
+  app.get('/organizations/join-code', manage, getJoinCode);
+  app.post('/organizations/join-code/regenerate', manage, regenerateJoinCode);
+  app.get('/organizations/join-requests', manage, listJoinRequests);
+  app.post('/organizations/join-requests/:id/approve', manage, approveJoinRequest);
+  app.post('/organizations/join-requests/:id/reject', manage, rejectJoinRequest);
+  // Limite apertado por IP: impede tentar adivinhar códigos em sequência.
+  app.post('/organizations/join-requests', { preHandler: [authenticate], config: { rateLimit: { max: 10, timeWindow: '15 minutes' } } }, createJoinRequest);
+  app.get('/organizations/join-requests/me', { preHandler: [authenticate] }, getMyJoinRequest);
+  app.delete('/organizations/join-requests/me', { preHandler: [authenticate] }, cancelMyJoinRequest);
 }
