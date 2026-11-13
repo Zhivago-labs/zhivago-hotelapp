@@ -175,6 +175,9 @@ export interface ListingOwner {
   logoUrl?: string | null;
   creci?: string | null;
   verified?: boolean;
+  /** Página pública do imóvel: desde quando anuncia e quantos anúncios ativos tem. */
+  createdAt?: string;
+  _count?: { listings: number };
 }
 
 export interface ListingImage {
@@ -364,6 +367,10 @@ export interface Listing {
   privateArea?: number | null;
   totalArea?: number | null;
   amenities?: string | null;
+  /** JSON com "outros diferenciais" em texto livre (ex.: "Vista para o mar"). */
+  features?: string | null;
+  /** "Sobre a região": comércio, transporte, escolas etc. */
+  neighborhood?: string | null;
   checkInTime?: string | null;
   checkOutTime?: string | null;
   customMaxGuests?: number | null;
@@ -395,7 +402,7 @@ export interface Listing {
   agentId?: string | null;
   createdById?: string | null;
   buildingId?: string | null;
-  organization?: { id: string; name: string; logo: string | null; verified: boolean } | null;
+  organization?: { id: string; name: string; logo: string | null; verified: boolean; createdAt?: string; _count?: { listings: number } } | null;
   agent?: { id: string; name: string; avatar: string | null } | null;
   createdAt: string;
   updatedAt: string;

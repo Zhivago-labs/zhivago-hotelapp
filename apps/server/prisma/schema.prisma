@@ -115,6 +115,8 @@ model Listing {
   privateArea  Float?
   totalArea    Float?
   amenities    String?  // JSON stringified array of selected amenity keys/names
+  features     String?  // JSON: "outros diferenciais" em texto livre (ex.: "Vista para o mar"), até 15
+  neighborhood String?  // "Sobre a região": comércio, transporte, escolas etc. (texto livre)
 
   // Regras da casa, segurança e cancelamento
   checkInTime        String?  @default("15:00")

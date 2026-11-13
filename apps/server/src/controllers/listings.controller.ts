@@ -11,6 +11,30 @@ import { LEAD_DISTRIBUTION_ROLES } from '../lib/leads.js';
 import { logOrgAudit } from '../lib/organizations.js';
 
 const MAX_LISTING_IMAGES = 10;
+const MAX_FEATURES = 15;
+const MAX_NEIGHBORHOOD = 1500;
+
+/**
+ * "Outros diferenciais": JSON com textos curtos digitados pelo anunciante. Normaliza (sem vazios,
+ * sem repetição, até 40 caracteres cada, no máximo 15) e devolve `null` quando não sobra nada.
+ */
+export function normalizeFeatures(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  let list: unknown;
+  try { list = JSON.parse(raw); } catch { return null; }
+  if (!Array.isArray(list)) return null;
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of list) {
+    if (typeof item !== 'string') continue;
+    const text = item.trim().replace(/\s+/g, ' ').slice(0, 40);
+    if (!text || seen.has(text.toLowerCase())) continue;
+    seen.add(text.toLowerCase());
+    out.push(text);
+    if (out.length >= MAX_FEATURES) break;
+  }
+  return out.length ? JSON.stringify(out) : null;
+}
 const MAX_IMPORT_ROWS = 500;
 
 /**
@@ -132,9 +156,16 @@ export async function getListingById(
             companyName: true, logoUrl: true,
             creci: true,
             verified: true,
+            createdAt: true,
+            _count: { select: { listings: { where: { status: 'APPROVED', isDemo: false } } } },
           },
         },
-        organization: { select: { id: true, name: true, logo: true, verified: true } },
+        organization: {
+          select: {
+            id: true, name: true, logo: true, verified: true, createdAt: true,
+            _count: { select: { listings: { where: { status: 'APPROVED', isDemo: false } } } },
+          },
+        },
         agent: { select: { id: true, name: true, avatar: true } },
         images: { orderBy: { order: 'asc' } },
       },
@@ -345,6 +376,8 @@ export async function createListing(
       allowPets: multipartBoolean,
       acceptsNegotiation: multipartBoolean,
       minNegotiablePrice: z.coerce.number().positive().optional(),
+      features: z.string().optional(),
+      neighborhood: z.string().max(MAX_NEIGHBORHOOD, 'O texto sobre a região pode ter até 1500 caracteres.').optional(),
       // Etapa 5 — Atendimento/CRM (seção 72 da spec), só usada se o criador pertencer a uma organização.
       buildingId: z.string().optional(),
       assignedAgentId: z.string().optional(), // "responsável por este imóvel" (seção 73)
@@ -444,6 +477,8 @@ export async function createListing(
         allowPets: data.allowPets ?? null,
         acceptsNegotiation: data.acceptsNegotiation ?? false,
         minNegotiablePrice: data.minNegotiablePrice ?? null,
+        features: normalizeFeatures(data.features),
+        neighborhood: data.neighborhood?.trim() || null,
         operationType: data.operationType ?? deriveOperationType(data.category, data.billingCycle),
         createdById: userId,
         ownerId: membership ? null : userId,
@@ -592,6 +627,8 @@ export async function updateListing(
     allowPets: z.boolean().optional(),
     acceptsNegotiation: z.boolean().optional(),
     minNegotiablePrice: z.coerce.number().positive().nullable().optional(),
+    features: z.string().nullable().optional(),
+    neighborhood: z.string().max(MAX_NEIGHBORHOOD, 'O texto sobre a região pode ter até 1500 caracteres.').nullable().optional(),
     buildingId: z.string().nullable().optional(),
     assignedAgentId: z.string().optional(),
     assumeBuildingLeads: z.boolean().optional(),
@@ -607,6 +644,8 @@ export async function updateListing(
     if (val !== undefined) updateData[key] = val;
   }
   if (availableFrom !== undefined) updateData.availableFrom = availableFrom ? new Date(availableFrom) : null;
+  if ('features' in updateData) updateData.features = normalizeFeatures(updateData.features);
+  if ('neighborhood' in updateData) updateData.neighborhood = updateData.neighborhood?.trim() || null;
 
   // Mantém operationType em sincronia sempre que category/billingCycle mudam (ver
   // deriveOperationType) — essencial pras validações de Offer/Booking, que dependem dele. Se o
@@ -966,6 +1005,8 @@ export async function duplicateListing(
       name: `${listing.name} (cópia)`,
       isDemo: listing.isDemo,
       description: listing.description,
+      features: listing.features,
+      neighborhood: listing.neighborhood,
       price: listing.price,
       type: listing.type,
       category: listing.category,
