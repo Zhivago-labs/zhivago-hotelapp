@@ -673,6 +673,85 @@ export async function updateListing(
   return reply.send({ ...updated, buildingLeadOwnershipError });
 }
 
+// ─── EDITAR FOTOS DE UM IMÓVEL (mesma permissão da edição) ───────────────────────────────────
+//
+// Multipart: campo `order` = JSON com a ordem final das fotos, onde cada item é
+// `"existing:<idDaFoto>"` (foto que já está no anúncio) ou `"new:<n>"` (n-ésimo arquivo `images`
+// deste envio, contando a partir de 0). Fotos que não aparecem em `order` saem do anúncio.
+// Os arquivos removidos NÃO são apagados do disco: anúncios duplicados reaproveitam as mesmas URLs.
+
+export async function updateListingImages(
+  request: FastifyRequest,
+  reply: FastifyReply
+): Promise<void> {
+  const { id: userId } = request.user as { id: string };
+  const { id } = request.params as { id: string };
+
+  const listing = await prisma.listing.findUnique({ where: { id }, include: { images: true } });
+  if (!listing) return reply.status(404).send({ error: 'Imóvel não encontrado.' });
+  const isOwner = listing.ownerId === userId;
+  if (!isOwner && !(await canManageOrgListing(userId, listing))) {
+    return reply.status(403).send({ error: 'Sem permissão para editar este imóvel.' });
+  }
+
+  const newUrls: string[] = [];
+  let rawOrder: string | undefined;
+  try {
+    for await (const part of request.parts()) {
+      if (part.type === 'file' && part.fieldname === 'images') {
+        // Sempre drena o arquivo, mesmo acima do limite (o busboy exige consumir cada parte).
+        const buffer = await part.toBuffer();
+        if (newUrls.length >= MAX_LISTING_IMAGES) return reply.status(400).send({ error: 'Envie no máximo 10 fotos.' });
+        const safeName = path.parse(part.filename).name.replace(/[^a-zA-Z0-9_-]+/g, '-').slice(0, 60);
+        newUrls.push(await saveListingPhoto(buffer, `${Date.now()}-${newUrls.length}-${safeName || 'foto'}.webp`));
+      } else if (part.type === 'field' && part.fieldname === 'order') {
+        rawOrder = String(part.value);
+      }
+    }
+  } catch (error) {
+    if (error instanceof InvalidImageError) return reply.status(400).send({ error: error.message });
+    if (error instanceof Error && error.name === 'RequestFileTooLargeError') {
+      return reply.status(413).send({ error: 'Cada foto pode ter no máximo 20 MB.' });
+    }
+    throw error;
+  }
+
+  let order: unknown;
+  try { order = JSON.parse(rawOrder ?? ''); } catch { order = null; }
+  if (!Array.isArray(order) || order.some((item) => typeof item !== 'string')) {
+    return reply.status(400).send({ error: 'Ordem das fotos inválida.' });
+  }
+  const tokens = order as string[];
+  if (new Set(tokens).size !== tokens.length) return reply.status(400).send({ error: 'Ordem das fotos inválida.' });
+  if (tokens.length > MAX_LISTING_IMAGES) return reply.status(400).send({ error: 'O anúncio pode ter no máximo 10 fotos.' });
+  if (tokens.length === 0 && listing.status !== 'DRAFT') {
+    return reply.status(400).send({ error: 'Mantenha ao menos uma foto no anúncio.' });
+  }
+
+  const existingIds = new Set(listing.images.map((image) => image.id));
+  const plan: ({ kind: 'existing'; imageId: string } | { kind: 'new'; url: string })[] = [];
+  for (const token of tokens) {
+    const [kind, ref] = token.split(':');
+    const newUrl = kind === 'new' && /^\d+$/.test(ref ?? '') ? newUrls[Number(ref)] : undefined;
+    if (kind === 'existing' && ref && existingIds.has(ref)) plan.push({ kind, imageId: ref });
+    else if (newUrl) plan.push({ kind: 'new', url: newUrl });
+    else return reply.status(400).send({ error: 'Uma das fotos indicadas não pertence a este anúncio.' });
+  }
+
+  const kept = plan.flatMap((item) => (item.kind === 'existing' ? [item.imageId] : []));
+  await prisma.$transaction([
+    prisma.listingImage.deleteMany({ where: { listingId: id, id: { notIn: kept } } }),
+    ...plan.map((item, index) =>
+      item.kind === 'existing'
+        ? prisma.listingImage.update({ where: { id: item.imageId }, data: { order: index } })
+        : prisma.listingImage.create({ data: { listingId: id, url: item.url, order: index } })
+    ),
+  ]);
+
+  const images = await prisma.listingImage.findMany({ where: { listingId: id }, orderBy: { order: 'asc' } });
+  return reply.send({ images });
+}
+
 // ─── REATRIBUIR CORRETOR RESPONSÁVEL (requer auth + ser OWNER/ADMIN da organização dona do imóvel) ─
 
 export async function reassignListingAgent(

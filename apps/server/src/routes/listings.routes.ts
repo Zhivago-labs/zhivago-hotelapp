@@ -5,6 +5,7 @@ import {
   createListing,
   getMyListings,
   updateListing,
+  updateListingImages,
   deleteListing,
   duplicateListing,
   getListingById,
@@ -34,6 +35,9 @@ export async function listingsRoutes(app: FastifyInstance): Promise<void> {
 
   // PUT /listings/:id — editar meu imóvel (requer auth)
   app.put('/listings/:id', { preHandler: [authenticate] }, updateListing);
+
+  // PUT /listings/:id/images — trocar, remover e reordenar fotos (multipart; mesma permissão da edição)
+  app.put('/listings/:id/images', { preHandler: [authenticate] }, updateListingImages);
 
   // DELETE /listings/:id — remover imóvel (requer auth + ser dono ou admin)
   app.delete('/listings/:id', { preHandler: [authenticate] }, deleteListing);
