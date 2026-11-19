@@ -639,6 +639,16 @@ export async function updateListing(
   if (!parsed.success) return reply.status(400).send({ error: parsed.error.errors });
 
   const { buildingId, assignedAgentId, assumeBuildingLeads, availableFrom, ...rest } = parsed.data;
+
+  // Permissão antes de qualquer validação de conteúdo: quem não pode redistribuir o responsável
+  // recebe 403, nunca um 400 de "anúncio incompleto" que esconde a recusa.
+  if (listing.organizationId && assignedAgentId && assignedAgentId !== listing.agentId) {
+    const actor = await prisma.organizationMember.findUnique({ where: { userId } });
+    if (!actor || actor.status !== 'ACTIVE' || !['OWNER', 'ADMIN'].includes(actor.role)) {
+      return reply.status(403).send({ error: 'Somente proprietário ou administrador pode redistribuir o responsável pelo imóvel.' });
+    }
+  }
+
   const updateData: Record<string, any> = {};
   for (const [key, val] of Object.entries(rest)) {
     if (val !== undefined) updateData[key] = val;
@@ -679,12 +689,6 @@ export async function updateListing(
   let buildingLeadOwnershipError: string | null = null;
   if (listing.organizationId) {
     if (assignedAgentId !== undefined) {
-      if (assignedAgentId && assignedAgentId !== listing.agentId) {
-        const actor = await prisma.organizationMember.findUnique({ where: { userId } });
-        if (!actor || actor.status !== 'ACTIVE' || !['OWNER', 'ADMIN'].includes(actor.role)) {
-          return reply.status(403).send({ error: 'Somente proprietário ou administrador pode redistribuir o responsável pelo imóvel.' });
-        }
-      }
       const chosen = await prisma.organizationMember.findUnique({ where: { userId: assignedAgentId } });
       if (assignedAgentId && (!chosen || chosen.status !== 'ACTIVE' || chosen.organizationId !== listing.organizationId)) {
         return reply.status(400).send({ error: 'Escolha um membro ativo desta imobiliária.' });
