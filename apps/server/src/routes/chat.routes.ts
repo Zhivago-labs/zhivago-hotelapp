@@ -8,7 +8,10 @@ import {
   markAsRead,
   reportConversation,
   closeConversation,
-  reopenConversation
+  reopenConversation,
+  blockConversation,
+  listBlocks,
+  removeBlock
 } from '../controllers/chat.controller.js';
 
 export async function chatRoutes(app: FastifyInstance) {
@@ -20,4 +23,7 @@ export async function chatRoutes(app: FastifyInstance) {
   app.patch('/conversations/:id/report', { preHandler: [authenticate] }, reportConversation);
   app.patch('/conversations/:id/close', { preHandler: [authenticate] }, closeConversation);
   app.patch('/conversations/:id/reopen', { preHandler: [authenticate] }, reopenConversation);
+  app.post('/conversations/:id/block', { preHandler: [authenticate] }, blockConversation);
+  app.get('/blocks', { preHandler: [authenticate] }, listBlocks);
+  app.delete('/blocks/:id', { preHandler: [authenticate] }, removeBlock);
 }

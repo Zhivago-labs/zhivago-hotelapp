@@ -6,6 +6,7 @@ import { JWT_SECRET } from './lib/env.js';
 import { approveBookingCore, rejectBookingCore } from './controllers/bookings.controller.js';
 import { proposeRound, respondToRound } from './lib/negotiations.js';
 import { moveLeadToNegotiationFromChatCommand, canManageListingConversation } from './lib/leads.js';
+import { CHAT_BLOCKED_MESSAGE, isChatBlocked } from './lib/chat-blocks.js';
 let ioInstance: SocketIOServer | null = null;
 
 /**
@@ -420,8 +421,13 @@ export function setupSocket(io: SocketIOServer) {
         }
 
         // Se o administrador encerrou/bloqueou a conversa, impede novas mensagens
-        if ((conversation as any).isClosed) {
-          if (callback) callback({ error: 'Conversation is closed by admin' });
+        if (conversation.isClosed) {
+          if (callback) callback({ error: 'Esta conversa foi encerrada.' });
+          return;
+        }
+        // Bloqueio (lib/chat-blocks.ts) vale nos dois sentidos — inclusive para comandos de "/".
+        if (await isChatBlocked(conversation.participants.map((p) => p.id), conversation.property.organizationId)) {
+          if (callback) callback({ error: CHAT_BLOCKED_MESSAGE });
           return;
         }
 

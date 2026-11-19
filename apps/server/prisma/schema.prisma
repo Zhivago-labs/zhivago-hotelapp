@@ -73,6 +73,8 @@ model User {
   organizationJoinRequests OrganizationJoinRequest[]
   leads                  Lead[]
   adminActionLogs        AdminActionLog[]
+  chatBlocksMade         ChatBlock[] @relation("ChatBlocker")
+  chatBlocksReceived     ChatBlock[] @relation("ChatBlockedUser")
 
   @@index([status])
   @@index([role])
@@ -300,6 +302,10 @@ model Conversation {
 
   isReported   Boolean   @default(false)
   isClosed     Boolean   @default(false)
+  // Quem encerrou: "ADMIN" (moderação — só a administração reabre) ou "LISTING" (a imobiliária
+  // encerrou o atendimento — o cliente pode pedir pra reabrir pelo próprio chat).
+  closedBy     String?
+  closedAt     DateTime?
 
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
@@ -399,6 +405,8 @@ model Organization {
   leads     Lead[]
   buildings OrganizationBuilding[]
   auditLogs OrganizationAuditLog[]
+  chatBlocksMade     ChatBlock[] @relation("ChatBlockerOrganization")
+  chatBlocksReceived ChatBlock[] @relation("ChatBlockedOrganization")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -759,4 +767,34 @@ model Negotiation {
   @@index([conversationId])
   @@index([customerId])
   @@index([leadId])
+}
+
+// ─── BLOQUEIO DE CHAT ────────────────────────────────────────────────────────
+// Bloqueio vale nos dois sentidos: ninguém do par consegue mandar mensagem, iniciar conversa,
+// reservar ou negociar com o outro. Três formas (exatamente um "lado bloqueado" preenchido):
+// - pessoal:              blocker → blockedUser                (ninguém em nome de empresa)
+// - imobiliária bloqueia: blocker (membro) + blockerOrganization → blockedUser (cliente) — vale
+//                         pra equipe toda; o próprio autor ou OWNER/ADMIN desfaz
+// - cliente bloqueia:     blocker (cliente) → blockedOrganization (a imobiliária inteira)
+model ChatBlock {
+  id String @id @default(uuid())
+
+  blockerId String
+  blocker   User   @relation("ChatBlocker", fields: [blockerId], references: [id], onDelete: Cascade)
+
+  blockerOrganizationId String?
+  blockerOrganization   Organization? @relation("ChatBlockerOrganization", fields: [blockerOrganizationId], references: [id], onDelete: Cascade)
+
+  blockedUserId String?
+  blockedUser   User?   @relation("ChatBlockedUser", fields: [blockedUserId], references: [id], onDelete: Cascade)
+
+  blockedOrganizationId String?
+  blockedOrganization   Organization? @relation("ChatBlockedOrganization", fields: [blockedOrganizationId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([blockerId])
+  @@index([blockedUserId])
+  @@index([blockerOrganizationId])
+  @@index([blockedOrganizationId])
 }

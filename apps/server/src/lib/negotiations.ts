@@ -4,6 +4,7 @@ import { canManageListingConversation, advanceLeadBySystem } from './leads.js';
 import { sendNotification } from '../services/notification.service.js';
 import { getIO } from '../socket.js';
 import { isRequestExpired } from './bookings.js';
+import { CHAT_BLOCKED_MESSAGE, isChatBlocked } from './chat-blocks.js';
 
 /**
  * ─── NEGOCIAÇÃO DE VALOR NO CHAT ─────────────────────────────────────────────────────────────
@@ -221,12 +222,15 @@ export async function proposeRound({
 
   const conversation = await prisma.conversation.findUnique({
     where: { id: conversationId },
-    include: { participants: { select: { id: true } }, property: { select: { ownerId: true } } },
+    include: { participants: { select: { id: true } }, property: { select: { ownerId: true, organizationId: true } } },
   });
   if (!conversation || !conversation.participants.some((p) => p.id === actorId)) {
     return fail(404, 'Conversa não encontrada.');
   }
   if (conversation.isClosed) return fail(400, 'Esta conversa foi encerrada.');
+  if (await isChatBlocked(conversation.participants.map((p) => p.id), conversation.property.organizationId)) {
+    return fail(403, CHAT_BLOCKED_MESSAGE);
+  }
 
   // Único lugar (junto da edição pelo anunciante) que lê o piso sigiloso.
   const listing = await prisma.listing.findUniqueOrThrow({

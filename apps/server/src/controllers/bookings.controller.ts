@@ -7,6 +7,7 @@ import { ensureLead, getCurrentAssignment, canManageListingConversation, closeLe
 import { canManageOrgListing } from './listings.controller.js';
 import { closeNegotiationsForBooking } from '../lib/negotiations.js';
 import { isRequestExpired, isStayFinished } from '../lib/bookings.js';
+import { isChatBlocked } from '../lib/chat-blocks.js';
 
 const senderSelect = { select: { id: true, name: true, avatar: true } } as const;
 
@@ -80,6 +81,11 @@ export async function createBooking(request: FastifyRequest, reply: FastifyReply
   if (!listing) return reply.status(404).send({ error: 'Imóvel não encontrado.' });
   if (listing.operationType !== 'DAILY_RENT') {
     return reply.status(400).send({ error: 'Reservas só estão disponíveis para aluguel por diária.' });
+  }
+  // Bloqueio de chat (lib/chat-blocks.ts): a reserva abre/usa a conversa com o anunciante.
+  const contactIds = [userId, listing.ownerId, listing.agentId].filter((id): id is string => !!id);
+  if (await isChatBlocked(contactIds, listing.organizationId)) {
+    return reply.status(403).send({ error: 'Não é possível fazer reservas com este anunciante.' });
   }
 
   // Seção 53 da spec: [startDate, endDate) — checkout não conta como noite.

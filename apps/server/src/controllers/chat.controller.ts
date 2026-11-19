@@ -3,6 +3,8 @@ import { prisma } from '../lib/prisma.js';
 import { z } from 'zod';
 import { ensureLead, getCurrentAssignment, canManageListingConversation } from '../lib/leads.js';
 import { CHAT_COMMANDS, findActionablePending, findPendingRound, getIO } from '../socket.js';
+import { sendNotification } from '../services/notification.service.js';
+import { CHAT_BLOCKED_MESSAGE, canRemoveChatBlock, chatBlocksBetween, isChatBlocked } from '../lib/chat-blocks.js';
 
 const LEAD_STATUSES_WITHOUT_NEGOTIATE_COMMAND = new Set(['NEGOTIATION', 'WON', 'LOST']);
 const COMMAND_BY_TRIGGER = Object.fromEntries(CHAT_COMMANDS.map((c) => [c.trigger, c]));
@@ -233,9 +235,27 @@ export async function getConversation(request: FastifyRequest, reply: FastifyRep
       conversation.property
     );
 
+    // Encerrar é exclusivo de imóvel de imobiliária (ou da administração); reabrir segue as regras
+    // de `reopenConversation`. Bloqueio: se há algum ativo e qual deles o viewer pode desfazer.
+    const participantIds = conversation.participants.map((p) => p.id);
+    const isParticipant = participantIds.includes(userId);
+    const blocks = await chatBlocksBetween(participantIds, conversation.property.organizationId);
+    let removableBlockId: string | null = null;
+    for (const b of blocks) {
+      if (await canRemoveChatBlock(userId, b)) { removableBlockId = b.id; break; }
+    }
+    const isBlocked = blocks.length > 0;
+    const canClose = !conversation.isClosed && (isAdmin || (!!conversation.property.organizationId && canManage));
+    const canReopen = conversation.isClosed && !isBlocked &&
+      (isAdmin || (conversation.closedBy !== 'ADMIN' && (isParticipant || canManage)));
+
     return reply.send({
       ...conversation,
       canManage,
+      canClose,
+      canReopen,
+      canBlock: isParticipant && !isAdmin && !isBlocked,
+      block: { active: isBlocked, removableId: removableBlockId },
       availableCommands,
       property: {
         id: conversation.property.id,
@@ -291,6 +311,12 @@ export async function createOrGetConversation(request: FastifyRequest, reply: Fa
 
     if (existingConversation) {
       return reply.status(200).send(existingConversation);
+    }
+
+    // Bloqueio (ver lib/chat-blocks.ts): com o dono/corretor do imóvel ou com a imobiliária dele.
+    const contactIds = [userId, listing.ownerId, listing.agentId].filter((id): id is string => !!id);
+    if (await isChatBlocked(contactIds, listing.organizationId)) {
+      return reply.status(403).send({ message: 'Não é possível iniciar uma conversa com este anunciante.' });
     }
 
     if (listing.status === 'SOLD' || listing.status === 'RENTED') {
@@ -437,44 +463,243 @@ export async function reportConversation(request: FastifyRequest, reply: Fastify
   }
 }
 
-export async function closeConversation(request: FastifyRequest, reply: FastifyReply) {
-  const userRole = (request.user as any).role;
-  const { id: conversationId } = request.params as { id: string };
+// ─── ENCERRAR / REABRIR ──────────────────────────────────────────────────────
 
-  if (userRole !== 'ADMIN') {
-    return reply.status(403).send({ message: 'Admin access required' });
-  }
+const conversationForActions = {
+  participants: { select: { id: true, name: true } },
+  property: { select: { id: true, name: true, ownerId: true, organizationId: true, organization: { select: { name: true } } } },
+} as const;
 
+type ConversationForActions = NonNullable<Awaited<ReturnType<typeof loadConversationForActions>>>;
+
+function loadConversationForActions(id: string) {
+  return prisma.conversation.findUnique({ where: { id }, include: conversationForActions });
+}
+
+function emitConversationUpdated(participantIds: string[], conversationId: string) {
   try {
-    const updated = await prisma.conversation.update({
-      where: { id: conversationId },
-      data: { isClosed: true }
-    });
-
-    return reply.send(updated);
-  } catch (error) {
-    console.error(error);
-    return reply.status(500).send({ message: 'Internal server error' });
+    const io = getIO();
+    for (const id of new Set(participantIds)) io.to(`room_${id}`).emit('conversationUpdated', { conversationId });
+  } catch {
+    // socket não inicializado (scripts/testes) — o estado já está no banco
   }
 }
 
-export async function reopenConversation(request: FastifyRequest, reply: FastifyReply) {
-  const userRole = (request.user as any).role;
+/** Posta a mensagem automática de encerramento/reabertura e avisa todas as telas da conversa. */
+async function postConversationEvent(
+  conversation: ConversationForActions,
+  actorId: string,
+  type: 'CONVERSATION_CLOSED' | 'CONVERSATION_REOPENED',
+  content: string
+) {
+  const message = await prisma.message.create({
+    data: { content, type, senderId: actorId, conversationId: conversation.id },
+    include: { sender: { select: { id: true, name: true, avatar: true } } },
+  });
+  await prisma.conversation.update({ where: { id: conversation.id }, data: { updatedAt: new Date() } });
+  const roomIds = [...new Set([...conversation.participants.map((p) => p.id), actorId])];
+  try {
+    const io = getIO();
+    for (const id of roomIds) io.to(`room_${id}`).emit('receiveMessage', message);
+  } catch {
+    // socket não inicializado
+  }
+  emitConversationUpdated(roomIds, conversation.id);
+  return message;
+}
+
+/**
+ * Encerra o atendimento. Administração da plataforma encerra qualquer conversa (moderação, só ela
+ * reabre); fora isso, exclusivo de imóvel de imobiliária: quem atende o Lead pelo lado do anúncio
+ * (`canManageListingConversation`). O cliente recebe uma mensagem automática e deixa de poder
+ * escrever, mas pode reabrir pelo próprio chat (`reopenConversation`).
+ */
+export async function closeConversation(request: FastifyRequest, reply: FastifyReply) {
+  const { id: userId, role } = request.user as { id: string; role: string };
   const { id: conversationId } = request.params as { id: string };
 
-  if (userRole !== 'ADMIN') {
-    return reply.status(403).send({ message: 'Admin access required' });
+  const conversation = await loadConversationForActions(conversationId);
+  if (!conversation) return reply.status(404).send({ message: 'Conversa não encontrada.' });
+
+  const isAdmin = role === 'ADMIN';
+  const participantIds = conversation.participants.map((p) => p.id);
+  if (!isAdmin) {
+    if (!conversation.property.organizationId) {
+      return reply.status(403).send({ message: 'Encerrar conversas é exclusivo de imobiliárias.' });
+    }
+    if (!(await canManageListingConversation(userId, conversation.property, participantIds))) {
+      return reply.status(403).send({ message: 'Sem permissão para encerrar esta conversa.' });
+    }
+  }
+  if (conversation.isClosed) return reply.status(409).send({ message: 'Esta conversa já está encerrada.' });
+
+  const updated = await prisma.conversation.update({
+    where: { id: conversationId },
+    data: { isClosed: true, closedBy: isAdmin ? 'ADMIN' : 'LISTING', closedAt: new Date() },
+  });
+
+  const agencyName = conversation.property.organization?.name ?? 'a imobiliária';
+  const text = isAdmin
+    ? 'Esta conversa foi encerrada pela administração do Zhivago.'
+    : `Esta conversa foi encerrada por ${agencyName}. Se precisar de algo mais, você pode reabri-la por aqui.`;
+  await postConversationEvent(conversation, userId, 'CONVERSATION_CLOSED', text);
+
+  for (const id of participantIds.filter((id) => id !== userId)) {
+    await sendNotification({ userId: id, title: 'Conversa encerrada', message: `${conversation.property.name}: ${text}`, type: 'MESSAGE' });
   }
 
-  try {
-    const updated = await prisma.conversation.update({
-      where: { id: conversationId },
-      data: { isClosed: false }
-    });
+  return reply.send(updated);
+}
 
-    return reply.send(updated);
-  } catch (error) {
-    console.error(error);
-    return reply.status(500).send({ message: 'Internal server error' });
+/**
+ * Reabre. Encerrada pela administração: só ela reabre. Encerrada pela imobiliária: tanto quem
+ * atende pelo anúncio quanto o próprio cliente (pelo modal do chat) — o outro lado é avisado.
+ * Conversa com bloqueio ativo não reabre (nada poderia ser enviado mesmo).
+ */
+export async function reopenConversation(request: FastifyRequest, reply: FastifyReply) {
+  const { id: userId, role } = request.user as { id: string; role: string };
+  const { id: conversationId } = request.params as { id: string };
+
+  const conversation = await loadConversationForActions(conversationId);
+  if (!conversation) return reply.status(404).send({ message: 'Conversa não encontrada.' });
+  if (!conversation.isClosed) return reply.status(409).send({ message: 'Esta conversa já está aberta.' });
+
+  const isAdmin = role === 'ADMIN';
+  const participantIds = conversation.participants.map((p) => p.id);
+  if (!isAdmin) {
+    if (conversation.closedBy === 'ADMIN') {
+      return reply.status(403).send({ message: 'Esta conversa foi encerrada pela administração e só ela pode reabrir.' });
+    }
+    const isParticipant = participantIds.includes(userId);
+    if (!isParticipant && !(await canManageListingConversation(userId, conversation.property, participantIds))) {
+      return reply.status(403).send({ message: 'Sem permissão para reabrir esta conversa.' });
+    }
+    if (await isChatBlocked(participantIds, conversation.property.organizationId)) {
+      return reply.status(403).send({ message: CHAT_BLOCKED_MESSAGE });
+    }
   }
+
+  const updated = await prisma.conversation.update({
+    where: { id: conversationId },
+    data: { isClosed: false, closedBy: null, closedAt: null },
+  });
+
+  const actorName = conversation.participants.find((p) => p.id === userId)?.name;
+  const text = isAdmin
+    ? 'Esta conversa foi reaberta pela administração do Zhivago.'
+    : `${actorName ?? 'Alguém da equipe'} reabriu a conversa.`;
+  await postConversationEvent(conversation, userId, 'CONVERSATION_REOPENED', text);
+
+  for (const id of participantIds.filter((id) => id !== userId)) {
+    await sendNotification({ userId: id, title: 'Conversa reaberta', message: `${conversation.property.name}: ${text}`, type: 'MESSAGE' });
+  }
+
+  return reply.send(updated);
+}
+
+// ─── BLOQUEAR ────────────────────────────────────────────────────────────────
+
+/**
+ * Bloqueia "o outro lado" desta conversa (ver model `ChatBlock`):
+ * - quem atende pela imobiliária bloqueia o cliente em nome da imobiliária toda;
+ * - o cliente de um imóvel de imobiliária bloqueia a imobiliária inteira;
+ * - imóvel de pessoa física: bloqueio pessoal entre cliente e dono.
+ */
+export async function blockConversation(request: FastifyRequest, reply: FastifyReply) {
+  const { id: userId } = request.user as { id: string };
+  const { id: conversationId } = request.params as { id: string };
+
+  const conversation = await loadConversationForActions(conversationId);
+  if (!conversation || !conversation.participants.some((p) => p.id === userId)) {
+    return reply.status(404).send({ message: 'Conversa não encontrada.' });
+  }
+  const participantIds = conversation.participants.map((p) => p.id);
+  const organizationId = conversation.property.organizationId;
+
+  let data: { blockerId: string; blockerOrganizationId?: string; blockedUserId?: string; blockedOrganizationId?: string };
+  if (organizationId) {
+    const member = await prisma.organizationMember.findUnique({ where: { userId } });
+    const isTeam = !!member && member.status === 'ACTIVE' && member.organizationId === organizationId;
+    if (isTeam) {
+      const team = await prisma.organizationMember.findMany({
+        where: { organizationId, userId: { in: participantIds } },
+        select: { userId: true },
+      });
+      const teamIds = new Set(team.map((m) => m.userId));
+      const customerId = participantIds.find((id) => !teamIds.has(id));
+      if (!customerId) return reply.status(400).send({ message: 'Não há cliente para bloquear nesta conversa.' });
+      data = { blockerId: userId, blockerOrganizationId: organizationId, blockedUserId: customerId };
+    } else {
+      data = { blockerId: userId, blockedOrganizationId: organizationId };
+    }
+  } else {
+    const otherId = conversation.property.ownerId === userId
+      ? participantIds.find((id) => id !== userId)
+      : conversation.property.ownerId;
+    if (!otherId || otherId === userId) return reply.status(400).send({ message: 'Não há ninguém para bloquear nesta conversa.' });
+    data = { blockerId: userId, blockedUserId: otherId };
+  }
+
+  if (data.blockedUserId) {
+    const target = await prisma.user.findUnique({ where: { id: data.blockedUserId }, select: { role: true } });
+    if (target?.role === 'ADMIN') return reply.status(400).send({ message: 'Não é possível bloquear a administração.' });
+  }
+
+  // Mesmo par já bloqueado pelo mesmo lado: não duplica (em nome da imobiliária, vale o de qualquer membro).
+  const existing = await prisma.chatBlock.findFirst({
+    where: {
+      ...(data.blockerOrganizationId ? { blockerOrganizationId: data.blockerOrganizationId } : { blockerId: userId, blockerOrganizationId: null }),
+      blockedUserId: data.blockedUserId ?? null,
+      blockedOrganizationId: data.blockedOrganizationId ?? null,
+    },
+  });
+  const block = existing ?? (await prisma.chatBlock.create({ data }));
+
+  emitConversationUpdated(participantIds, conversationId);
+  return reply.status(existing ? 200 : 201).send(block);
+}
+
+// ─── LISTAR / DESFAZER BLOQUEIOS ─────────────────────────────────────────────
+
+/** Bloqueios feitos por mim + (se sou da equipe de uma imobiliária) os feitos em nome dela. */
+export async function listBlocks(request: FastifyRequest, reply: FastifyReply) {
+  const { id: userId } = request.user as { id: string };
+  const member = await prisma.organizationMember.findUnique({ where: { userId } });
+  const organizationId = member?.status === 'ACTIVE' ? member.organizationId : null;
+
+  const blocks = await prisma.chatBlock.findMany({
+    where: { OR: [{ blockerId: userId }, ...(organizationId ? [{ blockerOrganizationId: organizationId }] : [])] },
+    include: {
+      blocker: { select: { id: true, name: true } },
+      blockedUser: { select: { id: true, name: true, avatar: true } },
+      blockedOrganization: { select: { id: true, name: true, logo: true } },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  const items = await Promise.all(
+    blocks.map(async (b) => ({
+      id: b.id,
+      createdAt: b.createdAt,
+      scope: b.blockerOrganizationId ? 'ORGANIZATION' : 'PERSONAL',
+      blockedBy: b.blocker,
+      target: b.blockedUser
+        ? { kind: 'USER', id: b.blockedUser.id, name: b.blockedUser.name, image: b.blockedUser.avatar }
+        : { kind: 'ORGANIZATION', id: b.blockedOrganization?.id ?? '', name: b.blockedOrganization?.name ?? 'Imobiliária', image: b.blockedOrganization?.logo ?? null },
+      canRemove: await canRemoveChatBlock(userId, b),
+    }))
+  );
+  return reply.send(items);
+}
+
+export async function removeBlock(request: FastifyRequest, reply: FastifyReply) {
+  const { id: userId } = request.user as { id: string };
+  const { id } = request.params as { id: string };
+
+  const block = await prisma.chatBlock.findUnique({ where: { id } });
+  if (!block || !(await canRemoveChatBlock(userId, block))) {
+    return reply.status(404).send({ message: 'Bloqueio não encontrado.' });
+  }
+  await prisma.chatBlock.delete({ where: { id } });
+  return reply.send({ removed: true });
 }
