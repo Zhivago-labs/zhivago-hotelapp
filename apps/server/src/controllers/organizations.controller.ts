@@ -374,6 +374,13 @@ export async function removeMember(
       where: { userId: targetUserId },
       data: { status: 'INACTIVE', receiveLeads: false },
     }),
+    // Quem entrou por convite/pedido virou AGENCY só por isso (`acceptInvite`/`approveJoinRequest`)
+    // — ao sair, volta a ser conta pessoal. `document` só é gravado para quem se cadastrou como
+    // imobiliária de verdade (`register`/`completeOnboarding`), então ele distingue os dois casos.
+    prisma.user.updateMany({
+      where: { id: targetUserId, accountType: 'AGENCY', document: null },
+      data: { accountType: 'INDIVIDUAL' },
+    }),
   ]);
 
   for (const { lead } of openLeadAssignments) {

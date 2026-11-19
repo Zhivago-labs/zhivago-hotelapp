@@ -19,6 +19,7 @@ const member = () => ({ id: 'member-viewer', userId: 'viewer', organizationId: '
 const seen: any[] = [], mutations: any[] = [];
 (prisma.user.findUnique as any) = async () => ({ id: 'viewer', email: 'viewer@example.test', role: 'USER', status: 'ACTIVE', tokenVersion: 0, accountType: 'AGENCY' });
 (prisma.user.update as any) = async (args: any) => { mutations.push({ kind: 'personal', ...args }); return {}; };
+(prisma.user.updateMany as any) = async (args: any) => { mutations.push({ kind: 'account-type', ...args }); return { count: 1 }; };
 (prisma.organization.update as any) = async (args: any) => { mutations.push({ kind: 'company', ...args }); return {}; };
 (prisma.organizationMember.findUnique as any) = async ({ where }: any) => where.userId === 'target' ? target : member();
 (prisma.organizationMember.findFirst as any) = async () => ({ id: 'member-owner', userId: 'owner', role: 'OWNER', status: 'ACTIVE', organizationId: 'org-a' });
@@ -104,6 +105,7 @@ try {
   target = { ...target, role: 'BROKER' };
   assert.equal((await request('/organizations/members/target', 'DELETE')).statusCode, 200);
   assert.equal(mutations.find(m => m.kind === 'member').data.status, 'INACTIVE');
+  assert.deepEqual(mutations.find(m => m.kind === 'account-type'), { kind: 'account-type', where: { id: 'target', accountType: 'AGENCY', document: null }, data: { accountType: 'INDIVIDUAL' } }, 'removed invited member must go back to a personal account');
   assert.equal(mutations.find(m => m.kind === 'listing').data.agentId, 'owner');
   assert.equal(mutations.find(m => m.kind === 'assignment-close').where.id, 'assignment-old');
   assert.equal(mutations.find(m => m.kind === 'assignment-create').data.leadId, 'lead-history');
