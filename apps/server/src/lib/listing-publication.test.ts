@@ -37,3 +37,10 @@ test('each modality strips incompatible incoming fields and keeps shared data', 
     assert.equal('condoFee' in data, operation !== 'DAILY_RENT');
   }
 });
+
+test('published totals include the bedroom and bathroom of each suite', () => {
+  assert.deepEqual(publicationIssues({ ...sale, bedrooms: 2, suites: 2, bathrooms: 2 }, 1), []);
+  for (const [bedrooms, bathrooms] of [[1, 2], [2, 1]] as const) {
+    assert.match(publicationIssues({ ...sale, bedrooms, bathrooms, suites: 2 }, 1).join(' '), /suítes/);
+  }
+});

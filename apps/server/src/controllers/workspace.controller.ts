@@ -1,7 +1,7 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
-import { workspaceMembership, workspaceLeadScope, workspaceListingScope, WORKSPACE_READ_ALL } from '../lib/workspace.js';
+import { workspaceMembership, workspaceLeadScope, workspaceListingScope, workspaceConversationScope, WORKSPACE_READ_ALL } from '../lib/workspace.js';
 
 export async function getWorkspace(request: FastifyRequest, reply: FastifyReply) {
   const member = await workspaceMembership(request);
@@ -59,7 +59,7 @@ export async function getWorkspaceContacts(request: FastifyRequest, reply: Fasti
 export async function getWorkspaceMessages(request: FastifyRequest, reply: FastifyReply) {
   const member = await workspaceMembership(request);
   if (!member) return reply.status(403).send({ error: 'Vínculo ativo necessário.' });
-  const items = await prisma.conversation.findMany({ where: { lead: workspaceLeadScope(member), participants: { some: { id: member.userId } } },
+  const items = await prisma.conversation.findMany({ where: workspaceConversationScope(member),
     select: { id: true, isClosed: true, property: { select: { name: true } }, lead: { select: { user: { select: { name: true } } } }, messages: { orderBy: { createdAt: 'desc' }, take: 1, select: { content: true, createdAt: true } } }, orderBy: { updatedAt: 'desc' }, take: 100 });
   return reply.send(items);
 }

@@ -6,7 +6,7 @@ import { getIO } from '../socket.js';
 import { ensureLead, getCurrentAssignment, canManageListingConversation, closeLeadForDealOutcome } from '../lib/leads.js';
 import { canManageOrgListing } from './listings.controller.js';
 import { closeNegotiationsForBooking } from '../lib/negotiations.js';
-import { isRequestExpired, isStayFinished } from '../lib/bookings.js';
+import { formatBookingDate, isRequestExpired, isStayFinished, overlappingStay } from '../lib/bookings.js';
 import { isChatBlocked } from '../lib/chat-blocks.js';
 
 const senderSelect = { select: { id: true, name: true, avatar: true } } as const;
@@ -65,6 +65,7 @@ export async function createBooking(request: FastifyRequest, reply: FastifyReply
   const schema = z.object({
     startDate: z.string().datetime(),
     endDate: z.string().datetime(),
+    estimatedTotal: z.number().finite().nonnegative().optional(),
   });
 
   const parsed = schema.safeParse(request.body);
@@ -72,7 +73,8 @@ export async function createBooking(request: FastifyRequest, reply: FastifyReply
     return reply.status(400).send({ error: parsed.error.errors });
   }
 
-  const { startDate, endDate } = parsed.data;
+  const startDate = new Date(parsed.data.startDate.slice(0, 10));
+  const endDate = new Date(parsed.data.endDate.slice(0, 10));
 
   // Verifica se o imóvel existe e se aceita reserva por diária. `category === 'aluguel'` sozinho
   // deixava aluguel MENSAL cair aqui também (bug crítico, seção 50/109/148/162 da spec) — agora
@@ -89,11 +91,22 @@ export async function createBooking(request: FastifyRequest, reply: FastifyReply
   }
 
   // Seção 53 da spec: [startDate, endDate) — checkout não conta como noite.
-  const nights = Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86_400_000);
-  if (nights < 1) {
-    return reply.status(400).send({ error: 'O período da reserva precisa ter ao menos 1 noite.' });
+  const nights = (endDate.getTime() - startDate.getTime()) / 86_400_000;
+  const minimumNights = Math.max(1, listing.minimumNights ?? 1);
+  if (nights < minimumNights) {
+    return reply.status(400).send({ error: `A estadia mínima é de ${minimumNights} noite(s). Escolha uma saída posterior à entrada.` });
+  }
+  if (isRequestExpired({ status: 'PENDING', startDate, endDate })) {
+    return reply.status(400).send({ error: 'A data de entrada já passou.' });
   }
 
+  const nightlyRateSnapshot = listing.price;
+  const cleaningFeeSnapshot = listing.cleaningFee ?? 0;
+  const subtotal = nightlyRateSnapshot * nights;
+  const total = Math.round((subtotal + cleaningFeeSnapshot) * 100) / 100;
+  if (parsed.data.estimatedTotal !== undefined && parsed.data.estimatedTotal !== total) {
+    return reply.status(409).send({ error: 'O valor mudou. Atualize o anúncio para conferir o novo total antes de solicitar.' });
+  }
   try {
     // Lead nasce ANTES do Booking (seção 51/109 da spec) — se a criação/distribuição do Lead
     // falhar, a reserva nunca chega a existir "órfã" de Lead. Só para imóvel de organização (CRM).
@@ -108,14 +121,6 @@ export async function createBooking(request: FastifyRequest, reply: FastifyReply
       leadId = lead.id;
     }
 
-    // Snapshot comercial travado no momento da reserva (seção 52 da spec): diária × noites + taxa
-    // de limpeza. Mudanças futuras no anúncio (preço, desconto, taxa) nunca alteram retroativamente
-    // uma reserva já feita.
-    const nightlyRateSnapshot = listing.price;
-    const cleaningFeeSnapshot = listing.cleaningFee ?? 0;
-    const subtotal = nightlyRateSnapshot * nights;
-    const total = subtotal + cleaningFeeSnapshot;
-
     // Transação serializable para prevenir race condition de reserva dupla (double-booking).
     // A verificação de sobreposição e a criação ocorrem atomicamente — se duas requisições
     // concorrentes tentarem reservar o mesmo período, uma receberá erro de serialização.
@@ -124,7 +129,7 @@ export async function createBooking(request: FastifyRequest, reply: FastifyReply
         where: {
           listingId,
           status: 'CONFIRMED',
-          OR: [{ startDate: { lte: endDate }, endDate: { gte: startDate } }],
+          ...overlappingStay(startDate, endDate),
         },
       });
 
@@ -165,7 +170,7 @@ export async function createBooking(request: FastifyRequest, reply: FastifyReply
       await sendNotification({
         userId: contactId,
         title: 'Nova Solicitação de Reserva',
-        message: `Uma nova solicitação para "${listing.name}" de ${new Date(startDate).toLocaleDateString()} a ${new Date(endDate).toLocaleDateString()}.`,
+        message: `Uma nova solicitação para "${listing.name}" de ${formatBookingDate(startDate)} a ${formatBookingDate(endDate)}.`,
         type: 'BOOKING',
       });
     }
@@ -200,7 +205,7 @@ export async function createBooking(request: FastifyRequest, reply: FastifyReply
 
     const message = await prisma.message.create({
       data: {
-        content: `Solicitação de Reserva: ${new Date(startDate).toLocaleDateString()} até ${new Date(endDate).toLocaleDateString()}`,
+        content: `Solicitação de Reserva: ${formatBookingDate(startDate)} até ${formatBookingDate(endDate)}`,
         type: 'BOOKING_REQUEST',
         metadata: JSON.stringify({ bookingId: booking.id, startDate, endDate }),
         senderId: userId,
@@ -299,8 +304,7 @@ export async function approveBookingCore(userId: string, bookingId: string): Pro
           listingId: booking.listingId,
           status: 'CONFIRMED',
           id: { not: booking.id },
-          startDate: { lte: booking.endDate },
-          endDate: { gte: booking.startDate },
+          ...overlappingStay(booking.startDate, booking.endDate),
         },
       });
       if (overlapping > 0) throw new Error('OVERLAP');
@@ -336,7 +340,7 @@ export async function approveBookingCore(userId: string, bookingId: string): Pro
     booking,
     userId,
     'BOOKING_APPROVED',
-    `✅ O anfitrião aprovou sua solicitação de reserva para o período de ${new Date(booking.startDate).toLocaleDateString()} a ${new Date(booking.endDate).toLocaleDateString()}.`
+    `✅ O anfitrião aprovou sua solicitação de reserva para o período de ${formatBookingDate(booking.startDate)} a ${formatBookingDate(booking.endDate)}.`
   );
 
   return { status: 200, body: updated };

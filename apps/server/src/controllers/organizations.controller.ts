@@ -561,7 +561,7 @@ export async function getOrganizationMetrics(
       include: { user: { select: { id: true, name: true } } },
     }),
     prisma.leadAssignment.findMany({
-      where: { lead: { organizationId } },
+      where: { lead: { organizationId }, broker: { organizationId } },
       select: { brokerId: true, assignedAt: true, firstContactAt: true, unassignedAt: true, lead: { select: { status: true } } },
     }),
     prisma.lead.findMany({
@@ -603,7 +603,9 @@ export async function getOrganizationMetrics(
   }
   const leadsPerMonth = monthBuckets.map(({ label, value }) => ({ label, value }));
 
-  const byBroker = brokers.map((broker) => {
+  const byBroker = [];
+  const formerBrokers = [];
+  for (const broker of brokers) {
     const own = assignments.filter((a) => a.brokerId === broker.id);
     const ownResponded = own.filter((a) => a.firstContactAt !== null);
     const assignedCount = own.filter((a) => a.unassignedAt === null).length;
@@ -614,14 +616,20 @@ export async function getOrganizationMetrics(
           ownResponded.length
         : null;
 
-    return {
+    if (broker.status !== 'ACTIVE') {
+      if (broker.status === 'INACTIVE' && own.length > 0) {
+        formerBrokers.push({ memberId: broker.id, name: broker.user.name, assignmentCount: own.length, avgResponseHours: avgResponse });
+      }
+      continue;
+    }
+    byBroker.push({
       memberId: broker.id,
       name: broker.user.name,
       assignedCount,
       wonCount: wonByBroker,
       avgResponseHours: avgResponse,
-    };
-  });
+    });
+  }
 
   return reply.send({
     totalLeads,
@@ -633,6 +641,7 @@ export async function getOrganizationMetrics(
     funnelCounts,
     leadsPerMonth,
     byBroker,
+    formerBrokers,
   });
 }
 

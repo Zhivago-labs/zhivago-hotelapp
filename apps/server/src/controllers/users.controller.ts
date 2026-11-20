@@ -5,6 +5,7 @@ import sharp from 'sharp';
 import { saveUpload } from '../lib/storage.js';
 import { effectiveBookingPrice, bookingPhase } from '../lib/bookings.js';
 import { myListingsWhere } from './listings.controller.js';
+import { catalogListing } from '../lib/catalog-listing.js';
 
 export async function getMyPurchases(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   const { id: userId } = request.user as { id: string };
@@ -120,7 +121,7 @@ export async function getUserProfile(
       take: 15,
     });
 
-    return reply.send({ user: { ...user, phone: user.accountType === 'AGENCY' || membership ? null : user.phone }, organization: membership?.organization ?? null, listings, reviews });
+    return reply.send({ user: { ...user, phone: user.accountType === 'AGENCY' || membership ? null : user.phone }, organization: membership?.organization ?? null, listings: listings.map(catalogListing), reviews });
   } catch (error) {
     console.error('Erro ao buscar perfil:', error);
     return reply.status(500).send({ error: 'Erro ao buscar perfil de usuário.' });

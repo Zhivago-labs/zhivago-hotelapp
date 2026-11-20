@@ -8,6 +8,12 @@ type CandidateFields = {
 };
 type Candidate = { [K in keyof CandidateFields]?: CandidateFields[K] | undefined };
 
+export function roomCountIssue({ bedrooms = 0, bathrooms = 0, suites = 0 }: Candidate): string | null {
+  return suites > bedrooms || suites > bathrooms
+    ? 'Conte as suítes no total de quartos e seus banheiros no total de banheiros.'
+    : null;
+}
+
 /** Also used when publishing a saved draft: checks the resulting record, not only the patch. */
 export function publicationIssues(data: Candidate, imageCount: number): string[] {
   const issues: string[] = [];
@@ -19,6 +25,8 @@ export function publicationIssues(data: Candidate, imageCount: number): string[]
   for (const key of ['bedrooms', 'bathrooms', 'parking', 'suites'] as const) {
     if (data[key] !== undefined && (!Number.isInteger(data[key]) || data[key]! < 0)) issues.push('As quantidades de cômodos e vagas devem ser inteiros não negativos.');
   }
+  const roomIssue = roomCountIssue(data);
+  if (roomIssue) issues.push(roomIssue);
   for (const key of ['privateArea', 'totalArea', 'cleaningFee', 'condoFee', 'iptuAnnual', 'iptuMonthly'] as const) {
     if (data[key] != null && (!Number.isFinite(data[key]) || data[key]! < 0)) issues.push('Áreas e encargos devem ser números não negativos.');
   }

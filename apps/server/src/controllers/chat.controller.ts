@@ -1,5 +1,6 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../lib/prisma.js';
+import { workspaceMembership, workspaceConversationScope } from '../lib/workspace.js';
 import { z } from 'zod';
 import { ensureLead, getCurrentAssignment, canManageListingConversation } from '../lib/leads.js';
 import { CHAT_COMMANDS, findActionablePending, findPendingRound, getIO } from '../socket.js';
@@ -90,14 +91,20 @@ export async function getConversations(request: FastifyRequest, reply: FastifyRe
           }
         };
 
+    const member = await workspaceMembership(request);
+    const corporateIds = new Set(member ? (await prisma.conversation.findMany({
+      where: workspaceConversationScope(member), select: { id: true },
+    })).map(c => c.id) : []);
     const conversations = await prisma.conversation.findMany({
       where: whereClause,
       include: {
+        lead: { select: { userId: true } },
         property: {
           select: {
             id: true,
             name: true,
             price: true,
+            organizationId: true,
             images: { take: 1, orderBy: { order: 'asc' }, select: { url: true } },
           },
         },
@@ -122,8 +129,11 @@ export async function getConversations(request: FastifyRequest, reply: FastifyRe
       orderBy: { updatedAt: 'desc' }
     });
 
-    const withCoverImage = conversations.map((conversation) => ({
+    const withCoverImage = conversations.map(({ lead, ...conversation }) => ({
       ...conversation,
+      inboxScope: corporateIds.has(conversation.id) ? 'organization'
+        : conversation.participants.some(p => p.id === userId) && (!conversation.property.organizationId || lead?.userId === userId)
+          ? 'personal' : 'other',
       property: {
         id: conversation.property.id,
         name: conversation.property.name,

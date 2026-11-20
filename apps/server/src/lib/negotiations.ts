@@ -3,7 +3,7 @@ import { prisma } from './prisma.js';
 import { canManageListingConversation, advanceLeadBySystem } from './leads.js';
 import { sendNotification } from '../services/notification.service.js';
 import { getIO } from '../socket.js';
-import { isRequestExpired } from './bookings.js';
+import { isRequestExpired, overlappingStay } from './bookings.js';
 import { CHAT_BLOCKED_MESSAGE, isChatBlocked } from './chat-blocks.js';
 
 /**
@@ -554,8 +554,7 @@ async function acceptRound(offer: OfferRow, negotiation: NegotiationRow, listing
           listingId: listing.id,
           status: 'CONFIRMED',
           id: { not: booking.id },
-          startDate: { lte: current.endDate },
-          endDate: { gte: current.startDate },
+          ...overlappingStay(current.startDate, current.endDate),
         },
       });
       if (overlapping > 0) throw new Error('OVERLAP');

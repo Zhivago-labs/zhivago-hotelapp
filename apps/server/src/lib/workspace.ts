@@ -18,3 +18,11 @@ export function workspaceListingScope(member: OrganizationMember): Prisma.Listin
     ...(!WORKSPACE_READ_ALL.includes(member.role) ? { agentId: member.userId } : {}),
   };
 }
+
+export function workspaceConversationScope(member: OrganizationMember): Prisma.ConversationWhereInput {
+  return {
+    participants: { some: { id: member.userId } },
+    property: { organizationId: member.organizationId },
+    lead: { ...workspaceLeadScope(member), userId: { not: member.userId } },
+  };
+}

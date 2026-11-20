@@ -3,8 +3,9 @@ import { z } from 'zod';
 import { parse as parseCsv } from 'csv-parse/sync';
 
 import path from 'node:path';
-import { publicationIssues, omitOtherModalities } from '../lib/listing-publication.js';
+import { publicationIssues, omitOtherModalities, roomCountIssue } from '../lib/listing-publication.js';
 import { prisma } from '../lib/prisma.js';
+import { catalogListing } from '../lib/catalog-listing.js';
 import { saveListingPhoto, InvalidImageError } from '../lib/images.js';
 import { sendNotification } from '../services/notification.service.js';
 import { LEAD_DISTRIBUTION_ROLES } from '../lib/leads.js';
@@ -127,7 +128,7 @@ export async function getListings(
         images: { orderBy: { order: 'asc' } },
       },
     });
-    return reply.send(listings);
+    return reply.send(listings.map(catalogListing));
   } catch {
     return reply.status(500).send({ error: 'Erro ao buscar imóveis.' });
   }
@@ -289,7 +290,7 @@ export async function getSimilarListings(request: FastifyRequest, reply: Fastify
   const top = scored
     .sort((a, b) => b.score - a.score)
     .slice(0, SIMILAR_LISTINGS_LIMIT)
-    .map(({ item }) => item);
+    .map(({ item }) => catalogListing(item));
 
   return reply.send(top);
 }
@@ -931,6 +932,9 @@ export async function relistListing(
     return reply.status(400).send({ error: 'Só um imóvel marcado como alugado pode ser disponibilizado de novo.' });
   }
 
+  const issue = roomCountIssue(listing);
+  if (issue) return reply.status(400).send({ error: issue });
+
   const updated = await prisma.listing.update({ where: { id }, data: { status: 'APPROVED' } });
   return reply.send(updated);
 }
@@ -1017,6 +1021,7 @@ export async function duplicateListing(
       billingCycle: listing.billingCycle,
       location: listing.location,
       bedrooms: listing.bedrooms,
+      suites: listing.suites,
       bathrooms: listing.bathrooms,
       parking: listing.parking,
       operationType: listing.operationType,
@@ -1062,6 +1067,7 @@ const importRowSchema = z
       .optional(),
     localizacao: z.string({ required_error: 'Localização é obrigatória' }).trim().min(1, 'Localização é obrigatória'),
     quartos: z.coerce.number({ invalid_type_error: 'Quartos inválido' }).int().min(0).default(0),
+    suites: z.coerce.number({ invalid_type_error: 'Suítes inválidas' }).int().min(0).default(0),
     banheiros: z.coerce.number({ invalid_type_error: 'Banheiros inválido' }).int().min(0).default(0),
     vagas: z.coerce.number({ invalid_type_error: 'Vagas inválido' }).int().min(0).default(0),
     imagens: z
@@ -1110,7 +1116,7 @@ export async function importListings(
   let rows: Record<string, string>[];
   try {
     rows = parseCsv(text, {
-      columns: (header: string[]) => header.map((h) => h.trim().toLowerCase()),
+      columns: (header: string[]) => header.map((h) => h.trim().toLowerCase().normalize('NFD').replace(/\p{M}/gu, '')),
       delimiter,
       skip_empty_lines: true,
       trim: true,
@@ -1131,7 +1137,7 @@ export async function importListings(
   const toCreate: Array<{
     data: {
       name: string; description: string | null; price: number; type: string; category: string;
-      billingCycle: string | null; location: string; bedrooms: number; bathrooms: number; parking: number;
+      billingCycle: string | null; location: string; bedrooms: number; suites: number; bathrooms: number; parking: number;
     };
     imageUrls: string[];
   }> = [];
@@ -1151,6 +1157,11 @@ export async function importListings(
       return;
     }
 
+    const issue = roomCountIssue({ bedrooms: parsed.data.quartos, bathrooms: parsed.data.banheiros, suites: parsed.data.suites });
+    if (issue) {
+      rowErrors.push({ row: rowNumber, messages: [issue] });
+      return;
+    }
     const imageUrls = parsed.data.imagens.split('|').map((url) => url.trim()).filter(Boolean);
     if (imageUrls.length === 0) {
       rowErrors.push({ row: rowNumber, messages: ['Informe ao menos uma URL de imagem.'] });
@@ -1176,6 +1187,7 @@ export async function importListings(
         billingCycle: parsed.data.ciclo_cobranca ?? null,
         location: parsed.data.localizacao,
         bedrooms: parsed.data.quartos,
+        suites: parsed.data.suites,
         bathrooms: parsed.data.banheiros,
         parking: parsed.data.vagas,
       },

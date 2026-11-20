@@ -337,6 +337,7 @@ export interface OrganizationMetrics {
   funnelCounts: { status: LeadStatus; count: number }[];
   leadsPerMonth: { label: string; value: number }[];
   byBroker: OrganizationBrokerMetrics[];
+  formerBrokers: { memberId: string; name: string; assignmentCount: number; avgResponseHours: number | null }[];
 }
 
 export interface Listing {

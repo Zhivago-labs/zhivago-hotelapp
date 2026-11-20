@@ -19,6 +19,15 @@ export function effectiveBookingPrice(
 const DAY_MS = 24 * 60 * 60 * 1000;
 const BRT_OFFSET_MS = 3 * 60 * 60 * 1000;
 
+/** A confirmed stay occupies [arrival, departure), in calendar dates stored at midnight UTC. */
+export function overlappingStay(start: Date, end: Date) {
+  return { startDate: { lt: end }, endDate: { gt: start } };
+}
+
+export function formatBookingDate(date: Date | string) {
+  return new Date(date).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+}
+
 export type BookingPhase = 'PENDING' | 'EXPIRED' | 'CONFIRMED' | 'FINISHED' | 'CANCELLED' | 'REJECTED';
 
 type PhaseInput = { status: string; startDate: Date | string; endDate: Date | string };
