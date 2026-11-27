@@ -5,7 +5,7 @@ import { sendNotification } from './services/notification.service.js';
 import { JWT_SECRET } from './lib/env.js';
 import { approveBookingCore, rejectBookingCore } from './controllers/bookings.controller.js';
 import { proposeRound, respondToRound } from './lib/negotiations.js';
-import { moveLeadToNegotiationFromChatCommand, canManageListingConversation } from './lib/leads.js';
+import { moveLeadToNegotiationFromChatCommand, canManageListingConversation, recordChatMessageActivity } from './lib/leads.js';
 import { CHAT_BLOCKED_MESSAGE, isChatBlocked } from './lib/chat-blocks.js';
 let ioInstance: SocketIOServer | null = null;
 
@@ -483,6 +483,9 @@ export function setupSocket(io: SocketIOServer) {
           where: { id: conversationId },
           data: { updatedAt: new Date() }
         });
+
+        // CRM: última atividade do lead e 1ª resposta efetiva (mensagem humana da equipe ao cliente).
+        await recordChatMessageActivity(conversation.leadId, user.id, message.createdAt);
 
         // Retorna sucesso para o remetente (com a mensagem gerada e ID do banco) via callback de
         // confirmação — antes das notificações, pra mensagem aparecer na hora pra quem enviou.

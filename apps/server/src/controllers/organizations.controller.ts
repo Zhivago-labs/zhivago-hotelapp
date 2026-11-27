@@ -4,7 +4,14 @@ import { prisma } from '../lib/prisma.js';
 import { generateInviteToken, inviteExpiresAt, getMembership, logOrgAudit, type OrgRole } from '../lib/organizations.js';
 import { sendNotification } from '../services/notification.service.js';
 import { sendOrganizationInviteEmail } from '../lib/mail.js';
-import { SLA_OVERDUE_HOURS, LEAD_DISTRIBUTION_ROLES, assignLead } from '../lib/leads.js';
+import {
+  SLA_OVERDUE_HOURS,
+  LEAD_DISTRIBUTION_ROLES,
+  LOST_REASONS,
+  CLOSED_LEAD_STATUSES,
+  planAndApplyMemberDeparture,
+  percentile,
+} from '../lib/leads.js';
 
 // ─── CRIAR ORGANIZAÇÃO (requer auth + conta Imobiliária + ainda não pertencer a uma) ─────────
 
@@ -350,13 +357,11 @@ export async function removeMember(
   // Leads ainda abertos com este membro precisam de um responsável antes dele sair — sem isso
   // ficariam "presos" com alguém que não tem mais acesso (ver resolveLeadAccess/canViewLeadAccess
   // abaixo, que agora exigem status ACTIVE). Vão pro OWNER, mesmo destino dos imóveis dele.
-  const openLeadAssignments = owner
-    ? await prisma.leadAssignment.findMany({
-        where: { brokerId: targetMembership.id, unassignedAt: null },
-        select: { lead: { select: { id: true, userId: true, listingId: true } } },
-      })
-    : [];
-
+  // Agora: numa transação única com a inativação, cada oportunidade em andamento segue a
+  // hierarquia sem quem sai (imóveis já passados ao proprietário contam como responsável do imóvel,
+  // mas só se ele estiver recebendo) ou vai para a fila da gestão — nunca para alguém pausado.
+  // Encerradas mantêm a atribuição de encerramento para histórico. Falhou → nada muda.
+  //
   // Nunca apaga o `OrganizationMember`: `LeadAssignment.brokerId`/`LeadInteraction.memberId`/
   // `Visit.brokerId` são FKs `ON DELETE RESTRICT` — um `delete` aqui falhava (violação de FK, sem
   // tratamento) assim que o membro já tivesse qualquer histórico de CRM, e a remoção nunca
@@ -365,36 +370,44 @@ export async function removeMember(
   // (`getMyOrganization` abaixo), mas o histórico continua íntegro. Trade-off aceito, mesmo espírito
   // do `userId @unique` de V1 já documentado: essa pessoa não pode ser convidada/entrar em outra
   // organização depois — revisitar se isso virar um problema real.
-  const [{ count: reassignedListings }] = await prisma.$transaction([
-    prisma.listing.updateMany({
-      where: { organizationId: membership.organizationId, agentId: targetUserId },
-      data: { agentId: owner?.userId ?? null },
-    }),
-    prisma.organizationMember.update({
-      where: { userId: targetUserId },
-      data: { status: 'INACTIVE', receiveLeads: false },
-    }),
-    // Quem entrou por convite/pedido virou AGENCY só por isso (`acceptInvite`/`approveJoinRequest`)
-    // — ao sair, volta a ser conta pessoal. `document` só é gravado para quem se cadastrou como
-    // imobiliária de verdade (`register`/`completeOnboarding`), então ele distingue os dois casos.
-    prisma.user.updateMany({
-      where: { id: targetUserId, accountType: 'AGENCY', document: null },
-      data: { accountType: 'INDIVIDUAL' },
-    }),
-  ]);
+  const { reassignedListings, plan } = await prisma.$transaction(
+    async (tx) => {
+      const { count } = await tx.listing.updateMany({
+        where: { organizationId: membership.organizationId, agentId: targetUserId },
+        data: { agentId: owner.userId },
+      });
+      const leadPlan = await planAndApplyMemberDeparture(tx, { departing: targetMembership, actorMemberId: membership.id });
+      await tx.organizationMember.update({
+        where: { userId: targetUserId },
+        data: { status: 'INACTIVE', receiveLeads: false },
+      });
+      // Quem entrou por convite/pedido virou AGENCY só por isso (`acceptInvite`/`approveJoinRequest`)
+      // — ao sair, volta a ser conta pessoal. `document` só é gravado para quem se cadastrou como
+      // imobiliária de verdade (`register`/`completeOnboarding`), então ele distingue os dois casos.
+      await tx.user.updateMany({
+        where: { id: targetUserId, accountType: 'AGENCY', document: null },
+        data: { accountType: 'INDIVIDUAL' },
+      });
+      return { reassignedListings: count, plan: leadPlan };
+    },
+    { timeout: 60_000, maxWait: 10_000 }
+  );
 
-  for (const { lead } of openLeadAssignments) {
-    await assignLead({
-      lead,
-      brokerMemberId: owner!.id,
-      brokerUserId: owner!.userId,
-      assignedByMemberId: membership.id,
-      reason: 'Reatribuído automaticamente: corretor removido da organização.',
-      source: 'MANUAL',
-    });
-  }
+  const summary = {
+    reassignedLeads: plan.filter((p) => p.outcome === 'REASSIGNED').length,
+    queuedLeads: plan.filter((p) => p.outcome === 'QUEUED').length,
+    keptClosedLeads: plan.filter((p) => p.outcome === 'KEPT_CLOSED').length,
+  };
+  await logOrgAudit({
+    organizationId: membership.organizationId,
+    actorMemberId: membership.id,
+    action: 'MEMBER_REMOVED',
+    entityType: 'MEMBER',
+    entityId: targetMembership.id,
+    metadata: { reassignedListings, ...summary, plan },
+  });
 
-  return reply.send({ removed: true, reassignedListings, reassignedLeads: openLeadAssignments.length });
+  return reply.send({ removed: true, reassignedListings, ...summary });
 }
 
 // ─── IMÓVEIS DA ORGANIZAÇÃO (requer OWNER/ADMIN/MANAGER) ─────────────────────────────────────
@@ -539,7 +552,9 @@ export async function updateMemberReceiveLeads(
   return reply.send({ receiveLeads: updated.receiveLeads });
 }
 
-// ─── MÉTRICAS DO CRM (Fase 4, requer OWNER/ADMIN/MANAGER — BROKER não vê métricas) ───────────
+// ─── MÉTRICAS DO CRM (gestão + leitura do assistente) ────────────────────────────────────────
+// Separa a FOTOGRAFIA da carteira atual dos RESULTADOS do período. Cada taxa sai com o próprio
+// numerador/denominador, para a tela explicitar o que está medindo.
 
 const MONTHS_BACK = 6;
 
@@ -547,14 +562,24 @@ function monthLabel(date: Date): string {
   return date.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }).replace('.', '');
 }
 
-export async function getOrganizationMetrics(
-  request: FastifyRequest,
-  reply: FastifyReply
-): Promise<void> {
+const hoursBetween = (a: Date, b: Date) => (b.getTime() - a.getTime()) / 3_600_000;
+const median = (values: number[]) => percentile(values, 50);
+const OPERATION_LABELS: Record<string, string> = { SALE: 'Venda', MONTHLY_RENT: 'Aluguel mensal', DAILY_RENT: 'Temporada' };
+const SOURCE_LABELS: Record<string, string> = {
+  CHAT: 'Chat', BOOKING: 'Reserva', OFFER: 'Proposta', WHATSAPP: 'WhatsApp', PHONE: 'Telefone',
+  WALK_IN: 'Plantão', REFERRAL: 'Indicação', FORM: 'Formulário', OTHER: 'Outro',
+};
+
+export async function getOrganizationMetrics(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   const membership = (request as FastifyRequest & { orgMembership: { organizationId: string } }).orgMembership;
   const { organizationId } = membership;
+  const parsed = z.object({ days: z.coerce.number().refine((n) => [7, 30, 90, 180, 365].includes(n)).default(30) }).safeParse(request.query);
+  if (!parsed.success) return reply.status(400).send({ error: 'Período inválido.' });
+  const days = parsed.data.days;
+  const since = new Date(Date.now() - days * 86_400_000);
+  const now = Date.now();
 
-  const [funnelGroups, brokers, assignments, sinceDateLeads] = await Promise.all([
+  const [funnelGroups, brokers, assignments, sinceDateLeads, periodLeads, closedInPeriod, openLeads] = await Promise.all([
     prisma.lead.groupBy({ by: ['status'], where: { organizationId }, _count: { _all: true } }),
     prisma.organizationMember.findMany({
       where: { organizationId, role: { in: LEAD_DISTRIBUTION_ROLES as unknown as string[] } },
@@ -565,69 +590,166 @@ export async function getOrganizationMetrics(
       select: { brokerId: true, assignedAt: true, firstContactAt: true, unassignedAt: true, lead: { select: { status: true } } },
     }),
     prisma.lead.findMany({
-      where: { organizationId, createdAt: { gte: new Date(Date.now() - MONTHS_BACK * 31 * 24 * 3_600_000) } },
+      where: { organizationId, createdAt: { gte: new Date(now - MONTHS_BACK * 31 * 24 * 3_600_000) } },
       select: { createdAt: true },
+    }),
+    prisma.lead.findMany({
+      where: { organizationId, createdAt: { gte: since } },
+      select: {
+        id: true, status: true, source: true, createdAt: true,
+        listing: { select: { operationType: true, building: { select: { id: true, name: true } } } },
+        assignments: { orderBy: { assignedAt: 'asc' }, select: { brokerId: true, assignedAt: true, firstContactAt: true, unassignedAt: true } },
+      },
+    }),
+    prisma.lead.findMany({
+      where: { organizationId, status: { in: CLOSED_LEAD_STATUSES }, closedAt: { gte: since } },
+      select: { status: true, lostReason: true, source: true, listing: { select: { operationType: true, building: { select: { id: true, name: true } } } }, assignments: { where: { unassignedAt: null }, select: { brokerId: true } } },
+    }),
+    prisma.lead.findMany({
+      where: { organizationId, status: { notIn: CLOSED_LEAD_STATUSES } },
+      select: { status: true, assignments: { where: { unassignedAt: null }, select: { brokerId: true, assignedAt: true, firstContactAt: true } } },
     }),
   ]);
 
+  // ── Histórico (compatibilidade com a tela atual) ──
   const funnelCounts = funnelGroups.map((group) => ({ status: group.status, count: group._count._all }));
   const totalLeads = funnelCounts.reduce((sum, group) => sum + group.count, 0);
   const wonCount = funnelCounts.find((group) => group.status === 'WON')?.count ?? 0;
   const lostCount = funnelCounts.find((group) => group.status === 'LOST')?.count ?? 0;
   const conversionRate = totalLeads > 0 ? wonCount / totalLeads : 0;
+  const responded = assignments.filter((a) => a.firstContactAt !== null);
+  const responseHoursList = responded.map((a) => hoursBetween(a.assignedAt, a.firstContactAt!));
+  const avgResponseHours = responseHoursList.length ? responseHoursList.reduce((s, h) => s + h, 0) / responseHoursList.length : null;
+  const slaCompliancePct = responseHoursList.length
+    ? (responseHoursList.filter((h) => h <= SLA_OVERDUE_HOURS).length / responseHoursList.length) * 100
+    : null;
 
-  const respondedAssignments = assignments.filter((a) => a.firstContactAt !== null);
-  const responseHoursList = respondedAssignments.map(
-    (a) => (a.firstContactAt!.getTime() - a.assignedAt.getTime()) / 3_600_000
-  );
-  const avgResponseHours =
-    responseHoursList.length > 0
-      ? responseHoursList.reduce((sum, hours) => sum + hours, 0) / responseHoursList.length
-      : null;
-  const slaCompliancePct =
-    responseHoursList.length > 0
-      ? (responseHoursList.filter((hours) => hours <= SLA_OVERDUE_HOURS).length / responseHoursList.length) * 100
-      : null;
-
-  // Leads por mês (últimos 6 meses, incluindo meses sem nenhum lead)
   const monthBuckets: { key: string; label: string; value: number }[] = [];
-  const now = new Date();
+  const today = new Date();
   for (let i = MONTHS_BACK - 1; i >= 0; i--) {
-    const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const date = new Date(today.getFullYear(), today.getMonth() - i, 1);
     monthBuckets.push({ key: `${date.getFullYear()}-${date.getMonth()}`, label: monthLabel(date), value: 0 });
   }
   for (const lead of sinceDateLeads) {
-    const key = `${lead.createdAt.getFullYear()}-${lead.createdAt.getMonth()}`;
-    const bucket = monthBuckets.find((b) => b.key === key);
+    const bucket = monthBuckets.find((b) => b.key === `${lead.createdAt.getFullYear()}-${lead.createdAt.getMonth()}`);
     if (bucket) bucket.value += 1;
   }
-  const leadsPerMonth = monthBuckets.map(({ label, value }) => ({ label, value }));
+
+  // ── Fotografia da carteira atual ──
+  const openAssigned = openLeads.filter((l) => l.assignments.length);
+  const waiting = openAssigned.filter((l) => !l.assignments[0]!.firstContactAt);
+  const snapshot = {
+    open: openLeads.length,
+    unassigned: openLeads.length - openAssigned.length,
+    awaitingResponse: waiting.length,
+    overdue: waiting.filter((l) => hoursBetween(l.assignments[0]!.assignedAt, new Date()) >= SLA_OVERDUE_HOURS).length,
+    byStatus: Object.fromEntries(funnelCounts.filter((f) => !CLOSED_LEAD_STATUSES.includes(f.status)).map((f) => [f.status, f.count])),
+  };
+
+  // ── Resultados do período ──
+  const periodAssignments = assignments.filter((a) => a.assignedAt >= since);
+  const periodResponseHours = periodAssignments.filter((a) => a.firstContactAt).map((a) => hoursBetween(a.assignedAt, a.firstContactAt!));
+  // Denominador do "no prazo": atribuições do período já respondidas ou cujo prazo já venceu.
+  const dueAssignments = periodAssignments.filter((a) => a.firstContactAt || hoursBetween(a.assignedAt, new Date()) >= SLA_OVERDUE_HOURS);
+  const onTime = periodAssignments.filter((a) => a.firstContactAt && hoursBetween(a.assignedAt, a.firstContactAt) <= SLA_OVERDUE_HOURS).length;
+  const timeToAssignment = periodLeads.filter((l) => l.assignments[0]).map((l) => hoursBetween(l.createdAt, l.assignments[0]!.assignedAt));
+  const periodWon = closedInPeriod.filter((l) => l.status === 'WON').length;
+  const periodLost = closedInPeriod.length - periodWon;
+  const lostReasons: Record<string, number> = {};
+  for (const lead of closedInPeriod.filter((l) => l.status === 'LOST')) {
+    const key = lead.lostReason ?? 'NOT_RECORDED';
+    lostReasons[key] = (lostReasons[key] ?? 0) + 1;
+  }
+
+  type Cut = { key: string; label: string; entries: number; won: number; lost: number; responseHours: number[] };
+  const cut = (map: Map<string, Cut>, key: string, label: string) => {
+    if (!map.has(key)) map.set(key, { key, label, entries: 0, won: 0, lost: 0, responseHours: [] });
+    return map.get(key)!;
+  };
+  const bySource = new Map<string, Cut>(), byOperation = new Map<string, Cut>(), byBuilding = new Map<string, Cut>(), byResponsible = new Map<string, Cut>();
+  const brokerName = (id: string | undefined) => brokers.find((b) => b.id === id)?.user.name ?? 'Sem responsável';
+  for (const lead of periodLeads) {
+    const first = lead.assignments[0];
+    const hours = first?.firstContactAt ? [hoursBetween(first.assignedAt, first.firstContactAt)] : [];
+    const current = lead.assignments.find((a) => !a.unassignedAt);
+    for (const c of [
+      cut(bySource, lead.source, SOURCE_LABELS[lead.source] ?? lead.source),
+      cut(byOperation, lead.listing.operationType, OPERATION_LABELS[lead.listing.operationType] ?? lead.listing.operationType),
+      cut(byBuilding, lead.listing.building?.id ?? 'none', lead.listing.building?.name ?? 'Sem empreendimento'),
+      cut(byResponsible, current?.brokerId ?? 'none', brokerName(current?.brokerId)),
+    ]) {
+      c.entries += 1;
+      c.responseHours.push(...hours);
+    }
+  }
+  for (const lead of closedInPeriod) {
+    const outcome = lead.status === 'WON' ? 'won' : 'lost';
+    const brokerId = lead.assignments[0]?.brokerId;
+    cut(bySource, lead.source, SOURCE_LABELS[lead.source] ?? lead.source)[outcome] += 1;
+    cut(byOperation, lead.listing.operationType, OPERATION_LABELS[lead.listing.operationType] ?? lead.listing.operationType)[outcome] += 1;
+    cut(byBuilding, lead.listing.building?.id ?? 'none', lead.listing.building?.name ?? 'Sem empreendimento')[outcome] += 1;
+    cut(byResponsible, brokerId ?? 'none', brokerName(brokerId))[outcome] += 1;
+  }
+  const finish = (map: Map<string, Cut>) =>
+    [...map.values()]
+      .map(({ responseHours, ...c }) => ({
+        ...c,
+        winRateClosed: c.won + c.lost ? c.won / (c.won + c.lost) : null,
+        medianResponseHours: median(responseHours),
+        respondedCount: responseHours.length,
+      }))
+      .sort((a, b) => b.entries - a.entries);
+
+  const period = {
+    days,
+    since,
+    entries: periodLeads.length,
+    won: periodWon,
+    lost: periodLost,
+    // ganhos / (ganhos + perdidos) — só oportunidades encerradas no período
+    winRateClosed: periodWon + periodLost ? periodWon / (periodWon + periodLost) : null,
+    response: {
+      assignments: periodAssignments.length,
+      responded: periodResponseHours.length,
+      medianHours: median(periodResponseHours),
+      p90Hours: percentile(periodResponseHours, 90),
+      onTime,
+      due: dueAssignments.length,
+      onTimeRate: dueAssignments.length ? onTime / dueAssignments.length : null,
+    },
+    timeToAssignment: { assigned: timeToAssignment.length, medianHours: median(timeToAssignment), p90Hours: percentile(timeToAssignment, 90) },
+    lostReasons: Object.entries(lostReasons)
+      .map(([reason, count]) => ({ reason, label: reason === 'NOT_RECORDED' ? 'Motivo não registrado' : LOST_REASONS[reason as keyof typeof LOST_REASONS] ?? reason, count }))
+      .sort((a, b) => b.count - a.count),
+    bySource: finish(bySource),
+    byOperationType: finish(byOperation),
+    byBuilding: finish(byBuilding),
+    byResponsible: finish(byResponsible),
+  };
 
   const byBroker = [];
   const formerBrokers = [];
   for (const broker of brokers) {
     const own = assignments.filter((a) => a.brokerId === broker.id);
-    const ownResponded = own.filter((a) => a.firstContactAt !== null);
-    const assignedCount = own.filter((a) => a.unassignedAt === null).length;
-    const wonByBroker = own.filter((a) => a.unassignedAt === null && a.lead.status === 'WON').length;
-    const avgResponse =
-      ownResponded.length > 0
-        ? ownResponded.reduce((sum, a) => sum + (a.firstContactAt!.getTime() - a.assignedAt.getTime()) / 3_600_000, 0) /
-          ownResponded.length
-        : null;
-
+    const ownResponded = own.filter((a) => a.firstContactAt !== null).map((a) => hoursBetween(a.assignedAt, a.firstContactAt!));
+    const avgResponse = ownResponded.length ? ownResponded.reduce((s, h) => s + h, 0) / ownResponded.length : null;
     if (broker.status !== 'ACTIVE') {
       if (broker.status === 'INACTIVE' && own.length > 0) {
         formerBrokers.push({ memberId: broker.id, name: broker.user.name, assignmentCount: own.length, avgResponseHours: avgResponse });
       }
       continue;
     }
+    const openOwn = openAssigned.filter((l) => l.assignments[0]!.brokerId === broker.id);
     byBroker.push({
       memberId: broker.id,
       name: broker.user.name,
-      assignedCount,
-      wonCount: wonByBroker,
+      receiveLeads: broker.receiveLeads,
+      assignedCount: own.filter((a) => a.unassignedAt === null).length,
+      openCount: openOwn.length,
+      awaitingResponse: openOwn.filter((l) => !l.assignments[0]!.firstContactAt).length,
+      wonCount: own.filter((a) => a.unassignedAt === null && a.lead.status === 'WON').length,
       avgResponseHours: avgResponse,
+      medianResponseHours: median(ownResponded),
     });
   }
 
@@ -636,12 +758,16 @@ export async function getOrganizationMetrics(
     wonCount,
     lostCount,
     conversionRate,
+    conversionDenominator: 'total',
     avgResponseHours,
     slaCompliancePct,
+    slaHours: SLA_OVERDUE_HOURS,
     funnelCounts,
-    leadsPerMonth,
+    leadsPerMonth: monthBuckets.map(({ label, value }) => ({ label, value })),
     byBroker,
     formerBrokers,
+    snapshot,
+    period,
   });
 }
 

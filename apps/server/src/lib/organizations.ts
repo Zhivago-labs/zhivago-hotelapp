@@ -24,7 +24,8 @@ export type OrgAuditAction =
   | 'BUILDING_LEAD_OWNER_CHANGED'
   | 'BUILDING_BACKUP_CHANGED'
   | 'LISTING_ORG_APPROVED'
-  | 'LISTING_ORG_REJECTED';
+  | 'LISTING_ORG_REJECTED'
+  | 'MEMBER_REMOVED';
 
 /**
  * Auditoria de ações estruturais do CRM B2B (seção 125 da spec) — responsabilidade de
@@ -36,7 +37,7 @@ export async function logOrgAudit(entry: {
   organizationId: string;
   actorMemberId: string;
   action: OrgAuditAction;
-  entityType: 'BUILDING' | 'LISTING';
+  entityType: 'BUILDING' | 'LISTING' | 'MEMBER';
   entityId: string;
   reason?: string | undefined;
   metadata?: Prisma.InputJsonValue | undefined;

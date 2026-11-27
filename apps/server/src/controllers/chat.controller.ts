@@ -320,6 +320,12 @@ export async function createOrGetConversation(request: FastifyRequest, reply: Fa
     });
 
     if (existingConversation) {
+      // Conversa legada sem vínculo: garante o lead (sem registrar nova entrada) e grava o leadId.
+      if (listing.organizationId && !existingConversation.leadId) {
+        const lead = await ensureLead({ userId, listingId, organizationId: listing.organizationId, source: 'CHAT', recordEntry: false });
+        const linked = await prisma.conversation.update({ where: { id: existingConversation.id }, data: { leadId: lead.id } });
+        return reply.status(200).send(linked);
+      }
       return reply.status(200).send(existingConversation);
     }
 

@@ -432,6 +432,7 @@ model OrganizationMember {
   leadInteractions LeadInteraction[]
   visits           Visit[]
   leadTasks        LeadTask[]
+  assignedTasks    LeadTask[] @relation("LeadTaskAssignee")
   auditLogsAsActor OrganizationAuditLog[]
 
   // Empreendimentos onde este membro é o responsável exclusivo pelos Leads, ou o backup dele
@@ -522,7 +523,22 @@ model OrganizationJoinRequest {
 model Lead {
   id     String @id @default(uuid())
   status String @default("NEW") // NEW|CONTACTED|QUALIFIED|VISIT_SCHEDULED|PROPOSAL|NEGOTIATION|WON|LOST
-  source String @default("CHAT") // hoje só "CHAT"; futuro: "SITE_FORM", "WHATSAPP", etc.
+  source String @default("CHAT") // 1ª origem: CHAT|BOOKING|OFFER|WHATSAPP|PHONE|WALK_IN|REFERRAL|FORM|OTHER — entradas seguintes ficam em LeadEntry
+
+  // Encerramento estruturado (mapeamento CRM, seção 7 P1): motivo obrigatório ao marcar LOST,
+  // data e autoria do desfecho. Reabrir limpa os campos e registra `reopenedAt` + interação.
+  lostReason String?
+  lostNote   String?
+  closedAt   DateTime?
+  closedById String? // OrganizationMember que encerrou; null = sistema (reserva/negociação)
+  reopenedAt DateTime?
+
+  // Fila "Sem responsável": quando e por que o lead ficou sem destino (null = tem responsável).
+  queuedAt    DateTime?
+  queueReason String? // NO_ELIGIBLE | MANUAL_MODE | MEMBER_REMOVED | REOPENED | LEGACY
+
+  // Última atividade comercial (mensagem, interação, visita, tarefa, etapa, entrada) — ordena Contatos.
+  lastActivityAt DateTime @default(now())
 
   userId String
   user   User   @relation(fields: [userId], references: [id])
@@ -541,6 +557,7 @@ model Lead {
   offers        Offer[]
   bookings      Booking[]
   negotiations  Negotiation[]
+  entries       LeadEntry[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -549,8 +566,27 @@ model Lead {
   // existente, nunca criar um novo.
   @@unique([userId, listingId])
   @@index([organizationId, status])
+  @@index([organizationId, lastActivityAt])
   @@index([listingId])
   @@index([userId])
+}
+
+// Cada entrada de interesse (inclusive repetida ou depois de perdido). A 1ª origem continua em
+// Lead.source; aqui fica o histórico completo de captação e reentradas.
+model LeadEntry {
+  id     String @id @default(uuid())
+  leadId String
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  source         String // mesmo vocabulário de Lead.source
+  kind           String  @default("ENTRY") // ENTRY | REENTRY | INTENT (clique externo: não confirma atendimento)
+  previousStatus String?
+  note           String?
+  createdById    String? // OrganizationMember quando registrado pela equipe
+
+  createdAt DateTime @default(now())
+
+  @@index([leadId, createdAt])
 }
 
 // Histórico de atribuição de um Lead a um corretor (OrganizationMember, nunca User direto —
@@ -572,7 +608,8 @@ model LeadAssignment {
   source String?
 
   assignedAt     DateTime  @default(now())
-  firstContactAt DateTime? // preenchido na 1ª LeadInteraction — base de SLA, Fase 4
+  firstContactAt DateTime? // 1ª resposta efetiva: mensagem humana ao cliente ou contato externo com sucesso
+  firstContactChannel String? // CHAT | PHONE_CALL | WHATSAPP | EMAIL | VISIT
   unassignedAt   DateTime?
   reason         String?
   // Garantia adicional (banco): no máximo 1 assignment aberto por Lead (seção 31 da spec).
@@ -593,7 +630,8 @@ model LeadInteraction {
   memberId String // OrganizationMember que registrou a interação
   member   OrganizationMember @relation(fields: [memberId], references: [id])
 
-  type    String // PHONE_CALL|WHATSAPP|EMAIL|NOTE|VISIT|STATUS_CHANGE
+  type    String // PHONE_CALL|WHATSAPP|EMAIL|NOTE|VISIT|STATUS_CHANGE|ASSIGNMENT|REOPEN
+  outcome String? // CONTACT (falou com o cliente) | ATTEMPT (tentativa sem sucesso) — canais externos
   content String?
 
   createdAt DateTime @default(now())
@@ -630,6 +668,10 @@ model LeadTask {
 
   memberId String
   member   OrganizationMember @relation(fields: [memberId], references: [id])
+
+  // Quem deve executar (delegação da próxima ação); null = quem criou.
+  assigneeId String?
+  assignee   OrganizationMember? @relation("LeadTaskAssignee", fields: [assigneeId], references: [id])
 
   title       String
   dueAt       DateTime?

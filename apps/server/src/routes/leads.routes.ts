@@ -6,51 +6,53 @@ import {
   getMyLeads,
   assignLeadHandler,
   updateLeadStatusHandler,
+  reopenLeadHandler,
   getLeadDetail,
   addInteractionHandler,
   scheduleVisitHandler,
   updateVisitStatusHandler,
   addTaskHandler,
   updateTaskHandler,
+  getUnassignedQueue,
+  getLeadAssignees,
+  getTransferPreview,
+  claimLeadHandler,
+  bulkAssignHandler,
+  registerLeadHandler,
+  recordChannelIntentHandler,
 } from '../controllers/leads.controller.js';
 
 export async function leadsRoutes(app: FastifyInstance): Promise<void> {
-  app.get('/leads/workspace', { preHandler: [authenticate] }, getOrganizationLeads);
-  // GET /leads — todos os leads da organização, filtro opcional ?status= (requer OWNER/ADMIN/MANAGER/ASSISTANT)
-  app.get(
-    '/leads',
-    { preHandler: [authenticate, requireOrgRole('OWNER', 'ADMIN', 'MANAGER', 'ASSISTANT')] },
-    getOrganizationLeads
-  );
+  const manage = { preHandler: [authenticate, requireOrgRole('OWNER', 'ADMIN', 'MANAGER')] };
 
-  // GET /leads/mine — leads atualmente atribuídos a mim (requer pertencer a uma organização)
+  // Carteira com escopo por papel (Kanban) — mesmos filtros de Contatos.
+  app.get('/leads/workspace', { preHandler: [authenticate] }, getOrganizationLeads);
+  // GET /leads — visão ampla (OWNER/ADMIN/MANAGER/ASSISTANT)
+  app.get('/leads', { preHandler: [authenticate, requireOrgRole('OWNER', 'ADMIN', 'MANAGER', 'ASSISTANT')] }, getOrganizationLeads);
   app.get('/leads/mine', { preHandler: [authenticate] }, getMyLeads);
 
-  // PATCH /leads/:id/assign — atribuir/reatribuir um lead a um corretor (requer OWNER/ADMIN/MANAGER)
-  app.patch(
-    '/leads/:id/assign',
-    { preHandler: [authenticate, requireOrgRole('OWNER', 'ADMIN', 'MANAGER')] },
-    assignLeadHandler
-  );
+  // Fila "Sem responsável" (gestão; assistente lê) e responsáveis elegíveis (definição única).
+  app.get('/leads/queue', { preHandler: [authenticate] }, getUnassignedQueue);
+  app.get('/leads/assignees', { preHandler: [authenticate] }, getLeadAssignees);
 
-  // PATCH /leads/:id/status — atualizar status (OWNER/ADMIN/MANAGER: qualquer lead; BROKER: só o seu)
+  // Registro de entrada pela equipe e intenção por canal externo (cliente logado).
+  app.post('/leads', { preHandler: [authenticate] }, registerLeadHandler);
+  app.post('/leads/intent', { preHandler: [authenticate], config: { rateLimit: { max: 30, timeWindow: '15 minutes' } } }, recordChannelIntentHandler);
+  app.post('/leads/bulk-assign', manage, bulkAssignHandler);
+
+  // Atribuição / transferência (motivo obrigatório ao trocar) / assumir da fila.
+  app.patch('/leads/:id/assign', manage, assignLeadHandler);
+  app.get('/leads/:id/transfer-preview', manage, getTransferPreview);
+  app.post('/leads/:id/claim', manage, claimLeadHandler);
+
+  // Etapa (LOST exige motivo; sair de WON/LOST só por /reopen).
   app.patch('/leads/:id/status', { preHandler: [authenticate] }, updateLeadStatusHandler);
+  app.post('/leads/:id/reopen', { preHandler: [authenticate] }, reopenLeadHandler);
 
-  // GET /leads/:id — detalhe do lead (histórico de atribuição, interações, visitas) — inclui ASSISTANT
   app.get('/leads/:id', { preHandler: [authenticate] }, getLeadDetail);
-
-  // POST /leads/:id/interactions — registrar contato (ligação, WhatsApp, e-mail, nota, visita) — mesma regra
   app.post('/leads/:id/interactions', { preHandler: [authenticate] }, addInteractionHandler);
-
-  // POST /leads/:id/visits — agendar visita (exige atribuição aberta) — mesma regra
   app.post('/leads/:id/visits', { preHandler: [authenticate] }, scheduleVisitHandler);
-
-  // PATCH /visits/:id/status — atualizar status de uma visita — mesma regra, aplicada ao lead da visita
   app.patch('/visits/:id/status', { preHandler: [authenticate] }, updateVisitStatusHandler);
-
-  // POST /leads/:id/tasks — criar tarefa/próxima ação (seção 112) — mesma regra de acesso do lead
   app.post('/leads/:id/tasks', { preHandler: [authenticate] }, addTaskHandler);
-
-  // PATCH /tasks/:id — completar/reagendar/editar tarefa — mesma regra, aplicada ao lead da tarefa
   app.patch('/tasks/:id', { preHandler: [authenticate] }, updateTaskHandler);
 }

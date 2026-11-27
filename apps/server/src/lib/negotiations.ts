@@ -583,7 +583,9 @@ async function acceptRound(offer: OfferRow, negotiation: NegotiationRow, listing
     await prisma.$transaction(async (tx) => markAccepted(tx));
   }
 
-  if (negotiation.leadId && negotiation.operationType !== 'MONTHLY_RENT') {
+  // Aceite fecha o negócio nas três modalidades (venda → SOLD, mensal → RENTED, diária → reserva
+  // confirmada): o marco de Ganho é o aceite registrado no produto.
+  if (negotiation.leadId) {
     try {
       await advanceLeadBySystem(negotiation.leadId, 'WON', 'negociação aceita no chat');
     } catch (err) {

@@ -79,11 +79,7 @@ try {
     assert.equal((await app.inject({ method: 'POST', url, headers: { authorization: `Bearer ${token}` }, payload: {} })).statusCode, 403);
   }
   role = 'BROKER';
-  const contacts = await request('/organizations/contacts');
-  assert.equal(contacts.statusCode, 200); assert.equal(contacts.json().total, 1); assert.equal(contacts.json().items[0].leads.length, 2);
-  const contactQuery = seen.findLast(args => args.select?.leads);
-  assert.equal(contactQuery.where.leads.some.organizationId, 'org-a');
-  assert.equal(contactQuery.select.leads.where.organizationId, 'org-a');
+  // Contatos (pessoas x oportunidades, escopo, busca) e saída de integrante: tests/crm-contacts-distribution.db.ts
   assert.deepEqual(await myListingsWhere('viewer'), { organizationId: 'org-a', agentId: 'viewer' });
   role = 'BROKER'; assert.equal((await request('/organizations/members/target', 'DELETE')).statusCode, 403);
   role = 'OWNER'; target = { ...target, organizationId: 'org-b' };
@@ -102,14 +98,5 @@ try {
   assert.equal((await request('/organizations/members/target', 'DELETE')).statusCode, 404);
   target = { ...target, organizationId: 'org-a', role: 'OWNER' };
   assert.equal((await request('/organizations/members/target', 'DELETE')).statusCode, 400);
-  target = { ...target, role: 'BROKER' };
-  assert.equal((await request('/organizations/members/target', 'DELETE')).statusCode, 200);
-  assert.equal(mutations.find(m => m.kind === 'member').data.status, 'INACTIVE');
-  assert.deepEqual(mutations.find(m => m.kind === 'account-type'), { kind: 'account-type', where: { id: 'target', accountType: 'AGENCY', document: null }, data: { accountType: 'INDIVIDUAL' } }, 'removed invited member must go back to a personal account');
-  assert.equal(mutations.find(m => m.kind === 'listing').data.agentId, 'owner');
-  assert.equal(mutations.find(m => m.kind === 'assignment-close').where.id, 'assignment-old');
-  assert.equal(mutations.find(m => m.kind === 'assignment-create').data.leadId, 'lead-history');
-  assert.equal(mutations.find(m => m.kind === 'assignment-create').data.brokerId, 'member-owner');
-  assert.equal(mutations.find(m => m.kind === 'conversation-members').where.id, 'conversation-kept');
-  console.log('PASS: active membership, five roles, tenant scope, filtered totals across pages, one contact with two opportunities, owner protection, soft removal, listing reassignment, assignment history and conversation preservation.');
+  console.log('PASS: active membership, five roles, tenant scope, filtered totals across pages, owner protection.');
 } finally { await app.close(); await prisma.$disconnect(); }
