@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { workspaceMembership, workspaceLeadScope, workspaceListingScope, workspaceConversationScope, WORKSPACE_READ_ALL } from '../lib/workspace.js';
-import { buildLeadWhere, leadFilterSchema, opportunitySelect, toOpportunity } from '../lib/crm-query.js';
+import { buildLeadWhere, leadFilterSchema, opportunitySelect, summarizePeople, toOpportunity } from '../lib/crm-query.js';
 import { SLA_OVERDUE_HOURS, computeSlaStatus } from '../lib/leads.js';
 
 const OPEN = { status: { notIn: ['WON', 'LOST'] } };
@@ -96,7 +96,7 @@ export async function getWorkspace(request: FastifyRequest, reply: FastifyReply)
 
 // ─── CONTATOS ────────────────────────────────────────────────────────────────────────────────
 
-const CONTACTS_PAGE = 25;
+const CONTACTS_PAGE = 50;
 const contactsQuery = leadFilterSchema.extend({
   view: z.enum(['people', 'opportunities']).default('people'),
   sort: z.enum(['activity', 'name', 'created', 'nextAction', 'waiting']).default('activity'),
@@ -119,9 +119,13 @@ export async function getWorkspaceContacts(request: FastifyRequest, reply: Fasti
   const select = opportunitySelect(member.userId);
   const skip = (page - 1) * CONTACTS_PAGE;
 
-  const [opportunityTotal, peopleGroups] = await Promise.all([
+  const scope = workspaceLeadScope(member);
+  // `baseTotal` = oportunidades autorizadas sem nenhum filtro: diferencia "base vazia" de
+  // "nenhum resultado para o recorte" sem depender de quais parâmetros a tela mandou.
+  const [opportunityTotal, peopleGroups, baseTotal] = await Promise.all([
     prisma.lead.count({ where }),
     prisma.lead.groupBy({ by: ['userId'], where, _max: { lastActivityAt: true }, _min: { createdAt: true }, _count: { _all: true } }),
+    prisma.lead.count({ where: scope }),
   ]);
   const peopleTotal = peopleGroups.length;
 
@@ -158,7 +162,7 @@ export async function getWorkspaceContacts(request: FastifyRequest, reply: Fasti
             : [{ lastActivityAt: 'desc' }, { id: 'asc' }];
       rows = await prisma.lead.findMany({ where, select, orderBy, skip, take: CONTACTS_PAGE });
     }
-    return reply.send({ view, sort, page, limit: CONTACTS_PAGE, peopleTotal, opportunityTotal, total: opportunityTotal, items: rows.map(toOpportunity) });
+    return reply.send({ view, sort, page, limit: CONTACTS_PAGE, peopleTotal, opportunityTotal, baseTotal, total: opportunityTotal, items: rows.map(toOpportunity) });
   }
 
   // Visão Pessoas: ordena os grupos por cliente e pagina.
@@ -178,28 +182,36 @@ export async function getWorkspaceContacts(request: FastifyRequest, reply: Fasti
     pageUserIds = ordered.slice(skip, skip + CONTACTS_PAGE).map((g) => g.userId);
   }
 
-  const scope = workspaceLeadScope(member);
-  const [users, matched, visibleCounts] = await Promise.all([
+  // Resumo por pessoa (imóvel principal, "+N", abertas) sempre sobre o ESCOPO do papel — nunca
+  // sobre todas as oportunidades da pessoa na imobiliária.
+  const [users, matched, visibleRows] = await Promise.all([
     prisma.user.findMany({ where: { id: { in: pageUserIds } }, select: { id: true, name: true, email: true, phone: true } }),
     prisma.lead.findMany({ where: { AND: [where, { userId: { in: pageUserIds } }] }, select, orderBy: [{ lastActivityAt: 'desc' }, { id: 'asc' }] }),
-    prisma.lead.groupBy({ by: ['userId', 'status'], where: { AND: [scope, { userId: { in: pageUserIds } }] }, _count: { _all: true } }),
+    prisma.lead.findMany({
+      where: { AND: [scope, { userId: { in: pageUserIds } }] },
+      select: { id: true, userId: true, status: true, lastActivityAt: true, listing: { select: { id: true, name: true } } },
+    }),
   ]);
-  const items = pageUserIds.map((id) => {
-    const user = users.find((u) => u.id === id)!;
-    const group = peopleGroups.find((g) => g.userId === id)!;
-    const stages: Record<string, number> = {};
-    for (const row of visibleCounts.filter((r) => r.userId === id)) stages[row.status] = row._count._all;
-    return {
+  const summaries = summarizePeople(visibleRows, pageUserIds);
+  const items = pageUserIds.flatMap((id) => {
+    const user = users.find((u) => u.id === id);
+    const group = peopleGroups.find((g) => g.userId === id);
+    const summary = summaries.get(id);
+    if (!user || !group || !summary) return [];
+    return [{
       ...user,
       lastActivityAt: group._max.lastActivityAt,
       firstEntryAt: group._min.createdAt,
-      visibleOpportunities: Object.values(stages).reduce((sum, n) => sum + n, 0),
+      visibleOpportunities: summary.visibleOpportunities,
+      openOpportunities: summary.openOpportunities,
       matchedOpportunities: group._count._all,
-      stages,
+      primaryListing: summary.primaryListing,
+      otherOpportunities: summary.otherOpportunities,
+      stages: summary.stages,
       opportunities: matched.filter((row) => row.userId === id).map(toOpportunity),
-    };
+    }];
   });
-  return reply.send({ view, sort, page, limit: CONTACTS_PAGE, peopleTotal, opportunityTotal, total: peopleTotal, items });
+  return reply.send({ view, sort, page, limit: CONTACTS_PAGE, peopleTotal, opportunityTotal, baseTotal, total: peopleTotal, items });
 }
 
 /** Ficha do contato: todas as oportunidades autorizadas da pessoa. Sem nenhuma visível → 404. */
